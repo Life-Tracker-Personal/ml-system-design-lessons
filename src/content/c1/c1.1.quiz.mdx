@@ -1,0 +1,518 @@
+---
+lessonId: c1.1
+chapter: 1
+title: Quiz — Data foundations
+description: 12 conceptually difficult questions on storage, sampling, splits, and data leakage. Test your understanding, not your recall.
+estimatedMinutes: 45
+---
+
+These 12 questions are conceptually difficult by design. Each tests understanding, derivation, or counter-example construction — not recall. Try to answer in your head (or on paper) before revealing the model answer. The rubric at the bottom of each answer lists the specific points the answer should contain.
+
+If you can answer 8 of these cleanly, you're calibrated for an ML system design interview at staff level. If you can answer all 12, you can teach this material.
+
+<Quiz id="1">
+
+**Q1.** Prove that stratified sampling has variance no greater than simple random sampling (SRS), given the same total sample size $n$. Then construct a concrete case where the two have *equal* variance.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+The key tool is the **law of total variance** (also called the variance decomposition / ANOVA identity):
+
+$$\text{Var}(X) = E[\text{Var}(X \mid H)] + \text{Var}(E[X \mid H])$$
+
+where $H$ is the stratum-membership random variable. The first term is **within-stratum variance** (variability of $X$ inside each stratum); the second is **between-stratum variance** (variability of stratum means $\mu_h$ across strata).
+
+For an SRS of size $n$, the sample-mean variance is $\sigma^2 / n$ where $\sigma^2 = \text{Var}(X)$. Substituting the decomposition:
+
+$$\text{Var}(\bar{x}_{\text{SRS}}) = \frac{1}{n}\bigl(E[\text{Var}(X \mid H)] + \text{Var}(E[X \mid H])\bigr)$$
+
+For stratified sampling with **proportional allocation** ($n_h / N_h = n / N$), the estimator variance reduces to:
+
+$$\text{Var}(\bar{x}_{\text{strat}}) = \frac{1}{n} E[\text{Var}(X \mid H)] = \frac{1}{n}\sum_h \frac{N_h}{N} \sigma_h^2$$
+
+So $\text{Var}(\bar{x}_{\text{SRS}}) - \text{Var}(\bar{x}_{\text{strat}}) = \frac{1}{n}\text{Var}(E[X \mid H]) \ge 0$, with equality iff $E[X \mid H]$ is the same for every stratum — i.e. all stratum means are equal.
+
+**Equal-variance case:** partition any population into strata that all share the same mean. Numerical example: 1,000,000 rows, split into 10 strata of 100,000 each. Each stratum's mean is exactly the population mean (e.g., shuffle the population then split by row index). Between-stratum variance is zero. Stratified and SRS estimators have identical variance $\sigma^2 / n$.
+
+**Practical takeaway:** stratification helps *most* when strata differ. For binary classification with 1% positives, the strata "positive" and "negative" differ enormously in their mean of the target — that's why stratification by class gives massive variance reduction.
+
+**Rubric — full credit if you hit:**
+- Invoke the law of total variance / variance decomposition
+- Show SRS = within + between, stratified = within only
+- State the equality condition: all stratum means equal
+- Construct a concrete equal-variance example
+- Connect back to why stratification matters for imbalanced data
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** State and prove by induction that reservoir sampling produces a uniform sample of size $k$ from a stream of unknown length $n$.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Algorithm.** Fill the reservoir with the first $k$ items. For each subsequent item $i$ (where $i = k+1, k+2, \ldots$), draw an integer $j$ uniformly from $\{1, \ldots, i\}$. If $j \le k$, replace `reservoir[j]` with item $i$; otherwise discard item $i$.
+
+**Claim.** After processing $n$ items, every item is in the reservoir with probability $k/n$.
+
+**Proof by induction on $n$.**
+
+*Base case $n = k$:* every item entered the reservoir on initialization, so $P = 1 = k/k$. ✓
+
+*Inductive step:* assume the claim holds at step $n - 1$, i.e. each of the first $n - 1$ items is in the reservoir with probability $k/(n-1)$. Consider step $n$:
+
+- **The new item $n$** enters the reservoir iff $j \le k$, which happens with probability $k / n$. ✓
+- **An older item $i \le n-1$** stays in the reservoir if either (a) the new item doesn't enter at all (probability $1 - k/n$), or (b) the new item enters but kicks out one of the other $k - 1$ reservoir slots (probability $(k/n) \cdot ((k-1)/k)$). Combined probability of staying:
+
+$$P(\text{stay}) = \left(1 - \frac{k}{n}\right) + \frac{k}{n} \cdot \frac{k-1}{k} = \frac{n - k}{n} + \frac{k - 1}{n} = \frac{n - 1}{n}$$
+
+By the inductive hypothesis, the probability that item $i$ was in the reservoir at step $n - 1$ is $k/(n-1)$. Multiplying:
+
+$$P_n(i) = \frac{k}{n - 1} \cdot \frac{n - 1}{n} = \frac{k}{n} \quad\blacksquare$$
+
+**Time / space complexity.** $O(n)$ time, $O(k)$ space, single pass — which is why this is the canonical algorithm for sampling from streams or files too large to fit in memory.
+
+**Rubric:**
+- Correctly state the algorithm
+- Identify induction on $n$ (the stream length) as the proof technique
+- Compute the "new item enters" probability ($k/n$)
+- Decompose "old item stays" into "new didn't enter" + "new entered, kicked out a different slot"
+- Show the telescoping product $\frac{k}{n-1} \cdot \frac{n-1}{n} = \frac{k}{n}$
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** Most people learn the rule "use grouped splits when an entity (user, patient, session) appears in multiple rows." Construct a concrete scenario where *grouped* splits are actually *worse* than random splits. What does this tell you about the rule?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+The rule "grouped splits prevent entity leakage" assumes that *the entity itself* is not the inference target you want to support — i.e. you're trying to generalize to *new* entities. If your production system will only ever serve predictions for the same entities seen in training, then grouped splits actively harm your evaluation.
+
+**Concrete scenario.** A SaaS product offers per-customer churn prediction. The model is trained on history from 200 enterprise customers, all of whom are still customers and will continue to be served. New customers arrive rarely (~1 per quarter). The deployment distribution is dominated by predictions for *existing* training-time customers, not new ones.
+
+- **Random split:** training and test both contain rows from the same 200 customers. Test performance reflects how well the model predicts these customers' future events given their past — which is exactly what production needs.
+- **Grouped split (by customer):** test contains 40 customers held out entirely. Test performance reflects generalization to *cold-start* customers, which is what production almost never sees.
+
+The grouped-split AUC will be lower than the random-split AUC, and it will mislead. The grouped number describes generalization to *new* entities, but production is dominated by *existing* entities, so it's the wrong question.
+
+**The deeper rule.** Every split choice answers a specific question:
+
+- Random split: *"How well does the model generalize within the same entity-and-time distribution as training?"*
+- Grouped split: *"How well does the model generalize to new entities of the same kind?"*
+- Temporal split: *"How well does the model generalize forward in time?"*
+
+Choose the split that matches the question your production deployment actually asks. If production is split-distribution (some predictions for known entities, some for new), you may even want **two test sets** — one of each — and to report metrics on both.
+
+This same reasoning applies to product recommendations (new items vs. catalog items), medical models (new hospitals vs. same hospital), and almost everywhere else.
+
+**Rubric:**
+- Recognize that grouped splits measure cold-start generalization
+- Construct a deployment scenario where cold-start is *not* the production reality
+- State the general rule: the split answers a specific question; pick the split that matches production
+- Mention the "two test sets" option when production is mixed
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** Define data leakage formally in terms of *information available at prediction time*. Then express target leakage and look-ahead leakage as special cases of that definition.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Formal definition.** For a model that predicts a label $Y$ at time $t$ from features $X$, let $\mathcal{I}(t)$ denote the set of all facts about the world that an honest production prediction would have access to at time $t$ — i.e., everything causally upstream of and temporally prior to (or simultaneous with) $t$, and observable to the production system.
+
+A pipeline has **data leakage** if any training feature is a function of information outside $\mathcal{I}(t)$. Equivalently, in mutual-information language: if $H(Y \mid X) < H(Y \mid X \cap \mathcal{I}(t))$, the difference is due to information that leaked from outside $\mathcal{I}(t)$ into $X$.
+
+This single definition unifies all the "named" categories of leakage — they're different mechanisms by which information from outside $\mathcal{I}(t)$ shows up in training features.
+
+**Target leakage as a special case.** A feature $f_i$ is directly or indirectly a function of $Y$. The information "outside $\mathcal{I}(t)$" that leaks in is $Y$ itself. Example: feature `account_status = closed`, where `closed` is the operational definition of "churned" (the target). At prediction time, the label $Y$ is by definition not observable, so any feature that encodes it is leaking.
+
+**Look-ahead leakage as a special case.** A feature $f_i$ is a function of events occurring at times $t' > t$. The information outside $\mathcal{I}(t)$ that leaks in is the set of post-$t$ events. Example: predicting churn at signup, feature `total_lifetime_purchases` — that count is computed over the user's history *including* the future, so it carries post-$t$ information.
+
+**Why this matters.** The definition gives you a *test*: for every feature, ask "can this be computed using only data with timestamps $\le t$ and excluding the label $Y$?" If no, you have leakage. The four named categories (target, train-test, look-ahead, group) just describe four different *mechanisms* by which information sneaks in.
+
+**Rubric:**
+- Define $\mathcal{I}(t)$ as information available at prediction time
+- Express the leakage condition as a feature using information outside $\mathcal{I}(t)$
+- Connect to mutual information / conditional entropy (formal but optional)
+- Show target leakage = label leaking in
+- Show look-ahead = future leaking in
+- State the operational test: "can this feature be computed using only data with timestamps $\le t$?"
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** Design a protocol that detects target leakage in a feature set *without training a final model on the full data*. Your protocol must be cheaper than training the full model many times.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+There are three levels of cheap-to-expensive detection. A well-designed protocol uses them in order.
+
+**Level 1 — Definitional review (free, manual).** Before any training, an engineer who understands the prediction task reviews the feature definitions one by one. For each feature $f_i$, they answer:
+
+- *What is the data lineage?* What columns from what tables, with what aggregation windows, computed at what timestamp?
+- *Could a value of this feature be different if we ran the computation at the prediction moment vs after?* If yes, suspect leakage.
+- *Does the feature definition implicitly contain the target?* For churn, anything involving "account closed," "last login > N days ago," or "future_*" is suspect.
+
+This is the cheapest and catches the most blatant cases. The "code review for ML features" idea.
+
+**Level 2 — Univariate analysis (cheap, computational).** For each feature, compute its univariate predictive power for $Y$ — e.g. mutual information $I(f_i; Y)$, or AUC of a one-feature decision stump. Rank features by predictive power. Any feature with disproportionately high predictive power (say, $I(f_i; Y) \gg I(f_j; Y)$ for typical $j$, or AUC $> 0.85$ on a single feature) gets flagged for investigation.
+
+The threshold is domain-dependent — for fraud or click models, a single feature with AUC > 0.85 is almost always a leaker; for high-signal medical models it might be legitimate. The rule of thumb: *anything that looks too good to be true probably is*.
+
+**Level 3 — Drop-column analysis (more expensive).** Train a fast model (LightGBM with few rounds) on all features → record AUC $M_0$. Then for each suspect feature flagged at level 2, retrain dropping just that feature → record $M_i$. If $M_0 - M_i$ is a large jump (say, 5+ AUC points), the dropped feature is carrying a disproportionate share of the signal — strong evidence of leakage.
+
+This is $k+1$ trainings where $k$ is the number of suspect features, not all $n$ features. Far cheaper than full-grid analysis.
+
+**Level 4 — Holdout sanity check.** Build a small, *trusted* holdout where you manually verify no leakage (carefully timestamped, label-blinded preprocessing). Compare the model's metric on this trusted holdout vs the noisy main test set. If the trusted-holdout metric is much lower than the main-test metric, your main pipeline has a leak the trusted holdout doesn't.
+
+**Bonus (level 5) — Adversarial feature audit.** Train a *second* model whose job is to predict $Y$ from each feature alone. If any single feature gives near-perfect prediction, it's the leak.
+
+**Rubric:**
+- Propose at least two distinct techniques (manual review + statistical + drop-column)
+- Order them by cost (cheap to expensive)
+- Explain *why* univariate predictive power is a leakage proxy
+- Recognize that drop-column on every feature is too expensive; use level-2 to narrow the candidates first
+- Mention the "too good to be true" heuristic
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** Your team uses 10-fold cross-validation on a financial-prediction model that forecasts next-month equity returns from market features. Three distinct things are wrong with this. What are they, and what's the right validation design?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Wrong thing 1: Random folds violate the temporal IID assumption.** Equity returns are not IID across time. They have autocorrelation, volatility clustering (GARCH effects), and concept drift (regime changes). Random 10-fold CV mixes training rows from October and test rows from November, leaking future market state into training. The reported CV metric is optimistic relative to what the model would have achieved if deployed in real time. The right design uses **forward-chaining CV**: at each fold, train on $t < t_i$, test on $t \in [t_i, t_i + \Delta)$.
+
+**Wrong thing 2: Look-ahead leakage at the feature level.** Even with temporally correct folds, individual features can include look-ahead information if they're computed using "all of history" or include forward-looking quantities. E.g. computing a feature like "stock's 30-day rolling volatility" using rolling-window code that accidentally centers the window (instead of trailing) leaks future returns. Every feature needs to be computable using *strictly* past data at each timestamp $t$. The fix is to enforce trailing-window computation everywhere and verify via timestamp audits.
+
+**Wrong thing 3: The CV estimate doesn't reflect the production retraining cadence.** Production financial models are typically retrained periodically (weekly, monthly). If 10-fold CV holds out 10% chunks of time but production retrains daily or weekly, the CV is evaluating a different operating regime than production. The right design simulates the production retraining schedule: at each evaluation timestamp $t$, retrain the model using only data through $t - \delta$ (with $\delta$ at least the production retraining lag), then evaluate on $[t, t + \Delta)$. This is a "walk-forward" evaluation.
+
+**Plus an interview bonus.** Financial returns have **fat tails** and rare regime changes (2008, 2020). A 10-fold split might not contain a single high-volatility regime in any individual fold, so your variance estimate is itself unreliable. Honest financial evaluation aims to include all major regimes in the test windows.
+
+**Right validation design (summary):**
+- **Walk-forward evaluation:** at each test timestamp, retrain on strictly-past data using the same code and retraining cadence as production
+- **Trailing-window features only**, audited for accidental forward-looking dependencies
+- **Multi-regime test windows** that include known crisis periods to stress-test
+- **No random folds, ever**
+
+**Rubric:**
+- Identify temporal IID violation
+- Identify feature-level look-ahead
+- Identify production-retraining-cadence mismatch
+- Propose walk-forward / forward-chaining CV
+- Mention regime coverage (bonus)
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** Training-serving skew arises when feature preprocessing is fit on the *full* training+validation+test data instead of train-only. Why is the metric impact of this skew *severe* for target encoding but *mild* for `StandardScaler`? Quantify (or upper-bound) the impact in each case.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+The severity depends on whether the preprocessing *touches the label* or *only touches features*.
+
+**`StandardScaler` (mild).** Standard scaling subtracts the column mean and divides by column std. The fitted parameters $(\mu, \sigma)$ are computed from features alone — the label $Y$ never enters. If you compute $\mu$ on train+val+test instead of train-only, the only difference is that $\mu$ is computed on a slightly larger sample, including val+test rows.
+
+- *Magnitude of the mean shift:* by the central limit theorem, the difference between $\mu_{\text{train+val+test}}$ and $\mu_{\text{train}}$ is approximately $\Delta\mu \sim \sigma / \sqrt{n_{\text{train}}}$ (where $n_{\text{train}}$ is the training size).
+- *Impact on the scaler output:* shifts every scaled value by $\Delta\mu / \sigma \approx 1/\sqrt{n_{\text{train}}}$. For $n_{\text{train}} = 10^5$, the shift is on the order of $0.003$ in standardized units. Essentially zero.
+- *Impact on metric:* typically $<1\%$ in AUC or accuracy. Negligible.
+
+The reason it's mild: no label information ever enters the scaler. The test set's *features* contributed to the scaler, but only in the same statistical sense as adding any independent extra examples — diluting the estimate slightly, not corrupting it.
+
+**Target encoding (severe).** Target encoding replaces each category $c$ in a categorical feature with the mean of $Y$ over rows where the categorical takes value $c$:
+
+$$\text{target\_enc}(c) = \frac{1}{|c|} \sum_{i:\, X_i = c} Y_i$$
+
+If this is fit on **train+val+test combined**, then for every test row with categorical value $c$, the encoded feature value *includes the test row's own label* in the mean. In the worst case (rare category with one row in test, no rows in train), the feature literally equals the label.
+
+- *Magnitude:* in the extreme case (high-cardinality categorical with low rows-per-category), the encoded feature has near-perfect predictive power for the test label.
+- *Impact on metric:* AUC can jump 10+ points. Test numbers become entirely fictional.
+
+**The architectural fix.** `sklearn.pipeline.Pipeline` (or its equivalent in any production ML stack) ensures `.fit()` is called only on training folds. Code review should flag any preprocessing call outside a Pipeline. The whole point of these abstractions is that they make leakage *structurally* hard, not relying on developer discipline.
+
+**The general rule.** *Mild* preprocessing: depends on features only ($\mu, \sigma, \text{PCA basis}, \text{column min/max for normalization}$). Even when fit on full data, label info doesn't enter. *Severe* preprocessing: depends on the label ($Y$) directly — target encoding, weight-of-evidence encoding, supervised feature selection, supervised dimensionality reduction. If a fit step touches $Y$, leakage is catastrophic.
+
+**Rubric:**
+- Distinguish label-touching vs feature-only preprocessing
+- Quantify scaler-mean shift via CLT (or argue it's $O(1/\sqrt{n})$)
+- Explain target encoding's worst-case: feature value equals the label for rare categories
+- Suggest Pipeline as the architectural fix
+- State the general principle: severity = label dependence
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** Construct a concrete case in which a feature passes a drop-column leakage test (dropping it doesn't change AUC by more than, say, 0.5 points) — but the feature is *still* leaking. What does this teach you about drop-column analysis as a detection method?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The redundant-leak construction.** Build a feature set with *two* features that both encode the same leaked label information.
+
+Concrete example for churn prediction:
+- Feature A: `account_status` ∈ `{active, closed}` — a direct encoding of "did the user churn"
+- Feature B: `days_since_last_login` — for closed accounts, this is monotonically increasing and unbounded; for active accounts, bounded
+- Drop A: model has B, which carries the same information. AUC drops by 0.3 points.
+- Drop B: model has A, which carries the same information. AUC drops by 0.3 points.
+- Drop neither: model uses both (or either, depending on tree splits); AUC is very high.
+
+So both A and B individually pass the drop-column test (the threshold for "suspect" is usually 5+ points), yet the model is leaking from *the joint encoding*.
+
+**What this teaches.** Drop-column analysis assumes a feature is detected by its *unique* contribution to predictive power. If multiple features share the same source of leakage, dropping any single one doesn't reveal it. The leakage is detectable only by:
+
+- **Dropping feature groups** (semantically related sets of features) instead of individual features. Manual grouping by data lineage.
+- **Adversarial subset training:** train on subsets that exclude entire feature *families* and look for collapse.
+- **Lineage audit:** trace every feature back to its raw upstream column. Features sharing a raw column are likely correlated leaks.
+- **Manual definitional review** — back to level 1 of detection.
+
+**The deeper lesson.** No single automated check catches all leakage. Drop-column is a *cheap-and-noisy* tool, useful for finding the top-1 or top-2 most blatant leakers but blind to redundant or multi-feature leaks. Production-grade leakage prevention is *defensive design* (point-in-time feature stores, Pipelines, lineage docs) combined with multiple cheap-and-noisy checks — not any single silver-bullet detection method.
+
+**Rubric:**
+- Construct a concrete two-feature redundant-leak case
+- Numerically show both features individually pass drop-column
+- Explain *why* this happens (drop-column assumes unique contribution)
+- Propose group-drop or family-drop as a partial fix
+- Conclude: detection is multi-pronged; design is the better answer
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9.** Derive the importance-sampling estimator for $E_p[f(X)]$ from samples drawn from a different distribution $q(x)$. State precisely when its variance blows up, and propose one concrete fix.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Derivation.** Want to estimate $\mu = E_p[f(X)] = \int p(x) f(x)\, dx$. Multiply and divide inside the integral by $q(x)$ (assumed nonzero wherever $p$ is):
+
+$$\mu = \int p(x) f(x)\, dx = \int q(x) \cdot \frac{p(x)}{q(x)} f(x)\, dx = E_q\!\left[\frac{p(X)}{q(X)} f(X)\right]$$
+
+So if $x_1, \ldots, x_n \sim q$ are iid samples, the **importance-sampling estimator** is:
+
+$$\hat{\mu}_{\text{IS}} = \frac{1}{n} \sum_{i=1}^n w_i f(x_i), \qquad w_i = \frac{p(x_i)}{q(x_i)}$$
+
+This is unbiased: $E_q[\hat{\mu}_{\text{IS}}] = E_q[w(X) f(X)] = E_p[f(X)] = \mu$.
+
+**When variance blows up.** The variance is
+
+$$\text{Var}_q(\hat{\mu}_{\text{IS}}) = \frac{1}{n} \text{Var}_q(w(X) f(X)) = \frac{1}{n}\bigl(E_q[w^2 f^2] - \mu^2\bigr)$$
+
+So variance is finite iff $E_q[w(X)^2 f(X)^2] < \infty$, which requires the *squared weight* $w^2 = (p/q)^2$ to be integrable under $q$. This fails when $q$ has thinner tails than $p$ — formally, when there's a region $A$ where $p(x)/q(x) \to \infty$ even though $f$ is bounded there. In that region, individual $w_i$ values are astronomical, and a single sample can swing the estimate.
+
+**Concrete failure example.** Off-policy evaluation of a new recommender ranking policy $p$ from logged data of an old policy $q$. If $p$ ranks an item very high that $q$ almost never ranked high, the few logged samples in that region get importance weights like $w = 10000$. The estimator's variance is dominated by those weights; with realistic logging volume the estimate is essentially useless.
+
+**Fixes (several, all bias-variance tradeoffs):**
+
+1. **Self-normalized importance sampling (SNIS).** Replace
+   $$\hat{\mu}_{\text{IS}} = \frac{1}{n} \sum w_i f(x_i)$$
+   with
+   $$\hat{\mu}_{\text{SNIS}} = \frac{\sum w_i f(x_i)}{\sum w_i}$$
+   This is biased (the denominator is random), but variance is bounded because weights are now normalized to sum to 1.
+
+2. **Weight clipping / truncation.** Cap $w_i$ at some threshold $W$: $\tilde{w}_i = \min(w_i, W)$. Introduces bias proportional to $E[(w - W)^+]$, but bounds variance to $W^2 / n$ in the worst case. Tune $W$ for the bias-variance tradeoff.
+
+3. **Doubly-robust estimators.** Combine importance sampling with a direct method (a fitted model of the conditional expectation $E[f \mid x]$). The IS portion corrects for the model's bias; the model dampens the IS portion's variance. Used heavily in off-policy evaluation for ranking and RL.
+
+4. **Better $q$.** If you control the data-generating distribution (logging policy), make it closer to $p$. In RL this is the on-policy regime; in logging-policy design, ε-greedy or stratified-by-relevance sampling.
+
+**Rubric:**
+- Show the algebra: $E_p[f] = E_q[(p/q) f]$
+- Recognize the variance condition: $E_q[w^2 f^2] < \infty$
+- Identify the failure case: $q$ thinner-tailed than $p$
+- Give a concrete RL or recommender example
+- Propose at least one principled fix (SNIS, clipping, doubly-robust)
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10.** You inherit a recommender's training data and the team says "we used a random train/test split." List the three most diagnostic checks you'd run to detect *look-ahead leakage* or *group leakage* — ordered by speed and likelihood of catching real bugs.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Check 1 (seconds, very high diagnostic value): Timestamp distribution by split.**
+Plot or `.describe()` the distribution of row timestamps by split (train vs test). In a well-designed temporal split, training timestamps are all earlier than test timestamps. In a random split, they're interleaved — which is the symptom of likely look-ahead leakage if the data is time-varying.
+
+If you see overlapping or interleaved timestamp distributions on a time-varying domain like recommendations, you've already found the smoking gun. The model is being trained on data from December and tested on data from November.
+
+**Check 2 (minutes, high diagnostic value): Entity overlap between train and test.**
+For each entity dimension that could leak (user, item, session, device), compute the fraction of test rows whose entity also appears in train:
+
+- `len(train_users ∩ test_users) / len(test_users)`
+- `len(train_items ∩ test_items) / len(test_items)`
+- `len(train_sessions ∩ test_sessions) / len(test_sessions)`
+
+Then ask: is the production deployment going to serve predictions only for known entities (overlap close to 1.0 is fine) or for new entities (overlap should be close to 0)? Mismatch between the overlap and production reality is your leakage. For sessions specifically, ~100% session-overlap with random splits is a near-guaranteed group leak: the model can memorize within-session correlations and inflate test metrics.
+
+**Check 3 (hours, very high specificity): Per-feature temporal audit.**
+For the top features (by gain in a tree model or by univariate AUC), trace each one back to its computation. For each, answer: *given the row's prediction timestamp $t$, is this feature using only data with timestamps $\le t$?* This is a code audit on the feature-pipeline definitions, not a stats run. Slower, but uniquely catches look-ahead leakage that doesn't show up in distributional checks.
+
+**Why this order.** Check 1 is essentially free (one `.describe()` call). Check 2 is one set intersection per entity. Check 3 is a feature-by-feature code review. Doing them in this order, you'll catch the most common (and most damaging) bugs first, and only do the expensive audit on features that the cheap checks suggest are involved.
+
+**Bonus check.** Look at the model's predicted scores on test rows whose timestamps are very early (close to training period) vs very late (well after training). If the early scores are dramatically better calibrated than the late ones, you've got drift; if both are great, suspect leakage; if both are bad, the model just doesn't generalize.
+
+**Rubric:**
+- Timestamp distribution by split (cheap, catches temporal mixing)
+- Entity overlap calculation per entity dimension
+- Per-feature temporal audit on suspect features
+- Order them cheapest-first
+- Connect the checks to specific leakage types (temporal mixing → look-ahead; high entity overlap with random splits → group leakage)
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11.** When training a click-prediction model on production logs, "non-clicks" are commonly used as negative examples. Argue why this is fundamentally a *causal inference* problem rather than a *class imbalance* problem. What does each framing get wrong?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The class-imbalance framing.** "We have many more non-clicks than clicks; let's apply class-balanced loss, focal loss, or oversample the positives." This treats the data as if every non-click is a *true negative*: "the user saw this and chose not to click."
+
+**Why that framing is wrong.** The non-clicks include three causally different cases:
+
+1. **Item was shown, user looked at it, user actively didn't want it.** A genuine negative.
+2. **Item was shown, but the user didn't see it** (it was below the fold, in a long list, lost in noise). Not a negative in any meaningful sense — we just don't have evidence.
+3. **Item was never shown to the user at all.** Pure missing data; treating it as a negative is fabrication.
+
+The fundamental issue is that *whether a user clicks* is conditional on *what was shown*. The ranking system itself is the data-generating policy. We are observing $Y$ (click) under a non-uniform exposure mechanism $T$ (impressions), and we want to infer the conditional $P(Y \mid X, \text{show})$. This is **the canonical causal inference problem** — separating treatment effect from selection.
+
+**The causal-inference framing.** Treat the impression decision as a treatment. Each row has:
+- Features $X$ (user + item)
+- Treatment $T \in \{0, 1\}$ — was it shown?
+- Outcome $Y \in \{0, 1\}$ — did the user click, *conditional on being shown* ($T = 1$)?
+
+What we want to learn is $P(Y = 1 \mid X, T = 1)$, but our logs only contain rows where $T = 1$ (we know the click outcome only when we showed it). The naïve "use non-clicks as negatives" approach assumes $P(T = 1) \approx 1$ uniformly, which is false — the logging policy is exactly what made some items not be shown.
+
+**Fixes that come from the causal framing:**
+
+1. **Restrict to "showed-it" rows only.** Drop the missing-data case (3) entirely. Train and evaluate only on rows where $T = 1$. The model learns $P(\text{click} \mid X, \text{shown})$ — and that's the right conditional for ranking the next time you have a candidate set.
+
+2. **Inverse-propensity weighting (IPW).** Estimate $P(T = 1 \mid X)$ from your logs (the "propensity score" of the logging policy). Reweight each row by $1 / \hat{P}(T = 1 \mid X)$. This is the standard fix and it's why "propensity-weighted training" gets mentioned in every serious ranking paper.
+
+3. **Bandit-style exploration.** Force the logging policy to occasionally show items uniformly at random (ε-greedy). The uniformly-exposed slice gives unbiased data for off-policy training and evaluation.
+
+4. **Doubly-robust losses.** Combine an outcome model with propensity weights — the resulting estimator is unbiased if *either* the outcome model or the propensity model is correctly specified.
+
+**What the class-imbalance framing gets wrong.** It treats the missing data as ground-truth negatives. Class-balanced loss or focal loss applied here doesn't fix the bias — it amplifies whatever the original ranking policy preferred. You end up with a feedback loop: the model recommends what the previous model recommended, because the logs are dominated by what that previous model showed.
+
+**What the causal framing gets wrong, if applied naïvely.** Pure IPW estimators can have astronomical variance (back to Q9 — same problem). In practice, doubly-robust estimators and careful exploration policy design are needed.
+
+**Rubric:**
+- Identify the three causally distinct kinds of non-clicks
+- Frame impressions as the treatment / selection mechanism
+- Articulate the conditional $P(\text{click} \mid X, \text{shown})$ as the target
+- Propose IPW or similar as the principled fix
+- Mention the feedback-loop pathology of treating non-clicks as negatives
+- Bonus: connect to bandit exploration
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12.** Sketch the architecture of a feature store on a whiteboard. Answer specifically: what does the offline/online split solve, and what does "point-in-time correctness" technically guarantee?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Whiteboard sketch (text):**
+
+```
+                  Feature definitions (code, one canonical source)
+                                    │
+                ┌───────────────────┴───────────────────┐
+                │                                       │
+                ▼                                       ▼
+        Batch / streaming                       Materialization
+        feature pipelines                       jobs
+        (Spark, Flink)                          │
+                │                               │
+                ▼                               ▼
+        ┌────────────────┐               ┌────────────────┐
+        │ Offline store  │               │ Online store   │
+        │ (Parquet, BQ)  │               │ (Redis, Dynamo)│
+        │ scan-friendly  │               │ point-lookup   │
+        │ for training   │               │ for serving    │
+        └────────────────┘               └────────────────┘
+                │                               │
+                ▼                               ▼
+         Training jobs                  Serving / inference
+         (read historical                (read current
+         feature values                  feature values
+         joined to labels)               at request time)
+```
+
+**What the offline/online split solves.**
+
+Offline and online ML workloads have opposite access patterns:
+
+- **Training** wants to scan millions of rows for tens of features, joined to labels at specific historical timestamps. Batch I/O. Columnar storage wins.
+- **Serving** wants one row's worth of features in <10 ms. Point lookup. Key-value storage wins.
+
+If you use a single store for both, you compromise: a single batch store can't serve <10 ms, and a single online store can't bulk-scan training data efficiently. The offline/online split lets each side pick the right technology, and the feature store ensures that *the same feature definitions are materialized to both*, so the values agree byte-for-byte. This is the architectural answer to training–serving skew.
+
+**What "point-in-time correctness" technically guarantees.**
+
+Consider a training row: a label $y$ for entity $e$ at timestamp $t$. The training set joins features to that label. Point-in-time correctness says: for every feature $f$, the value joined to this training row is $f_e(t')$ where $t' \le t$ is the **most recent feature value as of time $t$**, *with respect to the feature's own write timestamp*.
+
+Formally: let $f_e(\cdot)$ be the time-series of feature values for entity $e$, with write times $t_1 < t_2 < \ldots$. The point-in-time-correct join returns $f_e(t_i)$ where $t_i = \max\{t_j : t_j \le t\}$.
+
+**Why this matters.** Without point-in-time correctness:
+- The training row picks up $f_e(t_{\text{latest}})$ — the *current* feature value — instead of the value that would have been available at $t$.
+- That's literally look-ahead leakage at the feature-store level.
+- Production serving will see the value as of "now," but training will have seen a value that happens to be both as-of-now and from the future at training time.
+
+**Implementation detail.** Most feature stores (Feast, Tecton, Hopsworks) implement point-in-time joins via either: (a) an **as-of join** in the warehouse (Snowflake `ASOF JOIN`, Spark `join` with timestamp filtering); (b) maintaining a **time-versioned feature table** with effective timestamps and joining where `feature_ts <= label_ts AND ROW_NUMBER over (PARTITION BY entity ORDER BY feature_ts DESC) = 1`.
+
+**Things to mention at the whiteboard:**
+- **Feature freshness SLO.** The online store may lag the offline store by minutes (streaming) or hours (batch). The freshness gap matters for time-sensitive features.
+- **Feature versioning.** Changing a feature definition requires backfill so historical training data sees the new values where appropriate. Iceberg / Delta time travel helps.
+- **Feature observability.** Monitor distribution shifts between training-time values and serving-time values for the same feature — the canonical training-serving skew alarm.
+
+**Rubric:**
+- Sketch the offline/online split with the two stores and shared definitions
+- State that offline = columnar/scan, online = key-value/point-lookup
+- Explain the access-pattern asymmetry as the root cause
+- Define point-in-time correctness as "value as of timestamp $t$ using only data with write times $\le t$"
+- Connect point-in-time violation to look-ahead leakage
+- Bonus: mention as-of join implementation, freshness SLO, feature versioning
+
+</details>
+
+</Quiz>

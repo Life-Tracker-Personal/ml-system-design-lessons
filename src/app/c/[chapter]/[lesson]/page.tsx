@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getLesson } from "@/lib/lessons";
+import { getLesson, getQuiz } from "@/lib/lessons";
 import { MdxContent } from "@/components/mdx/mdx-content";
 import { Toc } from "@/components/lesson/toc";
 import { extractToc } from "@/lib/toc";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
 export default async function LessonPage({
@@ -13,7 +14,10 @@ export default async function LessonPage({
   params: Promise<{ chapter: string; lesson: string }>;
 }) {
   const { chapter, lesson } = await params;
-  const data = await getLesson(chapter, lesson);
+  const [data, quiz] = await Promise.all([
+    getLesson(chapter, lesson),
+    getQuiz(chapter, lesson),
+  ]);
   if (!data) notFound();
 
   const toc = extractToc(data.content);
@@ -46,6 +50,24 @@ export default async function LessonPage({
           )}
           <Separator className="mb-10" />
           <MdxContent source={data.content} />
+          {quiz && (
+            <div className="border-border mt-16 flex flex-col items-start gap-3 rounded-lg border bg-muted/30 p-6">
+              <p className="text-muted-foreground text-xs tracking-wider uppercase">
+                Test your understanding
+              </p>
+              <h3 className="text-xl font-semibold">{quiz.meta.title}</h3>
+              {quiz.meta.description && (
+                <p className="text-muted-foreground text-sm">
+                  {quiz.meta.description}
+                </p>
+              )}
+              <Link href={`/c/${chapter}/${lesson}/quiz`}>
+                <Button size="lg" className="mt-2">
+                  Take the quiz →
+                </Button>
+              </Link>
+            </div>
+          )}
         </article>
         <aside className="hidden lg:block">
           <div className="sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto">
