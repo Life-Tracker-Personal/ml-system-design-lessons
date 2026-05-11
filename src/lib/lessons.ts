@@ -32,6 +32,33 @@ export async function getLesson(
   }
 }
 
+export type QuizMeta = {
+  lessonId: string;
+  chapter: number;
+  title: string;
+  description?: string;
+  estimatedMinutes?: number;
+};
+
+export type Quiz = {
+  meta: QuizMeta;
+  content: string;
+};
+
+export async function getQuiz(
+  chapter: string,
+  lesson: string,
+): Promise<Quiz | null> {
+  try {
+    const filePath = path.join(CONTENT_ROOT, chapter, `${lesson}.quiz.mdx`);
+    const raw = await fs.readFile(filePath, "utf-8");
+    const { data, content } = matter(raw);
+    return { meta: data as QuizMeta, content };
+  } catch {
+    return null;
+  }
+}
+
 export async function listLessons(chapter: string): Promise<LessonMeta[]> {
   try {
     const dirPath = path.join(CONTENT_ROOT, chapter);
