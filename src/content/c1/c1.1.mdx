@@ -2,386 +2,562 @@
 id: c1.1
 chapter: 1
 title: Data foundations
-subtitle: Sources, sampling, splits, leakage
+subtitle: Sources, sampling, splits, leakage — derived from first principles
 refs: [1, 2, 8, 9]
-estimatedMinutes: 30
+estimatedMinutes: 60
 ---
 
 ## TL;DR
 
-Production ML lives or dies on its data pipeline. Before you pick a model or a loss, you've already committed to a storage architecture, a sampling strategy, and a split design — and each of those silently determines how representative your training distribution is. At staff+ level, the interview is about anticipating leakage and bias *before* they show up in metrics.
+Most ML systems fail in production not because the model is wrong but because the **data pipeline silently violated an assumption the model was trained under**. This lesson teaches the data architecture, sampling math, splitting strategies, and leakage detection that make production ML *work* — derived, with worked examples, not just stated.
 
-## When this comes up — real interview prompts
+## What you'll be able to do after this lesson
 
-1. *"You're building a fraud detection model. Walk me through how you'd build the training dataset end-to-end."*
-2. *"Your model's offline AUC is 0.93 but in production it's 0.74. Where do you look first?"*
-3. *"Your features include `days_since_signup` and `lifetime_value`. What concerns do you have about this feature set?"*
+- Explain *why* analytical (column-oriented) storage is structurally better than transactional (row-oriented) storage for ML training data, including a worked compression example.
+- Derive the variance of the sample-mean estimator under simple random sampling and stratified sampling, and prove (sketch) that stratification cannot increase variance.
+- Write the reservoir-sampling algorithm and prove by induction that it draws a uniform sample of size $k$ from an unknown-length stream.
+- Derive the importance-sampling estimator and explain when its variance blows up.
+- Define data leakage formally in terms of *what information was available at prediction time* — and use that definition to classify any concrete leak as target, train–test, look-ahead, or group leakage.
+- Detect target leakage with a drop-column protocol, without trusting any single ML metric.
+- Decide between random / stratified / grouped / temporal splits by checking whether the IID assumption actually holds.
 
-## 30-second framework
+## Why this lesson comes first
 
-When asked anything pipeline-shaped, walk through these in order:
+In a chapter about *ML system design*, you'd expect to start with models. But every ML system design failure I've seen in production — and every staff-level interview question I've heard — comes back to one of three things:
 
-1. **Source** — where do raw events/logs live? (warehouse, lake, streaming bus)
-2. **Ingestion** — batch vs streaming; freshness SLOs
-3. **Cleaning** — missing values, outliers, schema drift
-4. **Labeling** — explicit vs implicit vs human-annotated; label noise budget
-5. **Sampling** — proportion; stratification; weighting for imbalance
-6. **Splitting** — train/val/test design with leakage controls
-7. **Versioning** — dataset + code + model, all pinned together
+1. **The training data didn't represent production reality** (sampling, splits)
+2. **A feature was easier to compute at training time than at serving time** (training-serving skew)
+3. **Some information that wouldn't exist at prediction time leaked into training** (leakage)
 
-Most candidates skip 4, 6, and 7. Don't.
+None of those are model problems. They're data-pipeline problems. So we start here.
 
-## Core concepts
+> **A note on terminology.** This lesson uses ML vocabulary that a senior engineer who hasn't touched core ML in a few years may want grounded. The first time each term appears, it gets a one-sentence definition. There's also a short [classification-metric refresher](#refresher-classification-evaluation-vocabulary) inside the lesson, before the leakage section needs it.
 
-### Data sources & storage at a glance
-- **OLTP** (Postgres, MySQL, DynamoDB) — row-oriented, low-latency point reads. Powers production.
-- **OLAP / warehouse** (BigQuery, Snowflake, Redshift) — column-oriented, fast aggregations.
-- **Data lake** (S3/GCS + Parquet) — cheap, any format, schema-on-read.
-- **Lakehouse** (Delta, Iceberg, Hudi) — lake + ACID + schema evolution + time travel.
-- **Feature store** (Feast, Tecton, Hopsworks) — ML-specific layer that solves training-serving skew.
-- **Streaming** (Kafka, Kinesis, Pub/Sub) — event bus; basis for real-time features.
+## A vocabulary primer
 
-### Data type categories
-- **Structured** — tabular, time series, transactional. Trees still beat NNs here.
-- **Semi-structured** — JSON, protobufs, nested. Flatten or embed.
-- **Unstructured** — images, audio, video, text. NN territory.
+A quick grounding of words this lesson uses constantly.
 
-### Sampling — five strategies to know
-Simple random · Stratified · Cluster · Systematic · Weighted/importance · Reservoir (streaming).
+- **Feature** — one input variable to a model. A row in the training data is a vector of features.
+- **Label / target** — the thing the model is trying to predict. In supervised learning, every training row has a label.
+- **Example / sample** — one row of `(features, label)`. "Sample" is overloaded — it also means *the act of selecting a subset of examples from a population*; context makes it clear.
+- **Training / validation / test split** — three disjoint subsets of your data. Train fits parameters, validation picks hyperparameters and triggers early stopping, test is touched once at the end to estimate generalization.
+- **Distribution / IID** — the data is *independent and identically distributed* if every example was drawn independently from the same underlying joint distribution $p(X, Y)$. Almost every ML algorithm's theoretical guarantee assumes IID. Almost no production data is actually IID.
+- **Drift** — the data distribution changes over time. Covariate drift means $p(X)$ changes; label drift means $p(Y \mid X)$ changes; concept drift refers loosely to either or both.
+- **Generalization** — how well the model performs on data it wasn't trained on.
 
-### Splitting — four strategies to know
-Random · Stratified · Grouped · Temporal. The default — `train_test_split(shuffle=True)` — is wrong more often than people admit.
+Classification-metric vocabulary (precision, recall, ROC, AUC, PR-AUC) is introduced [later in the lesson](#refresher-classification-evaluation-vocabulary), right before we need it.
 
-### Leakage taxonomy
-- **Target leakage** — feature derived from the label
-- **Train–test leakage** — preprocessing fit on full data
-- **Look-ahead leakage** — future info in features used to predict the past
-- **Group leakage** — same entity in train and test
+## Where ML data lives: storage architectures
 
-## Deep dives
+### The OLTP problem
 
-<DeepDive title="4a — Storage patterns: where ML data actually lives">
+Your application's primary database — Postgres, MySQL, DynamoDB — is built for **OLTP** (*Online Transactional Processing*). OLTP databases serve user requests: "give me user 42's profile," "update order 99 to shipped." They have three structural properties:
 
-**Why ML training data is pulled from OLAP, not OLTP**
+1. **Row-oriented storage.** All columns of a row live next to each other on disk. Fetching one row is one disk read.
+2. **Tuned for high-cardinality point lookups.** Indexes on primary keys are razor-sharp.
+3. **Designed for write throughput.** Transactional guarantees (ACID) trump scan speed.
 
-OLTP databases serve production traffic. They're row-stored: each row is a contiguous chunk on disk, optimized for transactions over small numbers of rows. Pulling millions of training examples from OLTP both murders production latency *and* fights the access pattern (you want columns, not rows).
+These are exactly the wrong properties for training-data extraction, which wants to scan millions of rows and read maybe 30 columns out of 200. If you point an ML training job at OLTP, three things happen:
 
-OLAP / data warehouse is column-stored: each column lives in its own file, dictionary-compressed. Reading "all `user.country` values" reads one file. Compression ratios are 5–10× because columns of similar values compress well (RLE, delta, dictionary).
+- You drown production query latency because your scan competes with real traffic.
+- You read the entire row even though you only need 30 columns — wasted I/O.
+- You can't compress effectively because rows mix many data types.
 
-**Data lake vs warehouse vs lakehouse**
+So ML training data lives somewhere else.
 
-- *Warehouse:* schema-on-write — you declare columns and types upfront. Fast queries; rigid. Bad fit for unstructured data.
-- *Lake:* schema-on-read — dump raw files (Parquet, ORC, CSV, JSON, images) into object storage. Cheap. Holds anything. Query performance varies.
-- *Lakehouse:* Delta Lake / Apache Iceberg / Apache Hudi — adds ACID transactions, schema evolution, time travel on top of lake storage. Engines like Spark, Trino, Snowflake-on-Iceberg treat it like a warehouse. For greenfield ML platforms today, this is the modern default.
+### Column-oriented storage, derived
 
-**Feature stores — the ML-specific layer**
+The fix is **column-oriented storage**: each column is stored in its own file (or its own block), not as part of a row. The trade-off looks lopsided when you write it out:
 
-The reason they exist: **training–serving skew**. If you compute `user_avg_purchase_30d` differently in training (Spark batch job) vs serving (Java microservice), your production predictions will systematically differ from training. Feature stores centralize feature definitions and materialize the same logic to two stores:
-- **Offline store** (Parquet, BigQuery) for training/backfills
-- **Online store** (Redis, DynamoDB, Cassandra) for low-latency serving
+| Operation | Row-oriented | Column-oriented |
+|---|---|---|
+| Read one full row | 1 disk read | $n$ reads, one per column |
+| Read all values of one column | $N$ reads (one per row, all columns loaded) | 1 read of one file |
+| Update one row | 1 write | $n$ writes |
+| Insert one row | 1 write | $n$ writes |
 
-**Point-in-time correctness** is the killer feature: when you join historical labels to features at training time, you get each feature value *as of* the label's timestamp — not the current value. Doing this manually in raw SQL is where look-ahead bugs are born.
+ML training jobs hit pattern 2 — "all values of column `purchase_amount`, for all rows in the last 30 days" — and pattern 2 is where column-stores win by orders of magnitude.
 
-**Batch vs streaming features**
-- *Batch:* computed on a schedule (hourly, daily). Cheap; latency = batch interval.
-- *Streaming:* updated on each event (Kafka → Flink/Spark Streaming → Redis). Required for "events in last 60 seconds" features.
+There's a second compounding win: **compression**. A row is a heterogeneous mix of types — int, string, timestamp, float — and you can't compress that mix well. A column is homogeneous, so you can use:
 
-</DeepDive>
+- **Dictionary encoding** for low-cardinality columns: replace "United States", "Canada", "Mexico" with indices 0, 1, 2 plus a dictionary lookup.
+- **Run-length encoding (RLE)** for sorted or near-constant columns.
+- **Delta encoding** for monotonic integer columns (e.g. timestamps).
+- **Bit-packing** for booleans or small integer ranges.
 
-<DeepDive title="4b — Data type determines model class (and that's a bigger deal than people think)">
+**Worked example.** Suppose you have 100 million rows of US sales events. The `country` column is a `VARCHAR(50)` (50 bytes each). Row-stored: $100\text{M} \times 50 \text{B} = 5\,\text{GB}$. Column-stored with dictionary encoding: a 250-entry dictionary (each "country" name once) plus a 1-byte-per-row index for each of 100M rows: $\approx 100\,\text{MB}$. **50× smaller**, and queries that only need `country` scan 50× less data.
 
-**The tree-based methods still dominate tabular rule**
+This is why every modern OLAP storage format — Parquet, ORC, Arrow — is column-oriented.
 
-For structured/tabular data, gradient-boosted trees (XGBoost, LightGBM, CatBoost) still beat neural networks in almost every benchmark and Kaggle competition. Reasons:
+### Data warehouse vs data lake vs lakehouse
 
-- Tabular features are *heterogeneous* (numeric, ordinal, categorical, missing) — trees handle mixed types natively without scaling or encoding tricks
-- No spatial or temporal locality for NNs to exploit (no translation invariance, no token order)
-- Trees don't need feature scaling, are robust to outliers and irrelevant features
-- Smaller datasets typically — trees regularize via bagging; NNs need orders of magnitude more data
+These three names confuse everyone. They evolved historically:
 
-The recent generation of tabular foundation models (TabPFN, etc.) is starting to compete on small datasets, but production teams default to GBDT for tabular.
+**Data warehouse** (BigQuery, Snowflake, Redshift)
+- Schema-on-write: you declare columns and types upfront.
+- Storage is column-oriented, often proprietary (Snowflake's micro-partitions, BigQuery's Capacitor).
+- Optimized for SQL aggregations over structured data.
+- *Bad fit* for unstructured data (images, text, audio) because schemas have to fit.
 
-**For unstructured data, NNs dominate.** CNNs for images (still, despite ViTs), transformers for text and increasingly everything, audio models like Wav2Vec / HuBERT, video models like VideoMAE. The reason: end-to-end representation learning replaces the feature engineering that trees relied on.
+**Data lake** (S3, GCS, ADLS + Parquet files)
+- Schema-on-read: you dump raw files of any format into cheap object storage.
+- A query engine (Spark, Presto, Athena) parses the file at read time.
+- Storage cost is rock-bottom (S3 Standard is ~$0.023/GB/month).
+- *Bad fit* for tight transactional semantics — no ACID by default. Two writers can corrupt each other.
 
-**The interview takeaway:** "what's your data type?" is the question that determines the next 80% of the system. Don't accept an ML-system-design question without anchoring on it.
+**Lakehouse** (Apache Iceberg, Delta Lake, Apache Hudi)
+- Built *on top of* a data lake.
+- Adds a metadata layer (manifest files) that gives you ACID transactions, schema evolution, and time travel ("show me this table as of last Tuesday").
+- For greenfield ML data platforms today, this is the modern default — you keep lake-level cost but get warehouse-level reliability.
 
-</DeepDive>
+**Feature store** (Feast, Tecton, Hopsworks)
+- A specialized layer *above* the warehouse/lake. We'll cover it in the next subsection because it's the one architecture pattern that's specifically about ML.
 
-<DeepDive title="4c — Sampling: math + tradeoffs">
+### Feature stores and training–serving skew
 
-**Simple random sampling (SRS)**
+A **feature** in production ML is rarely a raw column. It's a *computed* value: "average purchase amount over the last 7 days" or "click-through rate of this item, in this user's region, over the last hour." That computation happens twice in the lifetime of an ML model:
 
-For SRS of size $n$ from a population of size $N$, the sample mean $\bar{x}$ is an unbiased estimator of the population mean $\mu$:
+- **Training time** — you compute features over historical data, join them to historical labels, and train.
+- **Serving time** — you compute the same features over current data and send them to the deployed model for prediction.
+
+If those two computations produce different numbers — even slightly — you have **training–serving skew**, and your production performance silently degrades from your offline numbers.
+
+How does skew creep in? Bog-standard sources:
+
+1. Training uses Spark; serving uses a Java microservice. The two implementations of "7-day average" handle nulls differently.
+2. Training joins features at a specific timestamp. Serving uses "the current value of the feature" — which is later than the training timestamp by however long it took the example to land.
+3. A feature is updated nightly in the warehouse but read every second in serving. The serving value lags the training value by up to 24 hours.
+
+**Feature stores** are the architectural fix. They centralize feature definitions and materialize each one to two backing stores from *the same code*:
+
+- **Offline store** (Parquet on S3, BigQuery, etc.) — used for training and backfills. Cheap, scannable.
+- **Online store** (Redis, DynamoDB, Cassandra) — used at serving time. Low-latency point lookups.
+
+The killer property of a feature store is **point-in-time correctness**. When you build a training set by joining historical labels to features, you join each feature value *as of the label's timestamp* — not the current value. Doing this manually in raw SQL is where most look-ahead leakage bugs are born; this is the section right before [data leakage](#data-leakage) for a reason.
+
+### Streaming vs batch features
+
+- **Batch features** are computed on a schedule (hourly, daily). Cheap to operate; freshness is bounded by the batch interval.
+- **Streaming features** update on each event arrival via Kafka → Flink/Spark Streaming → Redis (or similar). Required for "events in the last 60 seconds" features. More expensive and more failure-prone.
+
+A real production ML system usually has both. The architectural shape: events land in Kafka; Flink writes streaming features to the online store *and* lands events in Iceberg for batch features; nightly Spark jobs compute batch features and write to both stores; the training job reads from the offline store; the serving model reads from the online store.
+
+## Structured vs unstructured data: why this decides your model class
+
+**Structured data** is tabular: rows of typed columns. A SQL table, a Pandas dataframe, a Parquet file. The columns are heterogeneous (int, float, string, categorical, timestamp), and there's no spatial or temporal locality *within* a row.
+
+**Unstructured data** is everything else: images, audio, video, text. The data has *internal structure* — pixels near each other are correlated, words near each other are correlated — but that structure isn't captured by column names.
+
+For staff-level interviews, the punchline is: **the data type determines your model class**, and you'd better lead your answer with it.
+
+### Why trees still dominate tabular
+
+Despite a decade of deep-learning hype, **gradient-boosted decision trees** (XGBoost, LightGBM, CatBoost) still win almost every benchmark and Kaggle competition on tabular data. The reasons aren't just empirical; they're structural:
+
+1. **Tabular features are heterogeneous.** Neural networks (NNs) want every input to be a number on a comparable scale. That means you have to encode every categorical column (one-hot, target encoding, embeddings) and scale every numeric column. Trees take the raw types and split natively: "if `country = US`, go left."
+2. **No locality to exploit.** A convolutional NN (CNN) is brilliant on images because pixels near each other are related. A transformer is brilliant on text because nearby tokens carry context. In a tabular dataframe, the column ordering is arbitrary — there's *no spatial or temporal structure* between adjacent columns for an NN to exploit. The architectural priors that make NNs win on images and text simply don't apply.
+3. **Trees don't need scaling and are robust to irrelevant features.** A tree splits on `feature > threshold`, which is invariant to monotonic transformations. NNs are sensitive to feature scale and add an irrelevant-feature penalty.
+4. **Tabular datasets are usually smaller.** Trees regularize via bagging and shrinkage and learn well from $10^4$–$10^6$ rows. Deep nets typically need $10^7$+ before their representational power pays off.
+
+Recent foundation-model approaches for tabular (TabPFN, TabFM) are starting to compete on *small* tabular datasets, but production teams still default to gradient-boosted trees.
+
+### Why NNs dominate unstructured
+
+For images, audio, video, and text, the structural priors *are* in the architecture:
+
+- **CNNs:** translation invariance — a cat is a cat whether it's in the top-left or bottom-right of the image.
+- **Recurrent / state-space models:** sequence-order priors for time series and audio.
+- **Transformers:** attention lets every token see every other, then layered processing learns hierarchical structure.
+
+These architectures replace the manual feature engineering you'd otherwise have to do — and you can't do it well by hand. There's no "third pixel from the top of every image" feature worth computing in isolation.
+
+**Interview-ready summary:** when you're handed an ML system design question, *the first thing you anchor on is the data type*. "Is this tabular, image, text, audio, video, mixed?" That answer determines the next 80% of the system.
+
+## Sampling, from first principles
+
+### Why sample at all
+
+In an ideal world, you train on every available example. In production, that breaks for at least four reasons:
+
+1. **Cost.** Training a large model on a billion rows is expensive.
+2. **Iteration speed.** You can't iterate hyperparameters if each run takes a day.
+3. **Class imbalance.** If 0.1% of your data is the positive class, training on a uniform sample wastes most of the gradient signal on negatives.
+4. **Online/streaming constraints.** When events arrive faster than you can store them, you have to sample on the fly.
+
+So sampling is everywhere. The question is *how*, and the answer changes the bias and variance of every metric you compute downstream.
+
+### Simple random sampling (SRS)
+
+The baseline. Each example in the population of size $N$ has equal probability of being chosen, and the sample of size $n$ is drawn without replacement. The sample mean is an unbiased estimator of the population mean:
 
 $$E[\bar{x}] = \mu$$
 
-with variance
+Its variance is
 
 $$\text{Var}(\bar{x}) = \frac{\sigma^2}{n} \cdot \frac{N - n}{N - 1}$$
 
-The $\frac{N-n}{N-1}$ factor is the finite population correction; it's ≈ 1 when $N \gg n$.
+The fraction $\frac{N - n}{N - 1}$ is the **finite population correction (FPC)**. It approaches 1 when $N \gg n$, so for big-data ML you usually drop it: $\text{Var}(\bar{x}) \approx \sigma^2 / n$. The "$1/n$" decay rate of variance is why "double your data" cuts standard error by a factor of $\sqrt{2}$, not 2.
 
-**Stratified sampling**
+> **Stop and think.** Why does variance shrink as $1/n$ instead of $1/n^2$? It's the central-limit-theorem result for averaging $n$ independent random variables, each with variance $\sigma^2$: $\text{Var}\!\left(\frac{1}{n} \sum X_i\right) = \frac{1}{n^2} \sum \text{Var}(X_i) = \frac{n \sigma^2}{n^2} = \frac{\sigma^2}{n}$.
 
-Partition the population into $L$ strata. From each stratum $h$ of size $N_h$, take a sample of size $n_h$. The estimator:
+### Stratified sampling
 
-$$\bar{x}_{\text{strat}} = \sum_{h=1}^L \frac{N_h}{N}\, \bar{x}_h$$
+Suppose you partition your population into $L$ disjoint **strata** (subgroups) of sizes $N_1, N_2, \dots, N_L$, with $\sum_h N_h = N$. From each stratum $h$, you sample $n_h$ examples (often *proportionally*, with $n_h / N_h = n / N$, but you don't have to). The stratified estimator of the population mean is:
 
-Variance:
+$$\bar{x}_{\text{strat}} = \sum_{h=1}^L \frac{N_h}{N} \, \bar{x}_h$$
+
+Its variance, assuming SRS within each stratum:
 
 $$\text{Var}(\bar{x}_{\text{strat}}) = \sum_{h=1}^L \left(\frac{N_h}{N}\right)^2 \frac{\sigma_h^2}{n_h} \cdot \frac{N_h - n_h}{N_h - 1}$$
 
-**Key result:** stratified variance ≤ SRS variance, with equality iff stratum means are equal. Stratification helps most when strata differ from each other. This is why stratified is the right default for imbalanced classification: the "positive" stratum has very different mean behaviour from the "negative" stratum.
+where $\sigma_h^2$ is the within-stratum variance.
 
-**Reservoir sampling**
+**The key result** (informal proof sketch):
 
-For drawing a uniform sample of size $k$ from a stream of unknown size:
+$$\text{Var}(\bar{x}_{\text{strat}}) \le \text{Var}(\bar{x}_{\text{SRS}})$$
+
+with equality *iff* the strata all have the same mean.
+
+*Intuition:* the total variance of the population decomposes into within-stratum variance plus between-stratum variance (this is the law of total variance / ANOVA decomposition). SRS pays the price of *both*. Stratified sampling eliminates the between-stratum contribution by *guaranteeing* the right proportional representation of each stratum. The bigger the between-stratum differences, the bigger the win.
+
+**Worked example: imbalanced binary classification.** You have 1 million examples; 1% are positive (10,000 positives, 990,000 negatives). You want to estimate the population's positive rate from a sample of 1,000.
+
+- Under SRS, the count of positives in your sample is roughly Binomial$(1000, 0.01)$, so its standard deviation is $\sqrt{1000 \cdot 0.01 \cdot 0.99} \approx 3.15$. That's about $\pm 0.3\%$ on a rate of 1% — relative error $\approx$ 30%.
+- Under stratified sampling with $n_+ = n_- = 500$, you sample 500 positives and 500 negatives, then reweight. The variance contribution from the positive stratum is much smaller because you've sampled it heavily.
+
+The same idea is *why every imbalanced classification problem deserves a stratified split, not a random one* — your validation set should reliably contain the rare class.
+
+### Cluster sampling, in one sentence
+
+Sample whole *groups* (e.g. all events from one user, all rows from one geographic region) rather than individual examples. Cheaper to collect when groups are physically clustered, but introduces extra variance because rows within a cluster are correlated. Rarely the right answer for ML training data; common for survey research.
+
+### Reservoir sampling: the streaming case
+
+Suppose you have a *stream* of records of unknown total length, and you want a uniform sample of size $k$ where every record so far is equally likely to be in the final sample. You can't store the whole stream. The algorithm:
 
 ```text
-reservoir = stream[1..k]
-for i in k+1..n:
+# Reservoir sampling
+reservoir = stream[1..k]                  # take the first k
+for i in (k+1)..n:
     j = uniform_int(1, i)
     if j <= k:
         reservoir[j] = stream[i]
+return reservoir
 ```
 
-Each element ends up in the reservoir with probability $k/n$ (proof by induction). Time $O(n)$, space $O(k)$.
+**Claim:** every record $i$ ends up in the reservoir with probability $k / n$ where $n$ is the total stream length.
 
-**Importance sampling**
+**Proof by induction on $n$.** Base case $n = k$: every record is in the reservoir with probability 1, and $k / n = 1$. ✓
 
-To estimate $E_p[f(x)]$ when you can only sample from a different distribution $q$:
+Inductive step: assume the property holds after seeing $n - 1$ records, i.e. each is in the reservoir with probability $\frac{k}{n - 1}$. When the $n$-th record arrives:
 
-$$E_p[f(x)] = E_q\!\left[\frac{p(x)}{q(x)}\, f(x)\right]$$
+- It enters the reservoir with probability $\frac{k}{n}$ (because `j <= k` happens with probability $k / n$).
+- An older record $i$ stays in the reservoir if **either** the new record doesn't enter ($1 - \frac{k}{n}$) **or** the new record enters but kicks out a *different* slot ($\frac{k}{n} \cdot \frac{k - 1}{k}$).
+- Probability that record $i$ is in the reservoir at step $n$:
+  $$P_n(i) = P_{n-1}(i) \cdot \left[ \left(1 - \frac{k}{n}\right) + \frac{k}{n} \cdot \frac{k-1}{k}\right] = \frac{k}{n-1} \cdot \frac{n-1}{n} = \frac{k}{n} \;\;\square$$
 
-Used in: class-imbalance handling (oversample minority, reweight inversely), counterfactual / off-policy evaluation in RL and ranking systems, propensity scoring.
+Time complexity is $O(n)$ (one random draw per record); space is $O(k)$ (just the reservoir). This is one of those algorithms where the cleverness of *throwing things away in just the right way* makes a strong impression in interviews.
 
-**Sampling tradeoff matrix:**
+### Importance sampling
+
+You want to estimate $E_p[f(X)]$ — an expectation under target distribution $p$ — but you can only draw samples from a different distribution $q$. The trick:
+
+$$E_p[f(X)] = \int p(x) f(x)\, dx = \int q(x) \cdot \frac{p(x)}{q(x)} f(x)\, dx = E_q\!\left[\frac{p(x)}{q(x)} f(x)\right]$$
+
+So if you have samples $x_1, \ldots, x_n \sim q$, your estimator is:
+
+$$\hat{\mu} = \frac{1}{n} \sum_{i=1}^n \frac{p(x_i)}{q(x_i)} f(x_i)$$
+
+The ratio $w_i = p(x_i)/q(x_i)$ is the **importance weight**. The estimator is unbiased ($E_q[\hat{\mu}] = E_p[f(X)]$, by construction), but its **variance can explode** when $q$ has thinner tails than $p$ — i.e. when there's a region where $p(x)$ is appreciable but $q(x)$ is tiny, individual weights $w_i$ become huge.
+
+**Three places this matters in ML:**
+
+1. **Class-imbalance training.** Oversample the minority class (a $q$ that emphasizes positives), then weight by $w_i$ to recover unbiased gradients with respect to the true label distribution.
+2. **Off-policy evaluation in recommendation/RL.** You logged data under one ranking policy $q$, but you want to evaluate a new policy $p$. Importance weights let you estimate $p$'s expected reward from the $q$ logs — but if $p$ shows items $q$ almost never showed, weights blow up.
+3. **Counterfactual estimation.** "What would my system have done if it had ranked differently?" — same problem, same fix.
+
+**Practical patch:** when weights blow up, people use *self-normalized* importance sampling: $\hat{\mu} = \sum w_i f(x_i) / \sum w_i$. This introduces a small bias but bounds the variance.
+
+## Splits, from first principles
+
+### The IID assumption
+
+The reason you can train on one slice of data and expect generalization on another slice is the **IID assumption**: every example is *independent* of every other and drawn from the *identically* same joint distribution $p(X, Y)$.
+
+In math: examples $(x_i, y_i)$ are realizations of random variables $(X_i, Y_i)$ such that $(X_i, Y_i) \sim p(X, Y)$ for all $i$, and $(X_i, Y_i) \perp (X_j, Y_j)$ for $i \neq j$.
+
+In production, **this is almost always false.** Examples:
+
+- **Time series anything.** Today's example is correlated with yesterday's. Not independent.
+- **Recommender data.** What user $u$ saw today depends on what user $u$ saw yesterday (history-dependent). Not independent.
+- **Multi-row entities.** Two scans of the same medical patient share latent state. Not independent.
+- **Drift.** The distribution today differs from the distribution last month. Not identically distributed.
+
+When IID fails, **random splits over-state generalization**, because train and test rows are correlated. The fix is to choose your split so that the held-out set looks like the *real* deployment distribution.
+
+### Why three sets, not two
+
+- **Train** fits the model parameters.
+- **Validation (sometimes called dev set)** picks hyperparameters, decides when to early-stop, compares model variants.
+- **Test** is touched *once*, at the end, to estimate generalization on the deployment distribution.
+
+If you only have train/test and you tune hyperparameters against test, you have effectively used the test set as a validation set, and the reported test number is biased upward. The number of decisions you made using the test set is precisely the number of times you cheated.
+
+### Typical ratios
+
+- **Small data ($n < 10^4$):** 60/20/20 or 80/10/10. Variance of metric estimates dominates, so you want bigger val/test.
+- **Medium ($10^4 \le n \le 10^6$):** 80/10/10 is fine.
+- **Large ($n > 10^6$):** 98/1/1. 10,000 examples in val/test is plenty to estimate a metric to 3 decimals.
+
+### Four split strategies, in priority order
+
+Ordered by how often they're the right answer for real production data.
+
+**1. Temporal split.** Train on weeks 1–8, validate on week 9, test on week 10.
+
+*Why:* if data is drifting (and in production it almost always is), the future *is* the test distribution. You want your held-out metric to reflect performance on data drawn later than the training data. Use **forward chaining** for cross-validation: at each fold, train on rows with timestamp $< t$, test on rows with timestamp in $[t, t + \Delta)$. Never reverse it.
+
+**Worked failure example.** You're predicting whether a user will churn this month. You randomly split a year's worth of data 80/20. Your test AUC is 0.91 — a definition of AUC is coming in the next section, but read it as "model rates a random positive higher than a random negative 91% of the time." Production AUC is 0.74. Why? Because the random split mixed November-2022 rows into the training set and December-2022 rows into the test set, and the model effectively saw the future: it learned trends ("usage just dropped 50% this month") that were available globally but not at any specific historical prediction moment. The temporal-split number would have been 0.74 from the start.
+
+**2. Grouped split.** Keep all rows from the same entity (user, patient, session, device) on the same side of the split.
+
+*Why:* the IID assumption requires independent examples. If the same user has 50 rows, those rows share latent state. Splitting them randomly leaks the user-identity signal — the model learns "this is user 1473's row," and your test metric reflects memorization of user identity, not generalization.
+
+**Canonical worked example (medical imaging).** You have 10,000 chest x-rays from 1,000 patients (10 scans each, on average). You random-split 80/20 — about 8 scans per patient land in training, 2 in test. A CNN trained this way reports 0.95 AUC on the test set, and the paper gets published. When deployed at another hospital, AUC drops to 0.71. What happened: the model learned to identify *patients* (subtle anatomical signatures, scanner artifacts) and trivially flagged "this patient already appeared in training, copy their label." The fix is `GroupShuffleSplit` (sklearn) keyed on patient ID: 800 patients in train, 200 different patients in test. AUC on patient-disjoint test sets is the honest number.
+
+**3. Stratified split.** Preserve class proportions in each split.
+
+*Why:* connected directly to stratified sampling above. For imbalanced classification (1% positive class), a random 1000-row val set might have 5 positives or 15 — that's a 3× difference in metric variance. A stratified split guarantees exactly the right proportion in each subset.
+
+**4. Random (i.i.d.) split.** Use only when you've *checked* that the IID assumption holds. Often it doesn't, and "we just used `train_test_split` with `shuffle=True`" is the most common preventable mistake in ML pipelines.
+
+### K-fold cross-validation, with intuition
+
+The standard split gives you *one* estimate of test performance, with variance you can't measure. **K-fold cross-validation** addresses this:
+
+```text
+Shuffle the data into k disjoint folds of roughly equal size.
+For i in 1..k:
+    train_set = all folds except fold i
+    test_set  = fold i
+    train a model on train_set
+    evaluate on test_set -> metric_i
+return mean(metric_1..metric_k), std(metric_1..metric_k)
+```
+
+You get a *distribution* of metric values, which gives you a confidence interval — much more honest than a single point estimate.
+
+Variants when IID fails:
+- **Stratified k-fold:** preserves class proportions within each fold (the classification default).
+- **Group k-fold:** keeps entities together across folds.
+- **Time-series k-fold (forward chaining):** each fold trains on past, tests on future. Never train on data later than test.
+
+**Choice of $k$.** Typical values are 5 or 10.
+
+- Small $k$ (e.g. 2): high bias (less training data per fold), lower variance of the estimate.
+- Large $k$ (e.g. $n$ — *leave-one-out CV*): low bias, high variance, $n$× the compute.
+- 5 or 10 is the sweet spot for most practical workflows.
+
+### Nested cross-validation
+
+When you tune hyperparameters using CV, you're making selection decisions based on the very folds you'd like to use for unbiased evaluation. So nested CV uses two loops:
+
+```text
+Outer loop (k_outer folds):
+    For each outer fold:
+        Inner loop (k_inner folds) on the outer train set:
+            For each combination of hyperparameters:
+                Estimate validation metric via inner CV
+            Pick the best hyperparameters
+        Train one final model on the outer train set with best hyperparameters
+        Evaluate on the outer test fold
+Report mean and std across outer folds
+```
+
+Cost: $k_\text{outer} \cdot k_\text{inner} \cdot (\text{hyperparam grid size})$ models. Expensive. But for small datasets where each split's metric has high variance, nested CV is the only way to get an unbiased generalization estimate when hyperparameters are tuned.
+
+## Refresher: classification evaluation vocabulary
+
+You'll see these terms used in the leakage failure-mode discussions next, so let's ground them. Full treatment is in **c1.10** (Evaluation metrics).
+
+For binary classification: positive vs negative class. The model outputs a score; you threshold the score to get a predicted class. Compare predicted vs true:
+
+| | predicted positive | predicted negative |
+|---|---|---|
+| **actual positive** | true positive (TP) | false negative (FN) |
+| **actual negative** | false positive (FP) | true negative (TN) |
+
+Five quantities derived from this **confusion matrix**:
+
+- **Precision** = $\text{TP} / (\text{TP} + \text{FP})$ — of the things I called positive, what fraction really were?
+- **Recall** (also: **sensitivity**, **true-positive rate / TPR**) = $\text{TP} / (\text{TP} + \text{FN})$ — of the actual positives, what fraction did I catch?
+- **F1 score** = harmonic mean of precision and recall — useful single-number summary when you care about both.
+- **False-positive rate (FPR)** = $\text{FP} / (\text{FP} + \text{TN})$ — among actual negatives, what fraction did I incorrectly flag?
+
+A model outputs a continuous *score*; you pick a threshold to call something positive. As you sweep the threshold from 0 to 1, you trace out two curves:
+
+- **ROC curve** plots TPR vs FPR at every threshold. **AUC** or **ROC-AUC** is the area under that curve; an AUC of 0.5 is random, 1.0 is perfect, 0.85 is "the model ranks a random positive higher than a random negative 85% of the time."
+- **PR curve** plots precision vs recall at every threshold. **PR-AUC** is the area under it.
+
+When to use which:
+- **ROC-AUC** when class balance is reasonable.
+- **PR-AUC** when classes are heavily imbalanced (1% positive, fraud, etc.) — ROC-AUC stays misleadingly high when most of your "negatives" never get a high score anyway, and you actually care about precision when you flag something.
+
+That's enough metric vocabulary to follow the rest of this lesson. Full derivations and edge cases are in c1.10.
+
+## Data leakage
+
+This is the most important section of the lesson. Data leakage is the single most common reason ML systems pass offline evaluation and fail in production. Yet it's rarely *the* topic of any one course or chapter — it gets distributed across "feature engineering," "experimentation," and "model evaluation." We treat it as the first-class concept it should be.
+
+### Definition (information-theoretic)
+
+A pipeline has **data leakage** if information that wouldn't be available at prediction time leaks into the training process — either through features or through how the data is split.
+
+Formally: let $\mathcal{I}(t)$ be the set of facts about the world that an honest production prediction at time $t$ would have access to (the user's profile at $t$, events before $t$, etc.). The model's training features for that example must be a function of $\mathcal{I}(t)$ alone. If any training feature carries information outside $\mathcal{I}(t)$, you have leakage.
+
+This single definition unifies the four "named" categories below; they're just different mechanisms by which information from outside $\mathcal{I}(t)$ shows up in your training pipeline.
+
+### 1. Target leakage
+
+A feature contains information about the label that wouldn't be available at prediction time.
+
+**Worked examples:**
+
+- *Churn prediction:* feature `account_status ∈ {active, closed}`. But `closed` *is* the definition of "churned." The model's job becomes copying the value of one feature, and it scores perfectly.
+- *Hospital-readmission prediction:* feature is the free-text `discharge_summary`, which sometimes contains the phrase "patient returned for readmission." The model learns that phrase.
+- *Loan-default prediction:* feature `late_payment_count_lifetime` is computed over the whole history, including after the default event. Any default contributes to that count.
+
+**Detection: the drop-column protocol.**
+
+1. Train your model on the full feature set; record validation metric $M_0$.
+2. For each feature $f_i$, retrain dropping only that feature; record $M_i$.
+3. Compute $\Delta_i = M_0 - M_i$.
+4. If any single $\Delta_i$ is suspiciously large (e.g. 10+ points of AUC), that feature is a leakage suspect. Investigate.
+
+This is computationally expensive — $n$ retrains for $n$ features. Cheaper proxies: feature-importance scores from a tree model (rough, but quick), or domain-expert review of feature *definitions* line-by-line before training begins.
+
+> **Stop and think.** Construct a case where a feature passes the drop-column test (dropping it barely hurts $M_0$) but is *still* leaking. *Hint: redundancy. If two features encode the same leaking information, dropping either one leaves the other in place.*
+
+### 2. Train-test leakage
+
+Preprocessing was fit on the union of train+val+test data, *before* splitting.
+
+This sounds minor and sometimes it is — but it's catastrophic for some preprocessing types.
+
+**Mild case:** `StandardScaler` (subtract mean, divide by std) fit on the full dataset. The scaler's mean is computed using rows from the test set. Effect on metrics: usually $<1\%$, because the mean barely shifts.
+
+**Severe case:** *target encoding* of categorical features (replace each category with the mean of the label within that category) fit on the full dataset. Now the label has leaked directly into the features for the test rows. Effect on metrics: can be 10+ AUC points of optimism. Completely invalidates the test number.
+
+**Severe case:** *PCA* (principal component analysis — projecting onto the directions of highest variance) fit on the full dataset. The basis vectors saw test data; the test set is now embedded in a basis that was optimized for it.
+
+**Severe case:** *imputation* (filling missing values with the column mean) fit on the full dataset. Each test row whose value was missing now received a fill computed using all the test labels' rows.
+
+**The architectural fix:** `sklearn.pipeline.Pipeline`. A Pipeline only calls `.fit()` on the training portion of any cross-validation fold; the same fitted transformer is then `.transform()`-applied to val/test. The whole point of Pipeline is that it makes the *correct* thing easy and the *wrong* thing inconvenient. Code reviews should flag any preprocessing call outside a Pipeline.
+
+### 3. Look-ahead leakage
+
+A feature uses information that did not exist at the prediction timestamp.
+
+**Worked example (the finance classic).** You're predicting tomorrow's stock price. Among your features you accidentally include `close_price_today`. But your model is meant to predict before the close, so `close_price_today` is unavailable at prediction time. In backtest, you get a Sharpe ratio of 4; in production, you lose money.
+
+**Worked example (recommendations).** Predicting "will user click on this item." Feature: `item_clicked_this_session ∈ {0, 1}`. But the click happens *after* the impression. At impression time, this feature can't exist.
+
+**Worked example (signup-to-churn).** Predicting at signup whether a user will churn within 30 days. Feature: `total_lifetime_purchases`. Computable only *after* the 30-day window. Strictly post-label.
+
+This is exactly the bug that **point-in-time feature joins** (a feature-store property) eliminate. The feature store guarantees: when you join feature $f$ to label $y$ at timestamp $t$, you get $f$'s value *as of $t$*, not $f$'s current value.
+
+### 4. Group leakage
+
+The same *entity* (user, patient, session, device) appears in both train and test, with multiple rows. The IID assumption is silently violated, and the model exploits cross-row entity correlations.
+
+**The CheXNet pattern** (now a famous methodological lesson): a CNN classifier on chest x-rays reports excellent AUC on per-image splits. On per-patient splits, performance degrades sharply. The model learned scanner artifacts and anatomical idiosyncrasies that identify *patients*. Splitting `GroupShuffleSplit(groups=patient_id)` is the fix.
+
+**Recommender variant.** You split sessions into train/test randomly. But user $u$ might have 1000 sessions and they get distributed across both. The model has effectively seen user $u$'s preferences in training and is being asked to predict them in test.
+
+### A unifying mental model
+
+All four categories share one root cause: **a violation of the information-availability rule**. Concretely:
+
+- **Target leakage** — a feature is a function of the label.
+- **Train-test leakage** — a feature is a function of test rows (often indirectly, via fitted preprocessing).
+- **Look-ahead leakage** — a feature is a function of post-prediction-time data.
+- **Group leakage** — the split-design violation lets cross-row entity correlations carry information that won't be available at production prediction time.
+
+If you remember the rule, you can derive the categories on the spot in an interview.
+
+### Real-world incidents
+
+Three to know by name:
+
+1. **Kaggle Mercedes-Benz Greener Manufacturing (2017).** Top public-leaderboard solutions collapsed on the private leaderboard. Cause: the row ID encoded manufacturing-time ordering; clever solutions exploited that to leak target information across train/test.
+2. **CheXNet and follow-ups (2017–2018).** Stanford's pneumonia-detection CNN reported strong per-image numbers; external validation under per-patient splits revealed substantial group leakage in the original training/test setup.
+3. **Roberts et al. 2021 (*Nature Machine Intelligence*).** A meta-review of 415 published COVID-19 chest-x-ray/CT models found that *none* were clinically usable, with leakage, label noise, and biased data sources as the most common failure modes.
+
+The lesson generalizes: at scale, leakage is not the exception. Pipelines should be designed under the assumption that leakage will appear; reviews should treat every feature definition as a paranoia checkpoint.
+
+## Production data quality (briefly)
+
+Less depth here — it's more operational than conceptual.
+
+- **Schema drift:** an upstream service starts sending a new column, drops one, changes a type. The model silently misbehaves. Mitigation: schema contracts (Protobuf, Avro), schema registries (Confluent), CI data tests on every ingestion.
+- **Label noise:** crowdsourced labels have 5–15% error rates. Implicit labels (clicks) have structural selection bias — a non-click can mean "not seen," "seen and ignored," "seen and disliked." Weak supervision frameworks (Snorkel) combine noisy labelers programmatically with a learned label model.
+- **Data versioning:** DVC (git-LFS-style), LakeFS (git semantics on object stores), Iceberg/Delta time travel. Required to reproduce yesterday's model.
+- **Data tests:** Great Expectations, Pandera, Soda — row counts, null rates, distribution drift (KS test against historical), schema checks. Run in CI on each ingestion.
+
+## Tradeoff matrices
+
+### Sampling strategies
 
 | Strategy | Bias | Variance | When to use |
 |---|---|---|---|
-| SRS | None | Baseline | Default; no subgroup structure |
-| Stratified | None | ≤ SRS | Subgroups differ; imbalanced classification |
-| Cluster | Possibly biased | Often > SRS | Natural groups; cost-driven |
-| Systematic | Bias if data ordered | ≈ SRS | Cheap; only safe if input order is random |
-| Importance | Unbiased (reweighted) | Can explode if $p/q$ varies | Off-policy estimation; imbalance |
-| Reservoir | None | = SRS | Streaming / unknown-size |
+| Simple random | None | Baseline | Default; no subgroup structure to exploit |
+| Stratified | None | $\le$ SRS | Subgroups differ; imbalanced classification |
+| Cluster | Possibly biased | Often $>$ SRS | Natural groups + cost-driven |
+| Systematic | Bias if data ordered | $\approx$ SRS | Cheap; only safe if input order is random |
+| Importance | Unbiased (reweighted) | Can blow up if $p/q$ varies | Off-policy estimation; imbalance |
+| Reservoir | None | $=$ SRS | Streaming / unknown-size |
 
-</DeepDive>
+### Split strategies
 
-<DeepDive title="4d — Splits in depth (and why default random splits are usually wrong)">
+| Strategy | When to use | When it fails |
+|---|---|---|
+| Temporal | Time matters, drift exists | Almost never the wrong choice in production |
+| Grouped | Same entity in many rows | When entities truly are independent (rare) |
+| Stratified | Class imbalance | When classes are balanced anyway |
+| Random | Verified IID, balanced classes | Most production scenarios |
 
-**Why three sets, not two**
+### Storage architectures
 
-- **Train** — fits model parameters
-- **Validation (dev)** — selects hyperparameters, early stopping, model selection
-- **Test** — estimates generalization; touched once
-
-If you only have train/test and you tune against test, the test set is now a validation set in disguise — and the number you report is optimistic.
-
-**Typical ratios:**
-- Small (&lt;10k): 60/20/20 or 80/10/10 — need bigger val/test for low-variance estimates
-- Medium (10k–1M): 80/10/10
-- Large (>1M): 98/1/1 — 10k val/test is plenty
-
-**Four split strategies, ranked by how often they're the right choice in production:**
-
-1. **Temporal split** — train on past, evaluate on future. Mandatory whenever time matters: financial, recommendations, anything subject to concept drift. Use forward-chaining or expanding-window CV. *If in doubt, default to temporal.*
-2. **Grouped split** — when the same entity (user, patient, session) appears in many rows, splitting randomly leaks the entity across train and test. Use `GroupShuffleSplit`. Canonical example: medical imaging — patient X has 10 scans; if 5 are in train and 5 in test, the model memorises patient identity, not pathology.
-3. **Stratified split** — preserves class proportions. Default for imbalanced classification.
-4. **Random split** — IID assumption. Fast, simple, *wrong by default* in most real systems.
-
-**Cross-validation preview** (full treatment in c1.9)
-- *K-fold*: split into k folds, train on k-1, eval on 1, rotate; gives variance estimate of metric
-- *Stratified k-fold*: preserves class proportions in each fold
-- *Group k-fold*: keeps entities together
-- *Time-series k-fold*: forward chaining; each fold uses past data only
-
-**Nested CV for hyperparameter tuning**
-
-If you tune hyperparameters on the same CV folds you evaluate on, you're optimistic about generalization. Nested CV:
-- Outer loop: train/test (unbiased generalization estimate)
-- Inner loop: train/val on outer's train (selects hyperparameters)
-
-Expensive — $k_\text{outer} \times k_\text{inner}$ models — but the right answer when sample size is small.
-
-</DeepDive>
-
-<DeepDive title="4e — Data leakage: the staff+ gotcha">
-
-**Target leakage** — A feature directly or indirectly contains the label.
-
-- Predicting churn. Feature: `account_status` ∈ {active, closed}. `closed = churned`. The model "predicts" churn perfectly.
-- Predicting hospital readmission. Feature: `discharge_summary` text field which mentions "patient returned for readmission".
-
-*Detection:* too-good-to-be-true AUC; drop-column analysis (drop suspected leakers, see how much AUC drops); domain-expert review of every feature definition.
-
-**Train–test leakage** — Preprocessing fit on the full dataset before splitting.
-
-- Standardization: `mean = X.mean()` on full data, *then* split. Test contributes to the training scaler — minor but real.
-- Target encoding: encoding categoricals with the mean of the target. If computed on the full data, the *label* bleeds into features at training time. Severe.
-- Imputation: filling missing values with column mean computed on full data.
-- Dimensionality reduction: PCA fit on the full dataset.
-
-*Fix:* fit preprocessing on training only; transform val/test with the train-fitted parameters. Use sklearn `Pipeline` or `ColumnTransformer` to make this architecturally enforced rather than relying on developer discipline.
-
-**Look-ahead leakage** — A feature uses information that wouldn't have been available at prediction time.
-
-- Predicting churn at signup. Feature: `total_lifetime_purchases`. But you only know that after churn.
-- Stock prediction. Feature: today's close price, predicting today's close price.
-- Recommendation system. Feature: "did user click within this session?" used to predict session click.
-
-This is exactly why point-in-time joins in feature stores matter. Every feature must be computable using *only* data available at the time the label is realized.
-
-**Group leakage** — Same entity in both train and test.
-
-- Patient-level: same patient's images in both → model memorizes patient
-- User-level: same user's sessions in both → model overfits to user-specific patterns
-- Time-based: events from the same hour split randomly → autocorrelation leaks
-
-**Real-world incidents — name these in interviews**
-
-1. **Kaggle Mercedes-Benz Greener Manufacturing (2017).** Top public leaderboard scores collapsed on the private leaderboard. The winning solutions had exploited time-ordering of `ID` (test IDs interleaved with train IDs by manufacturing time), which made it possible to leak the target via temporal proximity.
-2. **CheXNet / Stanford pneumonia datasets.** Models showed high performance on per-image splits, then degraded badly under patient-level splits. Same patient's scans in train and test were a free signal.
-3. **Roberts et al. 2021 (*Nature Machine Intelligence*), the COVID-19 ML meta-review.** Reviewed 415 published COVID-19 chest-X-ray / CT models. Found that *none* were clinically usable, with the dominant failure modes being target leakage, train–test leakage, label noise, and biased data sources. This paper is the cleanest summary of what happens at scale when leakage controls aren't enforced.
-4. **Finance look-ahead classic.** Feature `future_return_lag1` instead of properly lagging returns by computing them at $t-1$. Beats the market in backtest; loses money live.
-
-The staff+ takeaway: **expect leakage. Design pipelines to make leakage *hard*, not easy.** Code review should single out feature definitions for paranoid inspection, and CI should run drop-column analysis on top features.
-
-</DeepDive>
-
-<DeepDive title="4f — Production data quality">
-
-**Schema drift**
-
-Upstream service starts sending a new column, drops an old one, changes a type. The model can silently misbehave for weeks. Mitigations:
-- Schema contracts (Protobuf, Avro) with explicit versioning
-- Schema registries (Confluent Schema Registry)
-- Data tests in CI on each ingestion job
-
-**Label noise**
-
-- *Crowdsourced labels:* 5–15% error rates are normal
-- *Implicit labels:* "user clicked = positive" — but a non-click can mean "didn't see," "saw and didn't care," or "saw and actively hated." Selection bias is structural.
-- *Weak supervision* (Snorkel, programmatic labeling): combine many noisy labelers programmatically; model them with a label model
-
-**Data versioning**
-
-- **DVC** — git-LFS-style for datasets, code-friendly
-- **LakeFS** — git semantics for object stores
-- **Iceberg / Delta time travel** — query any past snapshot by timestamp or version
-
-Why bother: you have to be able to reproduce yesterday's model exactly. When metrics drop, the first question is "did the data change?" and you can't answer it without versioning.
-
-**Data tests (Great Expectations, Pandera, Soda)**
-- Row counts within expected range
-- Null rates within tolerance
-- Distribution checks (KS test against historical)
-- Schema checks (column types, allowed values)
-- Run in CI on each new data ingestion
-
-This is the difference between an ML system that operates and one that just exists.
-
-</DeepDive>
-
-## Tradeoff matrix: storage architectures
-
-| Storage | Strength | Weakness | ML use |
+| Storage | Strength | Weakness | Use for ML |
 |---|---|---|---|
-| OLTP (Postgres, etc.) | Low-latency point reads | Bad for bulk reads | Online serving only |
+| OLTP (Postgres, etc.) | Low-latency point reads | Bad for bulk reads | Online serving lookups |
 | Warehouse (BQ, Snowflake) | Fast aggregations on structured | Rigid schema, no unstructured | Training data for tabular ML |
 | Lake (S3 + Parquet) | Cheap; any format | Slower interactive queries | Unstructured data |
 | Lakehouse (Delta, Iceberg) | ACID + cheap + any format | Newer tooling | Modern default for greenfield |
 | Feature store (Feast, Tecton) | Eliminates training–serving skew | Operational overhead | Production ML with online serving |
 
-## Production failure modes
+## Five production failure modes
 
-1. **99% accuracy fraud model** — Trained on labeled fraud vs. random non-fraud. Misses that "non-fraud" labels are mostly "we haven't caught them yet." Production performance is far worse.
-2. **Recommender that recommends what it saw** — Trained on click logs. Click only happens on what was shown. The model reinforces its own past choices. Fix: propensity-weighted training, exploration policies.
-3. **The AUC-dropped-from-0.92-to-0.78 mystery** — Schema drift. Upstream changed a categorical encoding; the model now treats "US" and "U.S." as separate countries.
-4. **Patient-level split disaster** — Medical image classifier shows 0.95 sensitivity. External validation: 0.71. Original split was per-image; same patient in both sets.
-5. **The "yesterday's features joined to today's events" trap** — Training data used `feature_value_at(label_time)`. Serving used `feature_value_now()`. Lower performance live.
+Quick scenarios you should recognize on sight.
 
-## Interview gotchas — what staff+ interviewers push on
+1. **The 99%-accuracy fraud model.** Trained on labeled fraud vs random non-fraud. "Non-fraud" labels are mostly "we haven't caught them yet." Production performance is far worse than offline.
+2. **The recommender that recommends what it saw.** Trained on click logs; clicks only happen on what was shown. The system reinforces its own past choices. Fix: propensity-weighted training, exploration policies.
+3. **AUC-dropped-from-0.92-to-0.78.** Schema drift. Upstream changed a categorical encoding silently. The model now treats "US" and "U.S." as different countries.
+4. **The patient-level split disaster.** Medical image classifier: 0.95 sensitivity in-sample, 0.71 external validation. Original split was per-image; same patients in both sets.
+5. **"We joined yesterday's features to today's events."** Training data used $\text{feature\_value\_at}(\text{label\_time})$. Serving used $\text{feature\_value\_now}()$. Lower performance live than offline.
 
-- "How did you build your training set?" — they want leakage prevention, label provenance, and class balance, *not* "I used `train_test_split`."
-- "Walk through your features" — they're listening for look-ahead and feature timestamping.
-- "How would you handle a 1% positive rate?" — stratified splits, class-balanced loss, PR-AUC (not ROC-AUC), threshold calibration.
-- "Tell me about a time you found data leakage" — have a story prepared.
-- "Build a feature store from scratch on a whiteboard" — system design question; know the offline/online store split, point-in-time joins, materialization.
+## Take the quiz
 
-## Quiz
-
-<Quiz id="c1.1-q1">
-
-**Q1.** You're hired to build a real-time recommender for a streaming service. Walk me through how you'd design training data: source, features, splits, and the 3 leakage risks you'd actively guard against.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-- *Source:* event logs from Kafka (play, skip, finish), user profile from warehouse, content metadata from CDN catalog. Land all events in a data lake (S3 + Iceberg). Compute features in Spark or Flink.
-- *Features:* user-side (avg session length 7d, genre affinity), item-side (popularity 24h, item age), interaction (impressions and clicks, lagged ≥1 h). All point-in-time correct.
-- *Split:* **temporal**. Train weeks 1–8, val week 9, test week 10. Random splits will be optimistic because within-week behaviour is correlated.
-- *Leakage risks:*
-  1. **Look-ahead:** computing "user avg session length" using the full 8 weeks rather than as-of the row's timestamp. Fix: point-in-time feature lookup.
-  2. **Implicit-negative bias:** treating "not clicked" as "negative." Most items were never shown. Fix: restrict candidate negatives to *impressed-but-not-clicked*, or propensity-weight.
-  3. **Cold-start as a leakage proxy:** new items show up mid-training and the model can learn "new = liked" rather than the actual signal. Fix: stratify by item age.
-
-*Rubric — full credit if you hit:* temporal split, point-in-time features, implicit-negative awareness, impressions vs clicks.
-
-</details>
-
-</Quiz>
-
-<Quiz id="c1.1-q2">
-
-**Q2.** A teammate's pipeline does `StandardScaler.fit_transform(X)` on the whole dataset, then `train_test_split`. Why is this wrong, and how big a problem is it in practice?
-
-<details>
-<summary>Model answer + rubric</summary>
-
-- *Why wrong:* the scaler's mean and std were computed on the full dataset, including future test rows. The test set contributed to training preprocessing. Train and test share information.
-- *How big in practice:*
-  - For `StandardScaler` on large, stationary datasets: usually small (&lt;1% metric impact); the mean barely moves.
-  - For **target encoding**, **imputation with column mean**, **PCA on full data**, and anything that touches the **label** during preprocessing: severe. Can completely invalidate test metrics.
-  - For small datasets or non-stationary data: severe even for scaling.
-- *Correct pattern:* `sklearn.pipeline.Pipeline([("scaler", StandardScaler()), ("clf", ...)])` — fit on the training fold only, `.transform()` on val/test.
-- *Bigger lesson:* a system that makes the wrong thing easy and the right thing hard will produce mistakes. Pipelines exist to eliminate this class of bug architecturally.
-
-*Rubric:* severity depends on what's being preprocessed; recognize target encoding / imputation / dim reduction as severe; suggest sklearn `Pipeline` as the architectural fix.
-
-</details>
-
-</Quiz>
-
-<Quiz id="c1.1-q3">
-
-**Q3.** You inherit a model that scored 0.93 AUC offline and 0.74 AUC in production. List 6 things you'd check, in order, and explain why each comes before the others.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-Investigation order (cheap/likely → expensive/rare):
-
-1. **Input feature drift** — KS test feature-by-feature against training distribution. The most common answer and the cheapest to check.
-2. **Schema drift** — upstream changed a categorical encoding, dropped a column, or started sending NULLs. Schema registry diff.
-3. **Training–serving skew on feature values** — log feature values in both environments; sample-diff. Same feature definition, different value.
-4. **Label leakage in training** — drop-column analysis on top features; if removing one feature kills offline AUC, suspect it.
-5. **Selection bias in offline evaluation** — was the offline test set representative of prod traffic? Did temporal coverage match?
-6. **Model staleness / concept drift** — has the world changed? Slowest to confirm; typically last.
-
-*Rubric:* cheap checks before expensive ones; drift > leakage > model drift as the typical likelihood ordering.
-
-</details>
-
-</Quiz>
+When you're done reading, the conceptually-difficult quiz is at **[/c/c1/c1.1/quiz](/c/c1/c1.1/quiz)** — 12 questions, derivations and counter-examples, not recall. The point is to expose where your understanding is shallow before an interviewer does.
 
 ## Cited references
 
 - Ref 1 — *Data warehouse* (Google Cloud) — `c1/references/01_data_warehouse.html`
-- Ref 2 — *Machine learning libraries for tabular data problems* (Gil Fernandes, signal.onepointltd) — server was unreachable at download time; URL kept in `_references.md`
+- Ref 2 — *Machine learning libraries for tabular data problems* (Gil Fernandes, signal.onepointltd) — URL preserved in `_references.md`; server was unreachable at download time
 - Ref 8 — *Sampling methods* (Scribbr) — `c1/references/08_sampling_strategies.html`
 - Ref 9 — *Train–test split for evaluating ML algorithms* (Machine Learning Mastery) — `c1/references/09_train_test_split.html`
 
 External works cited:
 - Roberts et al., 2021. "Common pitfalls and recommendations for using machine learning to detect and prognosticate for COVID-19 using chest radiographs and CT scans." *Nature Machine Intelligence.*
+- Rajpurkar et al., 2017. "CheXNet: Radiologist-level pneumonia detection on chest x-rays with deep learning." *arXiv 1711.05225.*
 - Kaggle Mercedes-Benz Greener Manufacturing competition discussion (2017).
