@@ -483,9 +483,9 @@ What we want to learn is $P(Y = 1 \mid X, T = 1)$, but our logs only contain row
 Offline and online ML workloads have opposite access patterns:
 
 - **Training** wants to scan millions of rows for tens of features, joined to labels at specific historical timestamps. Batch I/O. Columnar storage wins.
-- **Serving** wants one row's worth of features in <10 ms. Point lookup. Key-value storage wins.
+- **Serving** wants one row's worth of features in &lt;10 ms. Point lookup. Key-value storage wins.
 
-If you use a single store for both, you compromise: a single batch store can't serve <10 ms, and a single online store can't bulk-scan training data efficiently. The offline/online split lets each side pick the right technology, and the feature store ensures that *the same feature definitions are materialized to both*, so the values agree byte-for-byte. This is the architectural answer to training–serving skew.
+If you use a single store for both, you compromise: a single batch store can't serve &lt;10 ms, and a single online store can't bulk-scan training data efficiently. The offline/online split lets each side pick the right technology, and the feature store ensures that *the same feature definitions are materialized to both*, so the values agree byte-for-byte. This is the architectural answer to training–serving skew.
 
 **What "point-in-time correctness" technically guarantees.**
 
