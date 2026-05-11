@@ -179,7 +179,7 @@ Used in: class-imbalance handling (oversample minority, reweight inversely), cou
 If you only have train/test and you tune against test, the test set is now a validation set in disguise — and the number you report is optimistic.
 
 **Typical ratios:**
-- Small (<10k): 60/20/20 or 80/10/10 — need bigger val/test for low-variance estimates
+- Small (&lt;10k): 60/20/20 or 80/10/10 — need bigger val/test for low-variance estimates
 - Medium (10k–1M): 80/10/10
 - Large (>1M): 98/1/1 — 10k val/test is plenty
 
@@ -341,7 +341,7 @@ This is the difference between an ML system that operates and one that just exis
 
 - *Why wrong:* the scaler's mean and std were computed on the full dataset, including future test rows. The test set contributed to training preprocessing. Train and test share information.
 - *How big in practice:*
-  - For `StandardScaler` on large, stationary datasets: usually small (<1% metric impact); the mean barely moves.
+  - For `StandardScaler` on large, stationary datasets: usually small (&lt;1% metric impact); the mean barely moves.
   - For **target encoding**, **imputation with column mean**, **PCA on full data**, and anything that touches the **label** during preprocessing: severe. Can completely invalidate test metrics.
   - For small datasets or non-stationary data: severe even for scaling.
 - *Correct pattern:* `sklearn.pipeline.Pipeline([("scaler", StandardScaler()), ("clf", ...)])` — fit on the training fold only, `.transform()` on val/test.
