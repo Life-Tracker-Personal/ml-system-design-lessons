@@ -63,7 +63,9 @@ export async function listLessons(chapter: string): Promise<LessonMeta[]> {
   try {
     const dirPath = path.join(CONTENT_ROOT, chapter);
     const files = await fs.readdir(dirPath);
-    const mdxFiles = files.filter((f) => f.endsWith(".mdx"));
+    const mdxFiles = files.filter(
+      (f) => f.endsWith(".mdx") && !f.endsWith(".quiz.mdx"),
+    );
     const metas = await Promise.all(
       mdxFiles.map(async (f) => {
         const raw = await fs.readFile(path.join(dirPath, f), "utf-8");
