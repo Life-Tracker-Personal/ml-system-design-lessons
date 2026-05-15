@@ -1,0 +1,583 @@
+---
+lessonId: c1.2
+chapter: 1
+title: Quiz — Regression losses
+description: 12 conceptually difficult questions on MSE, MAE, Huber, and the noise-model view of regression losses.
+estimatedMinutes: 45
+---
+
+These 12 questions probe whether you understand the math behind regression losses, not whether you can name them. Try to answer before revealing.
+
+If you can derive Q1, Q2, Q5, and Q7 from scratch on a whiteboard, you can handle the regression-loss portion of any ML interview.
+
+<Quiz id="1">
+
+**Q1.** Derive from first principles that minimizing mean squared error (MSE) is equivalent to maximum-likelihood estimation under additive Gaussian noise. Show every step. Why does the variance $\sigma^2$ not affect the optimizing parameters?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Setup.** Assume the data-generating process is
+
+$$y_i = \hat{f}_\theta(x_i) + \epsilon_i, \qquad \epsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2)$$
+
+Equivalently, $y_i \mid x_i \sim \mathcal{N}(\hat{f}_\theta(x_i), \sigma^2)$.
+
+**One-example likelihood.**
+
+$$p(y_i \mid x_i, \theta) = \frac{1}{\sqrt{2\pi\sigma^2}} \exp\!\left(-\frac{(y_i - \hat{f}_\theta(x_i))^2}{2\sigma^2}\right)$$
+
+**Joint log-likelihood for $n$ iid examples.**
+
+$$\log L(\theta) = \sum_{i=1}^n \log p(y_i \mid x_i, \theta) = -\frac{n}{2}\log(2\pi\sigma^2) - \frac{1}{2\sigma^2} \sum_{i=1}^n (y_i - \hat{f}_\theta(x_i))^2$$
+
+**Maximize over $\theta$.** The first term doesn't depend on $\theta$, drop it:
+
+$$\hat{\theta}_{\text{MLE}} = \arg\max_\theta\, -\frac{1}{2\sigma^2} \sum_i (y_i - \hat{f}_\theta(x_i))^2 = \arg\min_\theta \sum_i (y_i - \hat{f}_\theta(x_i))^2$$
+
+The factor $1/(2\sigma^2) > 0$ is a positive constant w.r.t. $\theta$, so it can be dropped without changing the argmin. The result is the MSE objective (up to a constant $1/n$ if you average rather than sum). **QED.**
+
+**Why $\sigma^2$ doesn't matter for $\hat{\theta}$.** Because $\sigma^2$ appears only as a *positive multiplicative constant* on the residual-sum-of-squares term. Multiplying an objective by a positive constant doesn't change its minimizer. $\sigma^2$ affects the *value* of the likelihood at the optimum (it's needed to actually compute predictive intervals or to estimate it jointly via MLE) but not the *location* of the optimum.
+
+**Subtle bonus.** Joint MLE for $(\theta, \sigma^2)$ does give an estimate of $\sigma^2$ — it's the residual mean square, $\hat{\sigma}^2 = \tfrac{1}{n}\sum_i \hat{r}_i^2$. So you can recover the noise scale after fitting; you just don't need it during fitting.
+
+**Rubric — full credit:**
+- Write the Gaussian likelihood
+- Take log, drop constants in $\theta$
+- Recognize that maximizing log-likelihood ↔ minimizing the negative
+- Drop the $1/(2\sigma^2)$ factor with justification
+- Land on $\arg\min \sum r_i^2$ (MSE)
+- Articulate that $\sigma^2$ is a positive constant w.r.t. $\theta$ → doesn't affect argmin
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** Repeat the derivation for MAE: show that minimizing MAE is MLE under additive Laplace noise. State the implication for what kind of conditional summary statistic the MAE-optimal model is computing.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Setup.** Assume $y_i = \hat{f}_\theta(x_i) + \epsilon_i$ with $\epsilon_i$ iid Laplace$(0, b)$, density
+
+$$p(\epsilon) = \frac{1}{2b} \exp\!\left(-\frac{|\epsilon|}{b}\right)$$
+
+**One-example log-likelihood.**
+
+$$\log p(y_i \mid x_i, \theta) = -\log(2b) - \frac{|y_i - \hat{f}_\theta(x_i)|}{b}$$
+
+**Joint log-likelihood and MLE.**
+
+$$\log L(\theta) = -n\log(2b) - \frac{1}{b} \sum_i |y_i - \hat{f}_\theta(x_i)|$$
+
+Maximizing over $\theta$ — drop constants in $\theta$, drop the positive constant $1/b$:
+
+$$\hat{\theta}_{\text{MLE}} = \arg\min_\theta \sum_i |y_i - \hat{f}_\theta(x_i)|$$
+
+which is the MAE objective.
+
+**Conditional summary statistic.** Recall that for a random variable $Y$ with distribution $p(Y)$:
+
+- $E[Y]$ minimizes $E[(Y - c)^2]$ — the mean is the optimal squared-error predictor.
+- $\text{median}(Y)$ minimizes $E[|Y - c|]$ — the median is the optimal absolute-error predictor.
+
+Therefore an MAE-optimal model is computing the **conditional median** $\text{median}(Y \mid X = x)$ at each input. The MSE-optimal model is computing the **conditional mean**. These are different functions whenever the conditional distribution is skewed.
+
+**Practical consequence.** For skewed targets like house prices, claim sizes, or latency, MAE-trained models systematically under-predict (because the median is below the mean for right-skewed distributions). That's not a bug — it's correct under the Laplace-noise assumption. The right framing for an interview is: *the loss decides which summary statistic the model is targeting, and you choose accordingly.*
+
+**Rubric:**
+- Laplace density written correctly
+- Drop additive and positive multiplicative constants
+- Land on $\arg\min \sum |r_i|$
+- Identify that MAE-optimal = conditional median (with the parallel: MSE-optimal = conditional mean)
+- Bonus: discuss bias under skewed targets
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** You have 999 training examples with residuals roughly $\pm 1$ and 1 outlier with residual $+100$. Compute the *exact* contribution of the outlier to the gradient under MSE vs MAE, as a fraction of total gradient magnitude. What does this tell you, quantitatively, about robustness?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+Let the per-example loss have gradient $g_i = \partial \mathcal{L}_i / \partial \hat{y}_i$. The total gradient on the prediction has magnitude $|\sum_i g_i|$ but more relevant for influence is the absolute contribution $|g_i|$.
+
+**Under MSE** ($\mathcal{L} = (y - \hat{y})^2$): $g_i = -2(y_i - \hat{y}_i) = -2 r_i$.
+
+- Bulk contribution: 999 examples × $2 \times 1 = 1998$ units of gradient magnitude.
+- Outlier contribution: $1 \times 2 \times 100 = 200$ units.
+- **Outlier fraction:** $200 / (1998 + 200) = 200/2198 \approx 9.1\%$.
+
+The single anomalous example accounts for ~9% of the total optimization signal at this snapshot — it has substantial control over how the model moves.
+
+**Under MAE** ($\mathcal{L} = |y - \hat{y}|$): $g_i = -\text{sign}(y_i - \hat{y}_i) \in \{-1, +1\}$.
+
+- Bulk: $999 \times 1 = 999$ units.
+- Outlier: $1 \times 1 = 1$ unit.
+- **Outlier fraction:** $1 / 1000 = 0.1\%$.
+
+The outlier contributes the same as any other example — its larger residual gets it no extra influence because the gradient is *saturated*.
+
+**Quantitative interpretation.** The outlier has ~91× more influence under MSE than under MAE in this setup. More generally, an outlier with residual $r_o$ relative to bulk residual $r_b$ has influence ratio $\approx |r_o|/|r_b|$ under MSE vs $\approx 1$ under MAE.
+
+**The deeper point.** Robustness isn't a property of the loss in isolation; it's a property of how the loss's gradient magnitude scales with the residual. *Bounded-gradient losses* (MAE, Huber's tail, log-cosh's tail) prevent any single example from dominating. *Unbounded-gradient losses* (MSE) let large residuals seize the gradient.
+
+**Rubric:**
+- Compute MSE bulk + outlier contributions
+- Compute MAE bulk + outlier contributions
+- Get fractions $\sim 9\%$ vs $\sim 0.1\%$ correct
+- Generalize: outlier influence ratio scales with residual under MSE, constant under MAE
+- State the general principle: bounded-gradient ↔ robust
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** MAE is not differentiable at $r = 0$. Define the subgradient there and explain (a) why this isn't fatal for SGD-based optimizers in practice, and (b) what *is* fatal for second-order optimizers like XGBoost.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Subgradient at zero.** For a convex function $f$, the **subgradient** at a point $x_0$ is the set of slopes $g$ such that $f(x) \ge f(x_0) + g(x - x_0)$ for all $x$. At $r = 0$ for $f(r) = |r|$, any slope between $-1$ and $+1$ satisfies this inequality (it's a "supporting line"). So the subgradient set at zero is the closed interval
+
+$$\partial |r|\bigl|_{r=0} = [-1, +1]$$
+
+A common convention is to just pick $0$ (or `sign(0) = 0` numerically) as the subgradient value at zero. Any choice in $[-1, +1]$ is mathematically valid.
+
+**(a) Why this isn't fatal for SGD.** SGD steps are $\theta \leftarrow \theta - \eta g$ where $g$ is a (sub)gradient estimate. Three reasons the kink doesn't break things:
+
+1. **Vanishing probability of exactly hitting zero.** Continuous residuals are almost never exactly zero in floating-point arithmetic. The set $\{r = 0\}$ has measure zero. SGD just doesn't visit the kink.
+2. **Any choice in $[-1, +1]$ is a valid descent direction.** Even if you hit zero exactly, picking $\text{sign}(0) = 0$ as the subgradient is a fine choice — it just means "no update from this example this step."
+3. **Mini-batches average over many examples.** The aggregate gradient over a mini-batch is smooth in expectation even when individual examples sit at kinks.
+
+So in practice, MAE works fine with first-order optimizers like SGD, Adam, etc.
+
+**(b) Why second-order optimizers like XGBoost choke.** Second-order optimizers use the **Hessian** $H = \partial^2 \mathcal{L} / \partial \hat{y}^2$ for Newton-like updates: $\theta \leftarrow \theta - \eta H^{-1} g$. For MAE:
+
+$$\frac{\partial^2 |r|}{\partial r^2} = 0 \quad \text{wherever differentiable}$$
+
+The Hessian is zero almost everywhere. Newton's method divides by zero (or by tiny numbers), which gives infinite or wildly-varying updates. XGBoost specifically computes a per-leaf optimal step using the Hessian; with Hessian = 0, the optimal step is undefined. The library either refuses to optimize ("zero gradient" — confusingly named, it's really "zero Hessian") or defaults to constant updates.
+
+**Fix.** Use **pseudo-Huber loss**:
+
+$$\mathcal{L}_{\text{pHuber}}(r) = \delta^2 \bigl(\sqrt{1 + (r/\delta)^2} - 1\bigr)$$
+
+It's a smooth function that behaves like MSE near zero (quadratic) and like MAE for $|r| \gg \delta$ (linear). It has a well-defined, nonzero Hessian everywhere. XGBoost exposes this as `objective="reg:pseudohubererror"`.
+
+**Rubric:**
+- Define subgradient set as $[-1, +1]$ at $r = 0$
+- Three reasons SGD copes with the kink (measure zero, valid sub-direction, mini-batch smoothing)
+- Identify the Hessian as the problem for second-order methods
+- Show that $\partial^2 |r|/\partial r^2 = 0$ a.e.
+- Propose pseudo-Huber (or equivalent smooth approximation) as the fix
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** Show that Huber loss has a continuous derivative everywhere — including at the threshold $\pm \delta$. Why does this matter operationally?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+Recall the definition:
+
+$$\mathcal{L}_\delta(r) = \begin{cases} \tfrac{1}{2} r^2 & |r| \le \delta \\ \delta\bigl(|r| - \tfrac{1}{2}\delta\bigr) & |r| > \delta \end{cases}$$
+
+**Derivative on each branch.**
+
+- $|r| \le \delta$: $\dfrac{d}{dr}\bigl(\tfrac{1}{2} r^2\bigr) = r$.
+- $r > \delta$: $\dfrac{d}{dr}(\delta r - \tfrac{1}{2}\delta^2) = \delta$.
+- $r < -\delta$: $\dfrac{d}{dr}(-\delta r - \tfrac{1}{2}\delta^2) = -\delta$.
+
+**Check continuity at the join $r = \delta$.**
+
+- Approaching from below ($r \to \delta^-$): derivative $\to \delta$.
+- Approaching from above ($r \to \delta^+$): derivative $= \delta$.
+
+Equal. The derivative is continuous at $r = \delta$. Symmetric argument at $r = -\delta$.
+
+**Continuity of the loss itself at $r = \delta$.**
+
+- Quadratic branch evaluated at $\delta$: $\tfrac{1}{2}\delta^2$.
+- Linear branch evaluated at $\delta$: $\delta(\delta - \tfrac{1}{2}\delta) = \tfrac{1}{2}\delta^2$.
+
+Equal. So the function joins smoothly *and* has matching derivative — it's a $C^1$ function (continuously differentiable everywhere).
+
+**Why this matters operationally.**
+
+1. **No subgradient pathology at the threshold.** Unlike MAE (which has a kink at $r = 0$), Huber has no point where the gradient is multi-valued. First-order optimizers can use the ordinary gradient without special cases.
+2. **Stable second-order optimization.** The Hessian is $1$ inside the quadratic region and $0$ in the linear region. While the Hessian jumps at $\pm\delta$, it's not infinite — second-order methods like Newton or XGBoost can use it (with the caveat that the zero-Hessian region behaves like MAE there). In practice, **pseudo-Huber** is preferred for libraries that need a strictly positive Hessian; classical Huber's piecewise constant Hessian is acceptable for line-search methods.
+3. **Predictable behavior across regimes.** The loss transitions smoothly between "MSE-like" and "MAE-like" — there's no discontinuity that would cause the optimizer to thrash.
+
+**Rubric:**
+- Derive derivative on each branch
+- Evaluate both branches at $r = \delta$, both give $\delta$ → continuous
+- Note loss values also match: $\tfrac{1}{2}\delta^2$ on both sides
+- State this makes Huber $C^1$
+- Operational consequence: no subgradient pathology, gradient-based optimization is straightforward
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** You're training a regression model on a dataset of 1 million examples. Roughly 1% of the labels appear to be corrupted (gross errors). Design a protocol to decide between MSE, MAE, and Huber — and to pick $\delta$ for Huber. What evidence would you gather?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Step 1: characterize the noise.**
+
+Fit a quick model with MSE and look at the residual distribution.
+
+- *Histogram of residuals.* Is the bulk approximately Gaussian (bell-shaped, symmetric)? If yes, MSE's assumption holds for the bulk.
+- *Tail heaviness.* Compare the empirical residual quantiles to a Gaussian fit. If the 99th-percentile residual is much larger than a Gaussian would predict (say, $> 4\sigma$), the tail is heavy.
+- *Robust scale.* Estimate the noise scale via median absolute deviation: $\hat{\sigma}_{\text{MAD}} = 1.4826 \cdot \text{median}(|r_i - \text{median}(r)|)$. MAD is robust to outliers; ordinary std is not. If $\hat{\sigma}_{\text{std}} \gg \hat{\sigma}_{\text{MAD}}$, the std is being inflated by outliers — heavy tail confirmed.
+
+**Step 2: classify outliers as real or corruptions.**
+
+- *Domain check.* Are the outliers real signal (e.g., promotional spikes in revenue, exceptional patients) or corruptions (sensor failures, manual data-entry errors, mislabels)?
+- *If real signal* → consider MSE (you want the model to fit them).
+- *If corruptions* → MAE or Huber (you want the model to ignore them).
+
+This question can't be answered statistically alone; talk to a domain expert.
+
+**Step 3: choose the loss.**
+
+- *~0% gross outliers + approx Gaussian noise* → MSE.
+- *Many gross outliers but bulk is heavy-tailed too* → MAE.
+- *Mostly Gaussian with a heavy tail of corruptions* → Huber (this is the standard "1% gross corruptions" case).
+
+For the 1% gross outlier scenario described in the question, **Huber is the typical answer.**
+
+**Step 4: pick $\delta$ for Huber.**
+
+The classical rule from Huber's 1964 paper: $\delta = 1.345 \cdot \hat{\sigma}_{\text{MAD}}$. This value achieves 95% asymptotic efficiency under pure Gaussian noise — i.e., on clean data, Huber is only 5% less efficient than MSE.
+
+In practice: try $\delta \in \{0.5, 1.0, 1.345, 2.0, 3.0\} \cdot \hat{\sigma}_{\text{MAD}}$ on a held-out validation set, evaluated by a metric that doesn't reward over-fitting to outliers (e.g., 95th-percentile-trimmed RMSE, or RMSE on a labeled-as-clean subset).
+
+**Step 5: validate on a held-out set with known-good labels.** If possible, separate a small validation set whose labels you've manually verified as clean. Comparing MSE, MAE, and Huber on this gold set — rather than the noisy training distribution — gives you the cleanest signal of which choice generalizes.
+
+**Step 6: monitor in production.** Track the residual distribution over time. If the corruption rate changes (say, a new label source comes online), $\delta$ may need re-tuning.
+
+**Rubric:**
+- Examine residual histogram and tails after a quick MSE fit
+- Use median absolute deviation for robust scale estimation
+- Distinguish real outliers from corruptions (domain-expert step)
+- For the 1% gross-corruptions case, choose Huber
+- Initialize $\delta \approx 1.345 \hat{\sigma}_{\text{MAD}}$ from Huber's classical rule
+- Validate on a clean held-out set if possible
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** The pinball (quantile) loss for quantile $q \in (0, 1)$ is
+
+$$\rho_q(r) = \begin{cases} q \cdot r & r \ge 0 \\ (q - 1) \cdot r & r < 0 \end{cases}$$
+
+Show that minimizing $\rho_q$ in expectation makes the optimal prediction the $q$-th conditional quantile. As a corollary, show that $q = 0.5$ recovers MAE up to a constant. What's the practical use case for $q = 0.95$?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Expected loss derivation.** For a fixed prediction $\hat{y}$ and random target $Y$ with CDF $F$ and density $f$:
+
+$$\mathbb{E}_Y[\rho_q(Y - \hat{y})] = q \int_{\hat{y}}^\infty (y - \hat{y}) f(y)\, dy + (q-1) \int_{-\infty}^{\hat{y}} (y - \hat{y}) f(y)\, dy$$
+
+Take the derivative with respect to $\hat{y}$ using Leibniz's rule. The boundary terms at $y = \hat{y}$ in each integral are zero (the integrand vanishes there), so we only need the partials inside:
+
+$$\frac{d}{d\hat{y}} \mathbb{E}[\rho_q] = -q \int_{\hat{y}}^\infty f(y)\, dy - (q - 1) \int_{-\infty}^{\hat{y}} f(y)\, dy$$
+$$= -q(1 - F(\hat{y})) - (q - 1) F(\hat{y})$$
+$$= -q + q F(\hat{y}) - (q - 1) F(\hat{y})$$
+$$= -q + F(\hat{y})$$
+
+Setting this to zero: $F(\hat{y}^*) = q$, i.e., $\hat{y}^*$ is the $q$-th quantile of $Y$. So the minimizer of expected pinball loss is the $q$-th quantile.
+
+**For a regression model**, the same argument applied conditionally on $X = x$ gives: $\hat{f}^*(x) = q\text{-th quantile of } Y \mid X = x$. The pinball-minimizing model is computing the conditional $q$-quantile.
+
+**Corollary: $q = 0.5$ recovers MAE.** Plugging $q = 0.5$ into the definition:
+
+$$\rho_{0.5}(r) = \begin{cases} 0.5 r & r \ge 0 \\ -0.5 r & r < 0 \end{cases} = 0.5 \cdot |r|$$
+
+So $\rho_{0.5}(r) = \tfrac{1}{2}|r|$ — half of the MAE per-example loss. The constant factor doesn't affect the minimizer, so minimizing pinball at $q = 0.5$ is equivalent to minimizing MAE. The minimizer is the conditional median, which agrees with the general result at $q = 0.5$.
+
+**Practical use case for $q = 0.95$.** You're predicting a quantity and want an **upper-bound estimate** that holds 95% of the time — e.g., "we want a latency target such that 95% of requests come in under it." Training a model with pinball loss at $q = 0.95$ gives you that conditional 95th percentile per input.
+
+Common production usage: fit two models, one at $q = 0.05$ and one at $q = 0.95$, to produce a 90% prediction interval per input. Or fit at $q = 0.99$ to predict p99 latency. Or at $q = 0.5$ for a robust point estimate. The same model architecture trained with three different $q$'s gives you a calibrated distribution per input — much richer than a point prediction.
+
+**Bonus: under-prediction and over-prediction asymmetry.** Notice $\rho_q$ is asymmetric: for $q > 0.5$, under-predicting costs more than over-predicting; for $q < 0.5$, the reverse. This makes pinball loss the natural choice when downstream error costs are asymmetric (e.g., under-stocking inventory costs more than over-stocking).
+
+**Rubric:**
+- Set up expected pinball loss as a split integral
+- Differentiate and use $F$ to land on $F(\hat{y}^*) = q$
+- Conclude: minimizer is the $q$-th quantile
+- Show $\rho_{0.5}(r) = 0.5 |r|$, hence equivalence to MAE
+- Practical use case: prediction intervals, p99 latency, asymmetric costs
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** Linear regression with MSE has a closed-form solution $\theta = (X^\top X)^{-1} X^\top y$. Linear regression with MAE does *not*. Why? Be specific about what's different in the optimization problem.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**MSE: why closed form exists.** The MSE objective for linear models is
+
+$$\mathcal{L}(\theta) = \frac{1}{n} \|y - X\theta\|_2^2 = \frac{1}{n}(y - X\theta)^\top(y - X\theta)$$
+
+This is a **convex quadratic function** of $\theta$. Its gradient is *linear* in $\theta$:
+
+$$\nabla_\theta \mathcal{L} = -\frac{2}{n} X^\top (y - X\theta)$$
+
+Setting $\nabla = 0$ yields the **linear system** (the normal equations):
+
+$$X^\top X \theta = X^\top y$$
+
+A linear system in $\theta$ has a closed-form solution (when $X^\top X$ is invertible): $\theta = (X^\top X)^{-1} X^\top y$. The closed form exists because *squaring made the optimality condition linear*.
+
+**MAE: why no closed form.** The MAE objective is
+
+$$\mathcal{L}(\theta) = \frac{1}{n} \|y - X\theta\|_1 = \frac{1}{n} \sum_i |y_i - x_i^\top \theta|$$
+
+This is a piecewise linear function (its graph is made of flat regions joined at the points where some $y_i - x_i^\top \theta = 0$). The gradient is
+
+$$\nabla_\theta \mathcal{L} = -\frac{1}{n} \sum_i \text{sign}(y_i - x_i^\top \theta) \cdot x_i$$
+
+Setting this to zero does *not* give a linear system in $\theta$ because `sign` is a piecewise-constant, non-linear function of $\theta$. The optimality condition reads: "find $\theta$ such that the signed sum of $x_i$ over examples with positive residual equals the signed sum over examples with negative residual" — a combinatorial condition that depends on which residuals are positive at the optimum.
+
+**Equivalent formulations.** MAE minimization can be written as a **linear program**:
+
+$$\min_{\theta, u} \sum_i u_i \quad \text{subject to} \quad -u_i \le y_i - x_i^\top \theta \le u_i$$
+
+with $2n$ inequality constraints and $n + p$ variables. LPs don't have closed-form solutions in general (no inverse-style formula), but they're solvable in polynomial time by simplex or interior-point methods.
+
+**The general principle.** Closed-form solutions for $\arg\min$ problems exist when the optimality condition is a *linear* equation in the parameters. That requires the objective's gradient to be linear, which essentially means the objective is *quadratic* in $\theta$. Anything more exotic (absolute values, sign functions, indicator functions) gives a piecewise structure that doesn't reduce to a single matrix inverse.
+
+**Side note: numerical implications.** For large datasets, even MSE's closed form is rarely used directly — $(X^\top X)^{-1}$ is a $p \times p$ inverse that costs $O(p^3)$ to compute and is numerically unstable when $X^\top X$ is ill-conditioned. Production typically uses iterative methods (conjugate gradient, SGD) for both MSE and MAE. The "MSE has closed form" point is a theoretical convenience that translates to practical convenience only for small linear problems.
+
+**Rubric:**
+- MSE objective is quadratic in $\theta$
+- Its gradient is linear in $\theta$
+- Setting gradient to zero gives normal equations: a linear system
+- Linear system → closed-form inverse
+- MAE objective is piecewise linear
+- Its gradient involves `sign`, which is non-linear in $\theta$
+- Therefore no linear system, no closed form
+- LP reformulation exists (bonus)
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9.** Standardizing features (subtract mean, divide by std) before fitting an MSE regression model gives a model whose predictions, after un-standardizing, are equivalent to fitting on the original scale. Is the same true for Huber loss? Explain.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**MSE is scale-equivariant.** Let $\tilde{x} = (x - \mu)/\sigma$ be the standardized feature and consider the linear model $\hat{y} = \theta_0 + \theta_1 \tilde{x}$ vs the original-scale model $\hat{y} = \beta_0 + \beta_1 x$. They predict the same value when:
+
+$$\beta_1 = \theta_1 / \sigma, \quad \beta_0 = \theta_0 - \theta_1 \mu / \sigma$$
+
+Under MSE, the optimal $\theta$ minimizes $\sum (y_i - \theta_0 - \theta_1 \tilde{x}_i)^2$. Substituting $\tilde{x}_i = (x_i - \mu)/\sigma$ and grouping terms shows the optimum corresponds exactly to the optimal $\beta$ on the original scale. **The relationship is bijective: fitting on standardized features and un-standardizing is equivalent to fitting on original features.** MSE-optimal predictions are invariant to this affine transformation of features.
+
+This is what we mean by *scale-equivariant*: rescale features → rescale parameters → same predictions.
+
+**Why MSE has this property.** The MSE objective depends on features *only through the predictions* $\hat{y}_i = x_i^\top \theta$. The squaring is on the residual $y_i - \hat{y}_i$, which only sees feature-space through $\hat{y}$. So any feature transformation that can be absorbed into $\theta$ (linear transformations, including standardization) doesn't change the optimum's predictions.
+
+**Huber loss inherits this property.** Inspect the Huber loss:
+
+$$\mathcal{L}_\delta(r_i) = \begin{cases} \tfrac{1}{2} r_i^2 & |r_i| \le \delta \\ \delta(|r_i| - \tfrac{1}{2}\delta) & |r_i| > \delta \end{cases}$$
+
+The Huber loss is a function of the **residual** only. Like MSE and MAE, it doesn't see the features directly — only through $\hat{y}$. Since standardization is a linear feature transformation absorbed by $\theta$, the same $\hat{y}$-values (and hence the same residuals) are achievable on either scale.
+
+**However, there's a subtlety with $\delta$.** The Huber threshold $\delta$ is in the same units as the residual $r_i = y_i - \hat{y}_i$, which is in the units of the *target* $y$. Feature standardization doesn't affect the target's units, so $\delta$ doesn't need to change. **But if you *also* standardize the target, $\delta$ would have to be rescaled by the target's std.** This is a common source of confusion.
+
+**General rule.** Any loss that depends on features only through $\hat{y}$ is feature-scale-equivariant for linear models. This includes MSE, MAE, Huber, log-cosh, and pinball. Losses that have an additional hyperparameter in the units of $y$ (like Huber's $\delta$ or ε-insensitive's $\epsilon$) need that hyperparameter rescaled if you also rescale the target.
+
+**Rubric:**
+- MSE-optimal $\theta$ on standardized features ↔ MSE-optimal $\beta$ on original features, with bijection
+- The deeper reason: MSE depends on features only through $\hat{y}$
+- Huber inherits the property because it too depends only on the residual
+- Subtlety: if you rescale the *target*, $\delta$ also rescales
+- General rule: any residual-only loss is feature-scale-equivariant
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10.** You configure XGBoost with `objective="reg:absoluteerror"` (MAE). The library prints a warning that "MAE has zero gradient" and refuses to train. Explain precisely what's wrong (it isn't actually zero gradient) and propose two distinct fixes.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The library is misnaming the problem.** The MAE *gradient* is $\partial |r|/\partial r = \text{sign}(r) \in \{-1, +1\}$ — definitely **not** zero. What XGBoost actually needs (and finds missing) is the **Hessian**:
+
+$$\frac{\partial^2 |r|}{\partial r^2} = 0 \quad \text{(wherever defined)}$$
+
+XGBoost's tree-fitting algorithm (and the gradient-boosting framework generally) uses a Newton-style approximation. For each candidate leaf, the optimal leaf value $v^*$ is chosen as:
+
+$$v^* = -\frac{\sum_{i \in \text{leaf}} g_i}{\sum_{i \in \text{leaf}} h_i + \lambda}$$
+
+where $g_i$ are gradients and $h_i$ are Hessians, and $\lambda$ is a regularization term. For MAE, $h_i = 0$ everywhere, so the denominator collapses to $\lambda$ (or 0 if no regularization), and the algorithm either thrashes or refuses.
+
+The library's "zero gradient" wording is colloquial — it really means "the second-order information needed for tree fitting is missing."
+
+**Fix 1: pseudo-Huber loss.**
+
+$$\mathcal{L}_{\text{pHuber}}(r) = \delta^2 \bigl(\sqrt{1 + (r/\delta)^2} - 1\bigr)$$
+
+This is a smooth approximation to Huber. Its Hessian is
+
+$$\frac{\partial^2 \mathcal{L}_{\text{pHuber}}}{\partial r^2} = \frac{1}{(1 + (r/\delta)^2)^{3/2}}$$
+
+which is strictly positive everywhere and never zero. XGBoost happily uses it as `objective="reg:pseudohubererror"` with a tunable `huber_slope` parameter (their name for $\delta$). Behaves like MSE for $|r| \ll \delta$ and like MAE for $|r| \gg \delta$.
+
+**Fix 2: quantile loss at $q = 0.5$.**
+
+XGBoost supports quantile loss via `objective="reg:quantileerror"`. The pinball loss at $q = 0.5$ is equivalent to MAE up to a constant, *but* XGBoost's quantile implementation uses a different leaf-selection rule — it computes the exact quantile of residuals in each leaf (a sorting operation, not a Hessian-based step). So this avoids the Hessian-zero problem by sidestepping the algorithm that needs it.
+
+**Bonus fix 3: LightGBM has true MAE support.**
+
+LightGBM uses a slightly different tree-fitting approach that can handle zero-Hessian losses by approximating the second-order step heuristically. Its `objective="regression_l1"` works directly. If you must use exact MAE, switch libraries — different implementations of GBDT make different second-order tradeoffs.
+
+**Rubric:**
+- Identify that the library's "zero gradient" message is misleading; the actual problem is zero Hessian
+- Show $\partial^2 |r|/\partial r^2 = 0$
+- Explain how XGBoost uses the Hessian for leaf-value optimization
+- Propose pseudo-Huber as fix 1, with the smooth-Hessian property
+- Propose quantile-loss as fix 2, with the algorithm-not-using-Hessian explanation
+- Bonus: LightGBM's heuristic L1 implementation
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11.** Construct a dataset and a specific $\delta$ for which Huber loss is *strictly worse* than either pure MSE or pure MAE alone — i.e., where the hybrid offers no benefit. What does this tell you about choosing $\delta$?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+The Huber benefit depends on the residual distribution having two regimes: a Gaussian-like bulk and a heavy tail. If the residuals are *uniformly* in one regime, picking the wrong $\delta$ leaves you with a worse compromise than either extreme.
+
+**Case A: bulk-only residuals.** Suppose all residuals are roughly $\pm 0.5$, with no heavy tail. Pick $\delta = 0.1$ — well below the bulk.
+
+- The quadratic region $|r| \le 0.1$ is rarely entered. Most residuals are in the linear region: $|r| > \delta$.
+- Effectively pure MAE for most examples.
+- But MSE would have been the better choice on this clean data — the bulk would benefit from quadratic gradient signal.
+- **Worse than MSE, no better than MAE.** Strictly dominated by MSE.
+
+**Case B: outlier-only residuals.** Suppose all residuals are huge (e.g., $\pm 100$), perhaps because the model has a systematic bias and the data is in totally different units than expected. Pick $\delta = 10$ — below all residuals.
+
+- Again, the quadratic region is rarely entered.
+- Effectively pure MAE.
+- But here, MAE was already the right choice — the linear gradient handles the data well.
+- **No worse than MAE, but also no better.** No benefit from the hybrid.
+
+**Case C: mismatched $\delta$.** Bulk residuals are $\pm 5$, outliers are $\pm 100$, and you pick $\delta = 50$ (between the bulk and outliers but closer to outliers).
+
+- The quadratic region covers everything up to $\pm 50$, which includes both the bulk *and the outliers up to that point*. Outliers get squared treatment — exactly what you wanted to avoid.
+- Effectively pure MSE on most of the data; only the most extreme outliers ($|r| > 50$) get linear treatment.
+- **Worse than properly-tuned Huber.** The hyperparameter undershot the actual outlier threshold.
+
+**What this tells you about choosing $\delta$.**
+
+1. **$\delta$ has to be tuned to the actual residual distribution.** Picking it from intuition without looking at residuals is a recipe for hybrid-loss failure.
+2. **The right $\delta$ sits *between* the bulk-residual scale and the outlier scale.** If your bulk has scale $\hat{\sigma}_{\text{MAD}}$ and your outliers are 10$\times$ that, $\delta \approx 1$–$3 \cdot \hat{\sigma}_{\text{MAD}}$ keeps the bulk quadratic and outliers linear.
+3. **Huber is not a free win.** It's a *targeted* tool. If your noise is purely Gaussian or purely Laplace, pick the corresponding loss; don't reach for Huber as a hedge.
+4. **The classical $\delta = 1.345 \cdot \hat{\sigma}_{\text{MAD}}$ is a starting point, not a final value.** It's calibrated for 95% asymptotic efficiency under a specific contamination model. Validate on your dataset.
+
+**Rubric:**
+- Construct at least one dataset where mistuned $\delta$ makes Huber strictly worse
+- Articulate that Huber assumes a *two-regime* residual distribution
+- $\delta$ must lie between the bulk scale and the outlier scale
+- Reject Huber as a "default" — it's a targeted tool
+- Note the classical rule $\delta = 1.345 \hat{\sigma}_{\text{MAD}}$ as a starting point but not gospel
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12.** Show that log-cosh loss is approximately quadratic near zero and approximately linear far from zero. Then argue: why might you prefer log-cosh over Huber in practice?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Definition.** $\mathcal{L}(r) = \log(\cosh(r))$ where $\cosh(r) = (e^r + e^{-r})/2$.
+
+**Behavior near zero.** Taylor-expand $\cosh(r)$ around $r = 0$:
+
+$$\cosh(r) = 1 + \frac{r^2}{2} + \frac{r^4}{24} + O(r^6)$$
+
+So
+
+$$\log(\cosh(r)) = \log\!\left(1 + \frac{r^2}{2} + \frac{r^4}{24} + \cdots\right)$$
+
+Using the Taylor expansion of $\log(1 + u) = u - u^2/2 + O(u^3)$ with $u = r^2/2 + O(r^4)$:
+
+$$\log(\cosh(r)) = \frac{r^2}{2} - \frac{r^4}{12} + O(r^6)$$
+
+For small $|r|$, the leading term is $r^2/2$ — **the same as MSE/2**. So near zero, log-cosh behaves like a scaled MSE.
+
+**Behavior for large $|r|$.** For large $|r|$, $\cosh(r) \approx e^{|r|}/2$ (one of the two exponentials dominates), so
+
+$$\log(\cosh(r)) \approx \log\!\left(\frac{e^{|r|}}{2}\right) = |r| - \log 2$$
+
+For large $|r|$, log-cosh is **linear** in $|r|$, like MAE (offset by a constant $-\log 2$ that doesn't affect optimization).
+
+**Gradient and Hessian.**
+
+$$\frac{d\mathcal{L}}{dr} = \tanh(r), \qquad \frac{d^2 \mathcal{L}}{dr^2} = 1 - \tanh^2(r) = \text{sech}^2(r)$$
+
+The gradient is bounded in $(-1, +1)$ — same as MAE's saturation, but smooth. The Hessian is strictly positive everywhere ($> 0$), unlike Huber's Hessian which is exactly zero in the linear region. This is the key advantage.
+
+**Why prefer log-cosh over Huber.**
+
+1. **No hyperparameter.** Huber has $\delta$; log-cosh has nothing. The transition between quadratic and linear regimes happens at $|r| \approx 1$ for log-cosh, which means you should standardize your residuals (or your target) before using it. But once standardized, there's no tuning.
+2. **Smooth Hessian everywhere.** $\text{sech}^2(r) > 0$ for all $r$, so second-order optimizers (Newton, XGBoost) have a non-degenerate Hessian everywhere. Huber's Hessian is exactly zero outside $|r| \le \delta$ — XGBoost can use Huber, but the leaf-value optimization in the linear region is then governed by regularization alone.
+3. **Infinitely differentiable.** Useful for higher-order optimizers (rare but exists) or when you want to differentiate through the loss in a meta-learning setup.
+
+**Why prefer Huber over log-cosh.**
+
+1. **Computational simplicity.** Huber is a single comparison; log-cosh requires `cosh` and `log`, both more expensive operations.
+2. **Tunable robustness.** $\delta$ in Huber gives explicit control over where the regime shift happens. Log-cosh's transition is fixed (around $|r| \approx 1$), so you have to set the scale through standardization.
+3. **Long history and widespread analysis.** Huber's robust-statistics literature gives you rules of thumb (the 1.345 rule, 95% efficiency, breakdown analysis); log-cosh's literature is thinner.
+
+**Practical recommendation.** Use Huber when you can choose and tune $\delta$ and need explicit outlier control. Use log-cosh when you want a no-tuning, smooth-Hessian alternative that's compatible with any second-order optimizer.
+
+**Rubric:**
+- Taylor expansion near zero: $\log(\cosh(r)) \approx r^2/2$
+- Asymptotic behavior far from zero: $\log(\cosh(r)) \approx |r| - \log 2$
+- Compute gradient $\tanh(r)$ and Hessian $\text{sech}^2(r)$
+- Note that Hessian is strictly positive everywhere
+- Compare to Huber: no hyperparameter, smooth Hessian, but more expensive to compute
+- Bonus: discuss when each is preferred
+
+</details>
+
+</Quiz>
