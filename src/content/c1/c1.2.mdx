@@ -1,0 +1,313 @@
+---
+id: c1.2
+chapter: 1
+title: Regression losses
+subtitle: MSE, MAE, Huber — derived from noise models
+refs: [16, 17, 18]
+estimatedMinutes: 60
+---
+
+## TL;DR
+
+Every regression loss function is **secretly a statement about what the noise in your data looks like**. MSE is MLE under Gaussian noise; MAE is MLE under Laplace noise; Huber is what you reach for when noise is mostly Gaussian but has a heavy tail of outliers. Choosing a loss is choosing a noise model — and the choice changes outlier sensitivity, optimization difficulty, and the very meaning of "best fit."
+
+## What you'll be able to do after this lesson
+
+- Derive that minimizing MSE is equivalent to maximum-likelihood estimation (MLE) under additive Gaussian noise.
+- Derive the same equivalence between MAE and Laplace noise.
+- Compute the gradient (or subgradient) of each loss, and predict how each will behave on a dataset with 1% gross outliers.
+- Define Huber loss, prove that its gradient is continuous at the threshold $\delta$, and pick $\delta$ for a given dataset.
+- Recognize quantile (pinball) loss, log-cosh, and ε-insensitive loss, and say *which noise model each corresponds to*.
+- Diagnose why "my MAE loss in XGBoost isn't training" and propose a fix.
+- Defend a loss choice in an interview by referring to the data's noise structure rather than to muscle memory.
+
+## Why losses come before models
+
+In Chapter 1 of every ML course (and most production code), the first piece of code anyone writes is `model.fit(X, y)`. The choice of *what `.fit` is actually optimizing* — the loss function — usually defaults to whatever the library picked. For a senior interview, that default is the wrong answer twice:
+
+1. **The loss is the spec.** It's the formal statement of what "good predictions" means. Two models with the same architecture trained with different losses are different functions of the data.
+2. **The loss encodes assumptions about the noise.** When the noise model is wrong, the "optimal" model is the wrong model — and the failure modes (sensitivity to outliers, biased predictions, training instability) follow directly from the mismatch.
+
+So we treat losses as first-class, *before* picking model families.
+
+> **Vocabulary primer.** A short grounding of words this lesson uses constantly. The "rusty staff engineer" assumption from c1.1 still applies.
+>
+> - **Loss function** $\mathcal{L}(y, \hat{y})$ — a scalar measure of how wrong a single prediction is. The *training loss* is the average (or sum) of $\mathcal{L}$ over the training set.
+> - **Residual** $r_i = y_i - \hat{y}_i$ — the signed error on example $i$.
+> - **MLE** — Maximum Likelihood Estimation. The classical procedure for fitting model parameters: pick parameters that make the observed data most probable under the model.
+> - **Gradient** — the partial derivative of the loss with respect to the model's parameters. Almost every modern optimizer follows the negative gradient downhill.
+> - **Subgradient** — a generalization of the gradient that's defined for non-smooth functions (functions with kinks, like $|x|$). At a kink, the subgradient is a *set* of slopes rather than a single value.
+> - **Outlier** — an example whose label is far from what the model would predict given its features. Often (not always) due to measurement error or labeling mistake.
+
+## The big idea: every regression loss is a noise model
+
+This single observation organizes the rest of the lesson.
+
+Suppose you assume that the true relationship between features $x$ and label $y$ is
+
+$$y = f^\star(x) + \epsilon, \qquad \epsilon \sim p_\text{noise}$$
+
+where $f^\star$ is the (unknown) true function and $\epsilon$ is a random noise term drawn from some distribution $p_\text{noise}$. If you fit a model $\hat{f}_\theta(x)$ with parameters $\theta$ by maximizing the likelihood of the observed data:
+
+$$\hat{\theta}_{\text{MLE}} = \arg\max_\theta \prod_{i=1}^n p_\text{noise}(y_i - \hat{f}_\theta(x_i))$$
+
+then taking the negative log of the product turns it into a sum, and the *form* of the loss you end up minimizing depends entirely on $p_\text{noise}$:
+
+$$-\log \prod_i p_\text{noise}(r_i) = -\sum_i \log p_\text{noise}(r_i)$$
+
+So if $p_\text{noise}$ is Gaussian, $\log p_\text{noise}(r) = -r^2 / (2\sigma^2) + \text{const}$, and you're minimizing $\sum r_i^2$ — that's MSE. If $p_\text{noise}$ is Laplace, $\log p_\text{noise}(r) = -|r|/b + \text{const}$, and you're minimizing $\sum |r_i|$ — that's MAE. **The choice of loss is the choice of noise distribution.** Every regression loss in this lesson is a special case of this template.
+
+> **Stop and think.** If the noise distribution is something else entirely — say, Student-$t$ with $\nu$ degrees of freedom — what loss would MLE prescribe? *Hint:* $-\log p_\nu(r) = \frac{\nu + 1}{2}\log(1 + r^2/\nu) + \text{const}$. This is "robust regression" and we'll meet a numerical cousin (log-cosh) below.
+
+## Mean squared error (MSE)
+
+### Definition
+
+$$\mathcal{L}_{\text{MSE}}(y, \hat{y}) = \frac{1}{n} \sum_{i=1}^n (y_i - \hat{y}_i)^2$$
+
+You'll also see this written as **squared error** (the per-example version $(y - \hat{y})^2$), **L2 loss**, or **quadratic loss**. The constant $1/n$ doesn't change the location of the minimum; some sources omit it or use $1/(2n)$ to make the gradient cleaner.
+
+### Derivation as MLE under Gaussian noise
+
+Assume $y_i = \hat{f}_\theta(x_i) + \epsilon_i$ with $\epsilon_i \sim \mathcal{N}(0, \sigma^2)$ i.i.d. Then the likelihood of one example is
+
+$$p(y_i \mid x_i, \theta) = \frac{1}{\sqrt{2\pi \sigma^2}} \exp\!\left(-\frac{(y_i - \hat{f}_\theta(x_i))^2}{2\sigma^2}\right)$$
+
+The log-likelihood of the dataset:
+
+$$\log L(\theta) = -\frac{n}{2}\log(2\pi\sigma^2) - \frac{1}{2\sigma^2} \sum_{i=1}^n (y_i - \hat{f}_\theta(x_i))^2$$
+
+Maximizing $\log L(\theta)$ over $\theta$ is equivalent to minimizing $\sum_i (y_i - \hat{f}_\theta(x_i))^2$ — exactly the MSE objective. The variance $\sigma^2$ doesn't affect the minimizing $\theta$; it only rescales the loss.
+
+**Conclusion: minimizing MSE = MLE under Gaussian noise of any fixed variance.**
+
+### Gradient
+
+For a single example, $\mathcal{L} = (y - \hat{y})^2$ where $\hat{y} = \hat{f}_\theta(x)$:
+
+$$\frac{\partial \mathcal{L}}{\partial \hat{y}} = -2(y - \hat{y}) = -2 r$$
+
+(Here $r = y - \hat{y}$ is the residual.) So **the gradient signal scales linearly with the residual.** Bigger errors push harder.
+
+### Outlier sensitivity, quantified
+
+The linear-in-residual gradient is why MSE is fragile against outliers. Suppose you have 999 examples with residual roughly 1 and one example with residual 100 (an outlier). The gradient contribution from the bulk is $999 \times 2 = 1998$. The contribution from the single outlier is $2 \times 100 = 200$ — that single example's gradient is **10% as influential as the entire well-behaved dataset combined.**
+
+Squared loss values it even more: $\sum r_i^2$ on the bulk is $999$; on the outlier alone is $10000$. The single outlier *dominates* the loss numerically.
+
+This isn't a bug; it's the consequence of assuming Gaussian noise. Gaussians have light tails — they assign vanishingly small probability to large residuals — so a large residual is interpreted as "this *can't* be normal noise; my model must be way off." The optimizer dutifully bends the model to reduce that one residual.
+
+### Why MSE has a closed-form solution for linear models
+
+Linear regression $\hat{y} = X\theta$ with MSE gives:
+
+$$\nabla_\theta \mathcal{L} = -\frac{2}{n} X^\top (y - X\theta) = 0 \implies X^\top X \theta = X^\top y \implies \theta = (X^\top X)^{-1} X^\top y$$
+
+The closed form exists because squaring makes the objective a quadratic in $\theta$, whose gradient is linear. **Linear gradient → linear system → closed form.** No iterative optimizer needed.
+
+### When MSE is the right choice
+
+- Noise is approximately Gaussian (often a defensible default when residuals are due to many small independent effects — central-limit-theorem reasoning).
+- Outliers are rare and you want them to pull the model toward them (e.g., you suspect they're real signal, not bad labels).
+- You need a closed-form fit (small linear models, online learning with rapid retraining).
+- The downstream cost of error is genuinely quadratic. Optimal portfolio variance, Bayesian quadratic loss, etc.
+
+## Mean absolute error (MAE)
+
+### Definition
+
+$$\mathcal{L}_{\text{MAE}}(y, \hat{y}) = \frac{1}{n} \sum_{i=1}^n |y_i - \hat{y}_i|$$
+
+Also called **L1 loss**.
+
+### Derivation as MLE under Laplace noise
+
+The Laplace distribution (also "double-exponential") has density
+
+$$p_\text{Laplace}(r) = \frac{1}{2b} \exp\!\left(-\frac{|r|}{b}\right)$$
+
+The log-likelihood of one example is then $-\log(2b) - |r|/b$. Summing over examples and dropping constants:
+
+$$\log L(\theta) = -\text{const} - \frac{1}{b} \sum_{i=1}^n |y_i - \hat{f}_\theta(x_i)|$$
+
+Maximizing this is equivalent to minimizing $\sum |r_i|$ — the MAE objective.
+
+**Conclusion: minimizing MAE = MLE under Laplace noise.**
+
+Laplace has *heavier tails* than Gaussian — it assigns much more probability to large residuals. So when you assume Laplace noise, you're saying "occasional large errors are normal; don't bend the model to chase them."
+
+### Subgradient
+
+The function $|r|$ is differentiable everywhere except at $r = 0$. Its derivative is the **sign function**:
+
+$$\frac{d|r|}{dr} = \text{sign}(r) = \begin{cases} +1 & r > 0 \\ -1 & r < 0 \\ \text{undefined} & r = 0 \end{cases}$$
+
+At $r = 0$ specifically, $|r|$ has a kink (a corner), and the derivative isn't a single number. The **subgradient** at this kink is the *set* of all slopes of lines that lie below the function and touch it at zero: the interval $[-1, +1]$. Any value in $[-1, +1]$ is a valid subgradient at zero.
+
+For the chain-rule gradient with respect to model parameters $\theta$:
+
+$$\frac{\partial \mathcal{L}}{\partial \theta} = -\text{sign}(r) \cdot \frac{\partial \hat{f}_\theta(x)}{\partial \theta}$$
+
+**Key property: the gradient magnitude is constant** (either $+1$ or $-1$ times the model-Jacobian). The gradient doesn't grow with the residual — large residuals exert the same force as small ones. That's the source of MAE's outlier robustness.
+
+### Outlier robustness, quantified
+
+Back to the 999-vs-1 example. With MAE, the gradient contribution from the bulk (residuals $\approx 1$) is $999 \times 1 = 999$. The contribution from the outlier (residual = 100) is just $1 \times 1 = 1$. The outlier is now **0.1% of the gradient signal**, not 10%. 100× less influence than under MSE.
+
+### Why MAE doesn't have a closed-form solution for linear models
+
+The MAE gradient is $-\text{sign}(r) X$ for linear regression. Setting it to zero doesn't give a linear system — `sign` is non-linear. The MAE optimum corresponds to the **conditional median** of $y$ given $X$, and there's no closed-form expression for the conditional-median parameters of a linear model.
+
+You instead use iterative methods: linear programming, IRLS (iteratively reweighted least squares), or subgradient descent. Tractable but slower than MSE's matrix inverse.
+
+### Why MAE is the median, MSE is the mean
+
+A useful intuition: if you have to predict a single number $\hat{y}$ for a distribution of true labels $Y$:
+
+- The value that minimizes $E[(Y - \hat{y})^2]$ is $\hat{y} = E[Y]$ — the **mean**.
+- The value that minimizes $E[|Y - \hat{y}|]$ is $\hat{y} = \text{median}(Y)$ — the **median**.
+
+This is why MSE-trained regression models predict conditional means and MAE-trained regression models predict conditional medians. In a skewed distribution (income, claim sizes, latency), these can be very different — and the right choice depends on what you're trying to measure.
+
+### When MAE is the right choice
+
+- Noise is heavy-tailed (Laplace-ish) or includes occasional gross errors.
+- You're predicting a quantity whose median is more meaningful than its mean (latency p50, median home price).
+- Labels are noisy or contain mistakes — MAE won't over-react.
+- Downstream cost is roughly linear in error.
+
+## Huber loss
+
+### Motivation
+
+You have noise that's *mostly* Gaussian but has a fat tail of gross outliers — e.g. sensor readings that are usually accurate but occasionally garbled. MSE will be pulled around by the outliers; MAE will give up the efficiency of squared-loss optimization in the bulk. **Huber is the hybrid: quadratic in the middle, linear in the tails.**
+
+Formally, with threshold $\delta > 0$:
+
+$$\mathcal{L}_\delta(r) = \begin{cases} \tfrac{1}{2} r^2 & |r| \le \delta \\ \delta\bigl(|r| - \tfrac{1}{2}\delta\bigr) & |r| > \delta \end{cases}$$
+
+### Properties
+
+**Continuity at the threshold.** At $r = \delta$:
+
+- Quadratic branch: $\tfrac{1}{2}\delta^2$.
+- Linear branch: $\delta(\delta - \tfrac{1}{2}\delta) = \tfrac{1}{2}\delta^2$.
+
+Equal. The function joins smoothly at $\pm\delta$.
+
+**Gradient continuity at the threshold.** Differentiating each branch w.r.t. $r$:
+
+- Quadratic: $\dfrac{d}{dr}(\tfrac{1}{2} r^2) = r$.
+- Linear (for $r > \delta$): $\dfrac{d}{dr}(\delta r - \tfrac{1}{2}\delta^2) = \delta$.
+
+At $r = \delta$, both branches give a derivative of $\delta$. The gradient is continuous — no kink, no jump, no subgradient pathology. Same on the negative side at $r = -\delta$. This is why Huber is *the* loss for gradient-based optimizers that don't want to deal with `sign(0)`.
+
+**Behavior far from / near zero.**
+
+- $|r| \ll \delta$: behaves like MSE/2. Quadratic. Sensitive to gradient signal scaling with residual size.
+- $|r| \gg \delta$: behaves like $\delta \cdot |r|$. Linear. Outlier-robust.
+
+### Choosing $\delta$
+
+The standard rule of thumb: pick $\delta$ to be the $\approx$95th percentile of "honest" residuals — so that 95% of residuals get squared treatment and the heavy-tailed 5% gets linear treatment. In practice:
+
+1. Fit the model with MSE for a quick first pass.
+2. Look at the residual distribution. Estimate the noise scale $\hat{\sigma}$ from the median absolute deviation (MAD) or the standard deviation of the bulk.
+3. Set $\delta \approx 1.345 \hat{\sigma}$ (the value that achieves 95% asymptotic efficiency under pure Gaussian noise, from Huber's original paper).
+4. Refit with Huber and the chosen $\delta$.
+
+If $\delta$ is too small, Huber approaches MAE — you lose the smooth-quadratic efficiency on the bulk. If $\delta$ is too large, Huber approaches MSE — outliers regain their grip. The sweet spot is data-dependent.
+
+### When Huber is the right choice
+
+- Noise is dominated by a Gaussian bulk but you have a known minority of outliers (sensor errors, fraud anomalies in regression labels).
+- You want a smooth gradient everywhere (for gradient boosting or neural nets).
+- You're willing to tune one extra hyperparameter ($\delta$).
+
+## Beyond the basics
+
+Three losses you should recognize even if you don't use them daily.
+
+### Quantile (pinball) loss
+
+For a quantile level $q \in (0, 1)$:
+
+$$\rho_q(r) = \begin{cases} q \cdot r & r \ge 0 \\ (q - 1) \cdot r & r < 0 \end{cases}$$
+
+This is the loss that, minimized, gives a regression model predicting the **$q$-th quantile** of $Y \mid X$ rather than the mean or median. Useful when:
+
+- You need *prediction intervals* — fit one model at $q = 0.05$ and another at $q = 0.95$ to get a 90% interval per row.
+- The distribution is skewed and you want a specific quantile (e.g., p99 latency).
+- Asymmetric error costs — under-predicting demand may be 3× worse than over-predicting; quantile loss handles this naturally.
+
+**Special case $q = 0.5$:** $\rho_{0.5}(r) = 0.5 |r|$ — half of MAE. So minimizing pinball at $q = 0.5$ is equivalent to minimizing MAE, and you recover the median predictor.
+
+### log-cosh
+
+$$\mathcal{L}_{\text{logcosh}}(r) = \log(\cosh(r))$$
+
+Recall $\cosh(r) = (e^r + e^{-r})/2$. Behavior:
+
+- Near zero: Taylor expansion gives $\log(\cosh(r)) \approx r^2/2 - r^4/12 + \ldots$ — quadratic like MSE.
+- Far from zero: $\log(\cosh(r)) \to |r| - \log 2$ — linear like MAE.
+
+So log-cosh is a *smooth*, *everywhere-differentiable* hybrid of MSE and MAE. It has no kinks (unlike Huber's analytical join) and no threshold hyperparameter. Cost: slightly more compute per gradient step.
+
+### ε-insensitive (Vapnik) loss
+
+Used in support vector regression (SVR):
+
+$$\mathcal{L}_\epsilon(r) = \max(0, |r| - \epsilon)$$
+
+Predictions within $\epsilon$ of the true label contribute *zero* loss. Beyond that, the loss is linear in the residual. Encourages a model that "fits the tube" rather than the exact line. Used when you want a sparse-support, robust regression and don't care about residuals below a noise threshold.
+
+## Tradeoff matrix
+
+| Loss | Noise model | Predicts | Outlier sensitivity | Differentiable everywhere | Closed-form linear fit |
+|---|---|---|---|---|---|
+| MSE | Gaussian | Conditional mean | High | Yes | Yes |
+| MAE | Laplace | Conditional median | Low | No (kink at 0) | No |
+| Huber | Gaussian + heavy tail | Mix (depends on $\delta$) | Low for $\|r\| > \delta$ | Yes | No |
+| log-cosh | Smooth hybrid | Mix | Low | Yes | No |
+| Pinball ($q$) | Asymmetric Laplace | Conditional $q$-quantile | Low | No (kink at 0) | No |
+| ε-insensitive | "Don't care" tube | Tube center | Low | No (kinks at $\pm \epsilon$) | No (SVR has its own optimizer) |
+
+## Worked decision walk-throughs
+
+**Scenario A: predicting house sale prices.** Labels in the long upper tail (mansions, luxury sales) skew the distribution. **MSE** would chase those mansions and inflate predictions on ordinary homes. **MAE** predicts the median sale price — much closer to what you actually want for typical valuations. Most production models in this domain use MAE or quantile loss (for confidence intervals).
+
+**Scenario B: forecasting daily ad revenue, $\sigma \approx \$10\text{k}$ per day under normal conditions; once a month there's a $\$200\text{k}$ promotional spike.** Promotional spikes are real, not measurement errors — you don't want to entirely ignore them. **MSE** lets them dominate and biases the model. **MAE** treats them like normal residuals — under-fits them. **Huber** with $\delta \approx \$15\text{k}$: squared treatment on normal days, linear treatment on promotional days. The model fits the bulk well and tolerates spikes without chasing them.
+
+**Scenario C: tabular regression with XGBoost, you want MAE for outlier robustness.** Gradient boosting needs a non-zero gradient to do anything. MAE's gradient is $\pm 1$ — *technically* nonzero, but XGBoost's second-order method uses the Hessian, which is zero for MAE. The library will warn you that MAE has "zero gradient" (it means zero Hessian) and refuse to optimize. The fix is **pseudo-Huber loss**, $\mathcal{L}(r) = \delta^2\bigl(\sqrt{1 + (r/\delta)^2} - 1\bigr)$ — a smooth approximation of Huber that has a usable Hessian. XGBoost ships this as `reg:pseudohubererror`.
+
+**Scenario D: latency prediction, you care about p99 not p50.** Use **pinball loss at $q = 0.99$**. Reports the conditional 99th-percentile latency, not the median.
+
+## Production failure modes
+
+1. **MSE on rare-but-real spikes.** You're predicting daily revenue. The Black Friday outlier dominates training, your weekday predictions become inflated, weekday MAPE doubles.
+2. **MAE chosen for "robustness," then XGBoost refuses to train.** Hessian is zero; library throws. Pseudo-Huber is the fix.
+3. **Huber with the wrong $\delta$.** $\delta$ chosen by intuition (e.g., $\delta = 1.0$) on a dataset where the residual scale is $\hat{\sigma} = 50$. Effectively pure MAE. The bulk of residuals never gets quadratic treatment, optimization is slower and less efficient than needed.
+4. **Squared-error metric reported, MAE optimized.** Common when teams switch losses mid-project but keep reporting RMSE for legacy reasons. Reported metric stops corresponding to the model objective.
+5. **Predicting medians, downstream system expects means.** A pricing pipeline trained with MAE produces median price predictions; an aggregator multiplies by volume to estimate revenue, which is a mean operation. Result: systematically biased revenue estimates because $\sum \text{median}_i \ne \text{median}\sum$.
+
+## Interview gotchas
+
+- "Which loss should I use for regression?" — interviewers want you to answer "what does the noise look like?" not "MSE because it's the default."
+- "Why is MAE more robust than MSE?" — they want the *gradient* explanation (constant vs linear-in-residual) plus the *probabilistic* one (heavier-tailed noise model).
+- "How would you give me a prediction interval, not a point prediction?" — quantile loss at $q = 0.05$ and $q = 0.95$. Bonus: discuss calibration of the interval.
+- "Your XGBoost MAE isn't training — what's wrong?" — Hessian is zero. Use pseudo-Huber. Whether you can explain *why* MAE has zero Hessian on the spot (because $\partial^2 |r| / \partial r^2 = 0$ everywhere except the kink) is the differentiator.
+- "When would you actively choose MSE despite outliers being present?" — when the outliers are real signal (e.g., financial returns: a 10% day matters disproportionately and you *want* the model to fit it).
+
+## Take the quiz
+
+Twelve conceptually difficult questions on regression-loss theory: derivations, gradient counter-examples, library-specific debugging. **[Take the quiz →](/c/c1/c1.2/quiz)**
+
+## Cited references
+
+- Ref 16 — *Mean squared error* (Wikipedia) — `c1/references/16_mse.html`
+- Ref 17 — *Mean absolute error* (Wikipedia) — `c1/references/17_mae.html`
+- Ref 18 — *Huber loss* (Wikipedia) — `c1/references/18_huber_loss.html`
+
+External works:
+- Huber, P. J. 1964. "Robust estimation of a location parameter." *Annals of Mathematical Statistics.* The original paper that introduced the Huber loss and the 95% asymptotic efficiency rule.
+- Koenker, R. and Bassett, G. 1978. "Regression quantiles." *Econometrica.* The foundation of quantile regression and the pinball loss.
