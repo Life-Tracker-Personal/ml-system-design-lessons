@@ -516,3 +516,28 @@ Formally: let $f_e(\cdot)$ be the time-series of feature values for entity $e$, 
 </details>
 
 </Quiz>
+
+## Rapid-fire: sampling & class imbalance
+
+Additional interview-calibrated questions — the ones that tend to separate candidates at top-tier ML interviews (Anthropic, Meta, frontier startups, quant funds). No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
+
+1. **Unbiased for what?** When you draw mini-batches uniformly from the training set, what objective are the gradients an unbiased estimate of? If you instead force 50/50 batches on a 95/5 dataset, what objective are you *now* implicitly optimizing — and how do importance weights restore the original one?
+2. **Oversampling vs. loss weighting.** In expectation, when is duplicating minority examples mathematically equivalent to up-weighting the minority term in the loss? Where do the two diverge — variance, compute, overfitting?
+3. **Why oversampling adds no information.** Explain why plain oversampling cannot create new information and tends to overfit. Define "effective sample size" / effective diversity, and say what actually increases it.
+4. **The 95%-accuracy trap.** A model on a 5%-positive task scores 95% accuracy and 0.9 ROC-AUC yet is useless in production. Explain precisely how *each* metric misleads here, and why PR-AUC is more informative for rare positives.
+5. **Should the test set be balanced?** Should your test set match the 95/5 deployment distribution or be balanced? When is a balanced diagnostic set useful, and why can it never replace a real-distribution test set?
+6. **Split vs. batch stratification.** Contrast stratified *splitting* with stratified *mini-batch sampling*: which buys evaluation honesty and which buys training signal, and why might you want both at once?
+7. **Recovering calibrated probabilities.** Training on rebalanced (say 50/50) data distorts predicted probabilities. Derive how to correct the output probabilities — or the decision threshold — back to the true 95/5 prior (i.e. prior correction / logit adjustment).
+8. **When the minority signal vanishes.** With rare positives and small batches, why does the minority-class gradient effectively disappear? Why can class weighting *still* fail when many batches contain zero positives, and how does combining it with stratified batching fix that?
+9. **Prediction-dependent weights and `detach`.** Suppose the per-example weight depends on the model's predicted probability, $w = w(p)$. Why is the gradient of $w(p)\,\ell(p)$ not simply $w \cdot \partial\ell/\partial z$? When and why would you `detach` / `stop_gradient` the weight, and how does that change what you're optimizing? (This is the focal-loss / hard-example-mining design question.)
+10. **What undersampling throws away.** What signal does random majority undersampling silently discard, and why is that especially dangerous for ranking and retrieval? How does hard-negative mining recover it?
+11. **Augmentation vs. oversampling (and label noise).** Why is augmentation usually preferable to plain minority oversampling? Give a case where a "label-preserving" augmentation (cropping a medical scan, flipping a digit) silently injects label noise.
+12. **Unbiased estimator $\ne$ good objective.** A uniform sampler is an unbiased estimator of the empirical loss, yet the trained model is biased toward the majority class. Reconcile this: why is "unbiased estimate of dataset loss" not the same as "the objective the business or clinical problem actually wants"?
+13. **Multi-label stratification.** Why is stratified splitting much harder for multi-label problems than for binary, and what practical approximations are used?
+14. **Extreme imbalance: oversample or undersample?** At 1:10,000 imbalance, compare the compute and statistical trade-offs of oversampling positives vs. undersampling negatives. Which scales better, and what do you lose either way?
+15. **Random vs. uniform sampling.** Distinguish "random" from "uniform" sampling. When is uniform sampling the right default, and when is it inefficient (rare events, heavy redundancy, long-tailed data)?
+16. **When biased sampling is the right call.** Give a principled case where deliberately biasing the sampling distribution improves the final model despite biasing the gradient — and state what you must do at inference to stay calibrated.
+17. **Tiny minority, non-stratified split.** If the positive class has only a handful of examples, what specifically goes wrong with a plain random split, and how does it inflate the variance of your reported metric?
+18. **Choosing class-weight magnitude.** How do fixed class weights rescale per-example gradient contributions, and why can very large minority weights destabilize training and hurt calibration? How would you pick the magnitude?
+19. **Importance weights and their variance.** When you change the sampling distribution (oversample, undersample, curriculum), how do importance weights recover an unbiased estimate of the original risk — and when is their variance so high that the correction is worse than the bias it removes?
+20. **Design a sampler end-to-end.** You're handed a 1,000:1 fraud dataset. Walk through how you'd combine split strategy, batch sampling, weighting/augmentation, metric choice, and threshold/calibration into one coherent training + evaluation plan — and justify each choice.
