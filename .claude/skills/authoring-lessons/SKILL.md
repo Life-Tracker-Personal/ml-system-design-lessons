@@ -141,6 +141,7 @@ This course is read by people who will repeat its claims in interviews, so a wro
 ## 8. Voice & style
 
 - **Plain English sentence first, then the math** (the learner's stated preference). Never open a section with an equation cold.
+- **Goal-first — big picture before details.** Open every section, sub-section, and worked example with 1–2 sentences stating *what we're trying to achieve* before any mechanics or math. A consistent bold lead works well and scans nicely: `**Goal — <one-line objective>.**` (Explicit user preference; applies book-wide. See the sampling sections of c1.1 for the pattern.)
 - Direct, confident, second person ("you"). Light first-person experience framing is fine where it adds stakes ("every failure I've seen…").
 - **Bold the load-bearing claim** in a paragraph; don't bold everything.
 - No filler, no hedging, no "in this section we will." Get to the idea.
@@ -169,6 +170,7 @@ Before considering a lesson + quiz done:
 - [ ] Each "what you'll be able to do" bullet has a **matching quiz question**.
 - [ ] Quiz: **12 questions**, derive/prove/construct phrasing, each with a **model answer + explicit rubric**, plus the intro + calibration line.
 - [ ] **Plain-English-first** ordering throughout; intuition precedes every equation.
+- [ ] Every section / sub-section / worked example **opens with a 1–2 sentence goal statement** (big-picture-first, `**Goal — …**`).
 - [ ] All **library claims are version-accurate** with the mechanism named (§7); primary sources cited.
 - [ ] **No unescaped `<`/`>`** outside math/code; links and anchors resolve; frontmatter matches the schema.
 - [ ] Forward-references (e.g. to `c1.10`) and the `id` sort order are consistent (§9).
