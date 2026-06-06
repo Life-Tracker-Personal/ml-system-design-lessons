@@ -188,6 +188,8 @@ So sampling is everywhere. The question is *how*, and the answer changes the bia
 
 ### Simple random sampling (SRS)
 
+**Goal — a faithful miniature of the whole dataset.** Draw a subset small enough to be cheap, yet representative enough that any statistic computed on it is an unbiased estimate of the population value.
+
 The baseline. Each example in the population of size $N$ has equal probability of being chosen, and the sample of size $n$ is drawn without replacement. The sample mean is an unbiased estimator of the population mean:
 
 $$E[\bar{x}] = \mu$$
@@ -201,6 +203,8 @@ The fraction $\frac{N - n}{N - 1}$ is the **finite population correction (FPC)**
 > **Stop and think.** Why does variance shrink as $1/n$ instead of $1/n^2$? It's the central-limit-theorem result for averaging $n$ independent random variables, each with variance $\sigma^2$: $\text{Var}\!\left(\frac{1}{n} \sum X_i\right) = \frac{1}{n^2} \sum \text{Var}(X_i) = \frac{n \sigma^2}{n^2} = \frac{\sigma^2}{n}$.
 
 ### Stratified sampling
+
+**Goal — lower-variance estimates and guaranteed subgroup coverage.** When the population splits into subgroups that differ from one another, sampling *within* each subgroup (instead of blindly across all of them) shrinks the variance of your estimate and ensures no subgroup is under-represented.
 
 Suppose you partition your population into $L$ disjoint **strata** (subgroups) of sizes $N_1, N_2, \dots, N_L$, with $\sum_h N_h = N$. From each stratum $h$, you sample $n_h$ examples (often *proportionally*, with $n_h / N_h = n / N$, but you don't have to). The stratified estimator of the population mean is:
 
@@ -229,11 +233,13 @@ The same idea is *why every imbalanced classification problem deserves a stratif
 
 ### Cluster sampling, in one sentence
 
-Sample whole *groups* (e.g. all events from one user, all rows from one geographic region) rather than individual examples. Cheaper to collect when groups are physically clustered, but introduces extra variance because rows within a cluster are correlated. Rarely the right answer for ML training data; common for survey research.
+**Goal — cheaper collection when examples arrive in natural groups.** Sample whole *groups* (e.g. all events from one user, all rows from one geographic region) rather than individual examples. Cheaper to collect when groups are physically clustered, but introduces extra variance because rows within a cluster are correlated. Rarely the right answer for ML training data; common for survey research.
 
 ### Reservoir sampling: the streaming case
 
-Suppose you have a *stream* of records of unknown total length, and you want a uniform sample of size $k$ where every record so far is equally likely to be in the final sample. You can't store the whole stream. The algorithm:
+**Goal — a uniform sample of fixed size from an unbounded stream, in a single pass.** You want a uniform sample of size $k$ from a stream of *unknown* total length, while never holding more than $k$ records in memory and never revisiting the stream.
+
+Concretely, every record seen so far must remain equally likely to be in the reservoir. The algorithm:
 
 ```text
 # Reservoir sampling
@@ -256,11 +262,11 @@ Inductive step: assume the property holds after seeing $n - 1$ records, i.e. eac
 - Probability that record $i$ is in the reservoir at step $n$:
   $$P_n(i) = P_{n-1}(i) \cdot \left[ \left(1 - \frac{k}{n}\right) + \frac{k}{n} \cdot \frac{k-1}{k}\right] = \frac{k}{n-1} \cdot \frac{n-1}{n} = \frac{k}{n} \;\;\square$$
 
-Time complexity is $O(n)$ (one random draw per record); space is $O(k)$ (just the reservoir). This is one of those algorithms where the cleverness of *throwing things away in just the right way* makes a strong impression in interviews.
+Each record costs $O(1)$ — a single random draw and at most one slot overwrite — so the **total time is $O(n)$** for a stream of length $n$, and **space is $O(k)$** (just the reservoir). This is one of those algorithms where the cleverness of *throwing things away in just the right way* makes a strong impression in interviews.
 
 ### Importance sampling
 
-You want to estimate $E_p[f(X)]$ — an expectation under target distribution $p$ — but you can only draw samples from a different distribution $q$. The trick:
+**Goal — estimate an expectation under a distribution you can't sample from.** You want $E_p[f(X)]$ under a target distribution $p$, but you can only draw samples from a *different* distribution $q$. The trick:
 
 $$E_p[f(X)] = \int p(x) f(x)\, dx = \int q(x) \cdot \frac{p(x)}{q(x)} f(x)\, dx = E_q\!\left[\frac{p(x)}{q(x)} f(x)\right]$$
 
