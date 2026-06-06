@@ -427,12 +427,12 @@ The Huber loss is a function of the **residual** only. Like MSE and MAE, it does
 
 <Quiz id="10">
 
-**Q10.** You configure XGBoost with `objective="reg:absoluteerror"` (MAE). The library prints a warning that "MAE has zero gradient" and refuses to train. Explain precisely what's wrong (it isn't actually zero gradient) and propose two distinct fixes.
+**Q10.** You hand XGBoost a *custom* MAE objective that returns `grad = sign(r)` and `hess = 0`. Training produces a model whose leaf values look like garbage (or it warns about "zero gradient" and does nothing useful). Explain precisely what's wrong — it isn't the gradient — and propose two distinct fixes. Bonus: how does XGBoost's *built-in* `reg:absoluteerror` make MAE work natively?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**The library is misnaming the problem.** The MAE *gradient* is $\partial |r|/\partial r = \text{sign}(r) \in \{-1, +1\}$ — definitely **not** zero. What XGBoost actually needs (and finds missing) is the **Hessian**:
+**The gradient is fine; the Hessian is the problem.** The MAE *gradient* is $\partial |r|/\partial r = \text{sign}(r) \in \{-1, +1\}$ — definitely **not** zero. What XGBoost actually needs (and your custom objective reports as zero) is the **Hessian**:
 
 $$\frac{\partial^2 |r|}{\partial r^2} = 0 \quad \text{(wherever defined)}$$
 
@@ -442,7 +442,9 @@ $$v^* = -\frac{\sum_{i \in \text{leaf}} g_i}{\sum_{i \in \text{leaf}} h_i + \lam
 
 where $g_i$ are gradients and $h_i$ are Hessians, and $\lambda$ is a regularization term. For MAE, $h_i = 0$ everywhere, so the denominator collapses to $\lambda$ (or 0 if no regularization), and the algorithm either thrashes or refuses.
 
-The library's "zero gradient" wording is colloquial — it really means "the second-order information needed for tree fitting is missing."
+The "zero gradient" wording is colloquial — it really means "the second-order information needed for tree fitting is missing."
+
+**Bonus — how the built-in `reg:absoluteerror` makes MAE work natively (XGBoost $\ge$ 1.7).** It decouples *tree structure* from *leaf values*. The tree is grown using a placeholder/approximate Hessian to decide splits, and then each leaf's output is overwritten with the **median of the residuals** falling into that leaf — which is exactly the MAE-optimal constant for that leaf (the median minimizes $\sum|r|$). This is Friedman's classic LAD-TreeBoost trick ("adaptive leaf values"): you never actually need a nonzero Hessian because the optimal leaf value has a closed form (the median) that doesn't go through the Newton step. So the modern library does *not* refuse MAE — a *naive custom* objective with `hess=0` does.
 
 **Fix 1: pseudo-Huber loss.**
 
@@ -460,7 +462,7 @@ XGBoost supports quantile loss via `objective="reg:quantileerror"`. The pinball 
 
 **Bonus fix 3: LightGBM has true MAE support.**
 
-LightGBM uses a slightly different tree-fitting approach that can handle zero-Hessian losses by approximating the second-order step heuristically. Its `objective="regression_l1"` works directly. If you must use exact MAE, switch libraries — different implementations of GBDT make different second-order tradeoffs.
+LightGBM has long supported `objective="regression_l1"` directly, using the same median-of-residuals leaf-value idea. The general point: both major GBDT libraries support exact MAE out of the box — the zero-Hessian trap is specific to rolling your own objective that reports `hess=0`.
 
 **Rubric:**
 - Identify that the library's "zero gradient" message is misleading; the actual problem is zero Hessian
@@ -468,6 +470,7 @@ LightGBM uses a slightly different tree-fitting approach that can handle zero-He
 - Explain how XGBoost uses the Hessian for leaf-value optimization
 - Propose pseudo-Huber as fix 1, with the smooth-Hessian property
 - Propose quantile-loss as fix 2, with the algorithm-not-using-Hessian explanation
+- Bonus: built-in `reg:absoluteerror` uses adaptive leaf values (median of residuals per leaf, Friedman's LAD-TreeBoost) — so modern XGBoost supports MAE natively; only a naive `hess=0` custom objective fails
 - Bonus: LightGBM's heuristic L1 implementation
 
 </details>
