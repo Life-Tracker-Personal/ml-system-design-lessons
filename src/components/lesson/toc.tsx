@@ -35,22 +35,20 @@ export function Toc({ items }: { items: TocItem[] }) {
 
   return (
     <nav aria-label="Table of contents" className="text-sm">
-      <p className="text-muted-foreground mb-3 text-xs font-semibold tracking-wider uppercase">
+      <p className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
         On this page
       </p>
-      <ul className="space-y-1.5">
+      <ul className="border-l border-border">
         {items.map((item) => (
-          <li
-            key={item.slug}
-            className={cn(item.level === 3 && "ml-3")}
-          >
+          <li key={item.slug}>
             <a
               href={`#${item.slug}`}
               className={cn(
-                "hover:text-foreground block leading-snug transition-colors",
+                "-ml-px block border-l-2 py-1 leading-snug transition-colors",
+                item.level === 3 ? "pl-6" : "pl-3",
                 activeSlug === item.slug
-                  ? "text-foreground font-medium"
-                  : "text-muted-foreground",
+                  ? "border-primary font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
               )}
             >
               {item.text}
