@@ -1,0 +1,187 @@
+---
+id: c1.6
+chapter: 1
+title: Kernel methods & instance-based learning
+subtitle: SVMs, the kernel trick, and kNN — geometry as the model
+refs: [7]
+estimatedMinutes: 70
+---
+
+## TL;DR
+
+Support vector machines and k-nearest-neighbors are the two purest **geometry-as-the-model** algorithms: an SVM classifies by the *widest separating margin*, kNN by the *majority vote of the closest points*. Two ideas decide whether that geometry works. The **kernel trick** lets an SVM draw nonlinear boundaries by computing inner products in an implicit — sometimes infinite-dimensional — feature space *without ever materializing it*. The **curse of dimensionality** is the flip side: in high dimensions distances concentrate, so "nearest" stops being meaningful and kNN (and any distance method) degrades. Master the **margin** and the **neighborhood**, and you understand why these methods shine on small/medium data and why modern retrieval had to invent approximate nearest-neighbor search.
+
+## What you'll be able to do after this lesson
+
+- Derive that the SVM margin width is $2/\|w\|$, and why maximizing it equals minimizing $\tfrac12\|w\|^2$.
+- Write the soft-margin SVM and show it equals **hinge loss + L2 regularization** (tying back to c1.3 losses).
+- Explain the primal→dual move, why only **support vectors** survive, and why the dual is what makes kernels possible.
+- State Mercer's condition and decide whether a given function is a valid kernel (polynomial yes, $\tanh$ no).
+- Prove the RBF kernel corresponds to an infinite-dimensional feature map.
+- Reason about the $C$ and $\gamma$ knobs in bias-variance terms.
+- Explain why kNN demands feature scaling, choose $k$ as a bias-variance trade, and state the Cover–Hart bound.
+- Explain the curse of dimensionality as a *probability fact* (distance concentration), and why it forces approximate-NN (HNSW/FAISS) for embedding retrieval.
+
+## Why these two, together
+
+> **Goal — learn the two canonical geometry-based methods and the two ideas (kernels, the curse of dimensionality) that govern all distance-based learning.** SVMs teach the margin, duality, and kernels — the backbone of classical statistical learning theory. kNN teaches nonparametric estimation and the curse of dimensionality — which quietly underpins every modern vector database and RAG system. Both are interview staples precisely because they force you to reason geometrically rather than reach for `model.fit`.
+
+These are the methods that dominated before deep learning, and they're not gone: linear SVMs are still strong baselines on high-dimensional sparse data (text), and kNN — in its approximate form — *is* how large-scale embedding retrieval works.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **Margin** — the distance from the decision boundary to the nearest training point. SVMs maximize it.
+> - **Support vector** — a training point that touches or violates the margin; only these determine the SVM.
+> - **Kernel** $K(x,x')$ — a function that computes an inner product $\langle\phi(x),\phi(x')\rangle$ in some feature space, *without* computing $\phi$.
+> - **Gram matrix** — the $n\times n$ matrix $G_{ij}=K(x_i,x_j)$; $K$ is valid iff $G$ is positive semidefinite.
+> - **Lazy / instance-based learning** — no model is fit; "training" just stores the data, and all work happens at query time (kNN).
+
+## Part 1 — Support vector machines
+
+> **Goal — find the boundary that separates the classes with the widest possible margin, then bend it with kernels.**
+
+### The maximum-margin hyperplane
+
+Labels $y_i\in\{-1,+1\}$, decision function $f(x)=w^\top x + b$. Fix the scale so the closest points satisfy $y_i(w^\top x_i+b)=1$ (the "canonical" hyperplane). The two margin hyperplanes are $w^\top x+b=\pm 1$.
+
+**Margin width $=2/\|w\|$.** Take points $x_+,x_-$ on opposite margin planes: $w^\top x_+ + b = +1$ and $w^\top x_- + b = -1$. Subtract: $w^\top(x_+-x_-)=2$. The width is the projection of $x_+-x_-$ onto the unit normal $w/\|w\|$:
+
+$$\text{margin} = \frac{w^\top(x_+-x_-)}{\|w\|} = \frac{2}{\|w\|}$$
+
+Maximizing $2/\|w\|$ is minimizing $\tfrac12\|w\|^2$, giving the **hard-margin primal**:
+
+$$\min_{w,b}\ \tfrac12\|w\|^2 \quad\text{s.t.}\quad y_i(w^\top x_i+b)\ge 1\ \ \forall i$$
+
+We maximize the *geometric* margin (the functional margin $y_i f(x_i)$ can be inflated for free by rescaling $w$ — only $/\|w\|$ makes it scale-invariant).
+
+### Soft margin = hinge loss + L2 regularization
+
+Real data isn't separable. Introduce slack $\xi_i\ge0$ and penalize it (Cortes & Vapnik 1995):
+
+$$\min_{w,b,\xi}\ \tfrac12\|w\|^2 + C\sum_i \xi_i \quad\text{s.t.}\quad y_i(w^\top x_i+b)\ge 1-\xi_i,\ \ \xi_i\ge 0$$
+
+At the optimum $\xi_i=\max(0,\,1-y_i f(x_i))$ — exactly the **hinge loss**. Substituting gives the unconstrained form:
+
+$$\min_{w,b}\ \tfrac12\|w\|^2 + C\sum_i \max\bigl(0,\,1-y_i f(x_i)\bigr)$$
+
+**This is the bridge to c1.3:** an SVM is hinge loss plus L2 (ridge) regularization on $w$. Compare the surrogate losses as functions of the margin $m=y f(x)$: 0-1 loss is discontinuous and non-convex; **hinge** $\max(0,1-m)$ is convex and **exactly zero for $m\ge1$** (correctly classified beyond the margin → no gradient → that point drops out); **logistic** $\log(1+e^{-m})$ is smooth and *never* zero (every point contributes, which is why logistic regression has no support vectors but does give probabilities). The flat region of hinge is precisely *why SVMs are sparse in support vectors*.
+
+### The dual, support vectors, and why kernels need it
+
+Form the Lagrangian and set derivatives to zero: $w=\sum_i\alpha_i y_i x_i$ and $\sum_i\alpha_i y_i=0$. Substituting yields the **dual**:
+
+$$\max_{\alpha}\ \sum_i\alpha_i - \tfrac12\sum_{i,j}\alpha_i\alpha_j\,y_iy_j\,\langle x_i,x_j\rangle \quad\text{s.t.}\quad 0\le\alpha_i\le C,\ \ \sum_i\alpha_i y_i=0$$
+
+The soft margin only adds the box upper bound $\alpha_i\le C$. By complementary slackness (KKT):
+
+- $\alpha_i=0$: point is outside the margin, correctly classified — **not** a support vector, zero influence.
+- $0<\alpha_i<C$: point lies *exactly on* the margin ($y_i f(x_i)=1$) — a **free support vector** (used to solve for $b$).
+- $\alpha_i=C$: point is inside the margin or misclassified — a **bounded support vector**.
+
+So the solution depends only on the support vectors — usually a small fraction of the data. **Why the dual matters:** both the objective and the recovered $f(x)=\sum_i\alpha_i y_i\langle x_i,x\rangle + b$ touch the data *only through inner products* $\langle x_i,x_j\rangle$. That's what lets us swap in a kernel.
+
+### The kernel trick
+
+Replace every inner product with a kernel $K(x,x')=\langle\phi(x),\phi(x')\rangle$:
+
+$$f(x)=\sum_i\alpha_i y_i\,K(x_i,x)+b$$
+
+**Mercer's condition:** $K$ is a valid kernel iff it is symmetric and its Gram matrix is positive semidefinite for every finite sample — then it *is* an inner product in some (possibly infinite-dimensional) space. Common kernels: linear $x^\top x'$; polynomial $(\gamma x^\top x'+r)^d$; **RBF/Gaussian** $\exp(-\gamma\|x-x'\|^2)$.
+
+**The RBF kernel is infinite-dimensional.** Factor $K(x,x') = e^{-\gamma\|x\|^2}e^{-\gamma\|x'\|^2}\exp(2\gamma x^\top x')$ and expand the cross term $\exp(2\gamma x^\top x')=\sum_{k\ge0}\frac{(2\gamma)^k(x^\top x')^k}{k!}$ — every polynomial degree $0,1,2,\dots$ appears, so the feature map $\phi$ has infinitely many coordinates. You *cannot* materialize $\phi(x)$; you only ever evaluate the scalar $K$. **This is the whole point of the trick** — it buys an infinite-dimensional boundary at the cost of an $n\times n$ Gram matrix, not an infinite feature vector.
+
+**The two knobs, in bias-variance terms.** Large $C$ penalizes slack harder → harder margin, fits training data closely → *less* regularization, higher variance (overfit). Large RBF $\gamma$ → each point's influence is very local → a wiggly boundary, high variance. Tune them jointly by cross-validation.
+
+> **Stop and think.** Someone proposes "just compute $\phi(x)$ for the RBF kernel and run a linear SVM on it — same thing, simpler." Why is this impossible, and what's the practical cost you pay *instead* by staying in the dual? *Hint: $\phi$ has infinitely many coordinates, so it can't be stored; the price is the $n\times n$ Gram matrix and $O(n^2)$–$O(n^3)$ training — which is exactly why kernel SVMs don't scale to big data.*
+
+## Part 2 — k-nearest-neighbors
+
+> **Goal — make no model at all: predict from the labels of the closest stored points, and understand exactly when "closest" is trustworthy.**
+
+kNN predicts the majority vote (classification) or average (regression) of the $k$ training points nearest the query. "Training" is just storing the data — it's **lazy**; all the cost is at query time.
+
+### Distance, and why scaling is mandatory
+
+Common metrics: Euclidean ($L_2$), Manhattan ($L_1$), Minkowski (general $p$), **Mahalanobis** $\sqrt{(x-x')^\top\Sigma^{-1}(x-x')}$ (accounts for feature covariance and scale), and cosine (direction only, for text/embeddings). Euclidean distance is dominated by large-range features: a feature on $[0,500{,}000]$ swamps one on $[0,1]$, so the second is effectively ignored. **You must standardize features before kNN** (z-score or min-max), or use Mahalanobis (which bakes scaling in) or cosine (magnitude-invariant).
+
+### Choosing $k$ is bias-variance
+
+Small $k$ → flexible, low bias, **high variance** ($k=1$ memorizes the training set: zero training error, a jagged boundary). Large $k$ → smoother, **high bias, low variance** ($k=n$ predicts the global majority/mean — maximal underfit). The optimal $k$ is intermediate, chosen by cross-validation, and grows with $n$. A useful framing: kNN regression is **local averaging with an adaptive bandwidth** (the radius to the $k$-th neighbor) — the variable-bandwidth cousin of Nadaraya–Watson kernel regression. Its variance scales like $\sigma^2/k$, its bias grows with $k$.
+
+### How good can it be? Cover–Hart
+
+A classic result (Cover & Hart 1967): as $n\to\infty$, the 1-nearest-neighbor error $R$ is bounded in terms of the Bayes error $R^\star$:
+
+$$R^\star \le R \le R^\star\Bigl(2 - \tfrac{M}{M-1}R^\star\Bigr)$$
+
+for $M$ classes; in the **binary** case this is $R \le 2R^\star(1-R^\star) \le 2R^\star$.
+
+So **1-NN's asymptotic error is at most twice the optimal** — half the achievable information is in the single nearest neighbor. With $k\to\infty$ and $k/n\to0$, kNN becomes Bayes-*consistent* ($R\to R^\star$). For a method with no training, that's remarkable.
+
+### The curse of dimensionality — a probability fact
+
+Here's the catch. In high dimensions, distances **concentrate**: for a query against $n$ points, the ratio of the farthest to the nearest distance tends to 1. Formally (Beyer et al. 1999): let $D_d$ be the distance from the query to a random data point in dimension $d$; if $\operatorname{Var}\!\bigl(D_d/\mathbb{E}[D_d]\bigr)\to0$ as $d\to\infty$ (true for i.i.d. features and much more broadly), then for every $\varepsilon>0$,
+
+$$\Pr\bigl[\,\text{Dmax}_d \le (1+\varepsilon)\,\text{Dmin}_d\,\bigr]\ \longrightarrow\ 1$$
+
+Intuition: $\|x-x'\|^2=\sum_{j=1}^d(x_j-x_j')^2$ is a sum of $d$ i.i.d. terms, so its mean grows like $d$ but its standard deviation like $\sqrt{d}$ — the coefficient of variation shrinks like $1/\sqrt{d}$, and all pairwise distances bunch together. "Nearest" stops being meaningfully nearest. This is *why* high-dimensional kNN needs either low **intrinsic** dimension (cluster structure) or learned low-dimensional embeddings.
+
+### kNN at scale: approximate nearest neighbors
+
+Exact kNN query is $O(nd)$; KD-trees give $O(\log n)$ in low dimensions but **collapse back to $O(n)$ past ~20 dimensions** (ball-trees do a bit better). Modern embedding retrieval (semantic search, RAG) has millions of high-dimensional vectors, so it uses **approximate nearest neighbor (ANN)**: **HNSW** (hierarchical navigable small-world graphs — the dominant index in Pinecone, Weaviate, Qdrant, pgvector), **FAISS** (IVF + product quantization, GPU, billion-scale), and **ScaNN**. They trade exactness for sub-linear query at high recall — kNN is far from obsolete; it just went approximate.
+
+## Tradeoff matrix
+
+| Method | Decision rule | Training cost | Inference cost | Scales to large $n$? | Best for |
+|---|---|---|---|---|---|
+| Linear SVM | Max-margin hyperplane | $O(n)$–$O(np)$ (liblinear) | $O(p)$ | Yes | High-dim sparse (text), $n$ large |
+| Kernel (RBF) SVM | Margin in implicit space | $O(n^2)$–$O(n^3)$ | $O(\#\text{SV}\cdot p)$ | No (≲ tens of thousands) | Low/medium $n$, nonlinear |
+| kNN (exact) | Vote of $k$ nearest | $O(1)$ (store) | $O(nd)$ per query | No (high $d$) | Low-dim, simple baselines |
+| kNN (approximate) | ANN vote | Build index | $\sim O(\log n)$ | Yes | Embedding retrieval / RAG |
+| Logistic (c1.4) | Linear, probabilistic | $O(np)$ | $O(p)$ | Yes | When you need calibrated probabilities |
+
+## Worked decision walk-throughs
+
+**Scenario A: text classification, 50k sparse TF-IDF features, 100k docs.** **Linear SVM** (`LinearSVC`). High-dimensional sparse data is where margin maximization shines, and linear SVMs scale; an RBF kernel would be both unnecessary and too slow.
+
+**Scenario B: 5M rows, RBF boundary suspected.** *Not* `SVC(kernel='rbf')` — its $O(n^2)$–$O(n^3)$ training is impractical past tens of thousands of rows. Use `LinearSVC`/`SGDClassifier`, optionally with a **kernel approximation** (`Nystroem` or random Fourier features) to recover RBF-like nonlinearity at scale.
+
+**Scenario C: semantic search over 50M embeddings.** **Approximate kNN** with an HNSW index (FAISS/hnswlib/a vector DB). Exact kNN is infeasible; ANN gives high recall at millisecond latency.
+
+**Scenario D: low-dimensional, clearly nonlinear, few thousand points.** **RBF SVM** — tune $C$ and $\gamma$ by grid-search CV. This is its sweet spot.
+
+## Production failure modes
+
+1. **Unscaled kNN.** One large-range feature dominates the distance; the model silently ignores everything else. Always standardize.
+2. **Kernel SVM on big data.** `SVC(kernel='rbf')` on millions of rows OOMs or runs for days (Gram matrix is $n\times n$). Switch to linear/approximate.
+3. **High-dimensional kNN that "works" offline but not live.** Distance concentration makes neighbors arbitrary; reduce dimension (embeddings, PCA) first.
+4. **Untuned $C$/$\gamma$.** Defaults rarely fit; the model under- or over-fits dramatically. Joint CV is mandatory.
+5. **Needing probabilities from SVC.** SVMs output signed distances, not probabilities; `probability=True` fits Platt scaling via expensive internal CV and can be inconsistent with `decision_function`. If you need calibrated probabilities, prefer logistic regression or calibrate explicitly.
+
+## Interview gotchas
+
+- **"Derive the SVM margin."** $2/\|w\|$ from $w^\top x_\pm + b=\pm1$; maximize ⇔ minimize $\tfrac12\|w\|^2$; geometric not functional margin.
+- **"Why kernelize the dual, not the primal?"** The dual depends on data only through inner products, and $w=\sum\alpha_i y_i x_i$ is infinite-dimensional for RBF — the dual never materializes $\phi$.
+- **"Hinge vs logistic — why is SVM sparse?"** Hinge is exactly zero for margin $\ge1$, so correctly-classified-beyond-margin points have no gradient and drop out; logistic never reaches zero.
+- **"Is the RBF feature map finite?"** No — infinite-dimensional (expand the exponential). That's why you can't just precompute $\phi$.
+- **"What breaks kNN in high dimensions?"** Distance concentration (Beyer 1999) — nearest ≈ farthest; cite the $1/\sqrt d$ coefficient-of-variation argument.
+- **"How good is 1-NN?"** Cover–Hart: asymptotic error $\le 2\times$ Bayes; $k\to\infty,k/n\to0$ gives consistency.
+- **"Direction of $C$ and $\gamma$?"** Large $C$ = less regularization (overfit); large $\gamma$ = more local/wiggly (overfit).
+
+## Take the quiz
+
+Twelve conceptually difficult questions — the margin derivation, the dual and support vectors, RBF infinite-dimensionality, Cover–Hart, and distance concentration. **[Take the quiz →](/c/c1/c1.6/quiz)**
+
+## Cited references
+
+- Ref 7 — *A Tour of Machine Learning Algorithms* (Machine Learning Mastery) — `c1/references/07_traditional_ml_algos.html` (taxonomy only; not a math source)
+
+External works (the real sources for the math):
+- Boser, B., Guyon, I., Vapnik, V. 1992. "A Training Algorithm for Optimal Margin Classifiers." *COLT.* Max-margin classifier + the kernel trick.
+- Cortes, C., Vapnik, V. 1995. "Support-Vector Networks." *Machine Learning* 20(3). The soft margin ($\xi$, $C$).
+- Cover, T., Hart, P. 1967. "Nearest Neighbor Pattern Classification." *IEEE Trans. Information Theory* 13(1). The $\le 2\times$ Bayes bound.
+- Schölkopf, B., Herbrich, R., Smola, A. 2001. "A Generalized Representer Theorem." *COLT.* Why the solution is a sum over the data.
+- Beyer, K. et al. 1999. "When Is 'Nearest Neighbor' Meaningful?" *ICDT.* Distance concentration.
+- Bartlett, P., Jordan, M., McAuliffe, J. 2006. "Convexity, Classification, and Risk Bounds." *JASA.* Hinge and logistic are calibrated surrogates.
+- Malkov, Y., Yashunin, D. 2020. "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs." *IEEE TPAMI* 42(4) (arXiv 2016, early access 2018). The dominant ANN index.
+- Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., Ch. 12–13.
