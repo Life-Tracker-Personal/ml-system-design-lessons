@@ -99,11 +99,29 @@ This isn't a bug; it's the consequence of assuming Gaussian noise. Gaussians hav
 
 ### Why MSE has a closed-form solution for linear models
 
-Linear regression $\hat{y} = X\theta$ with MSE gives:
+Linear regression stacks the per-example predictions $\hat{y}_i = x_i^\top\theta$ into $\hat{y} = X\theta$, where $X$ is the $n \times p$ design matrix (row $i$ is $x_i^\top$). Differentiate the objective w.r.t. the parameter *vector* $\theta$ in steps — this is where the per-example $-2r$ from above turns into matrices.
 
-$$\nabla_\theta \mathcal{L} = -\frac{2}{n} X^\top (y - X\theta) = 0 \implies X^\top X \theta = X^\top y \implies \theta = (X^\top X)^{-1} X^\top y$$
+**Objective.**
 
-The closed form exists because squaring makes the objective a quadratic in $\theta$, whose gradient is linear. **Linear gradient → linear system → closed form.** No iterative optimizer needed.
+$$\mathcal{L}(\theta) = \frac{1}{n}\sum_{i=1}^n \bigl(y_i - x_i^\top\theta\bigr)^2 = \frac{1}{n}\,\|y - X\theta\|_2^2$$
+
+**One example, by the chain rule.** We showed above that squared error has $\partial \mathcal{L}_i / \partial \hat{y}_i = -2 r_i$ with $r_i = y_i - \hat{y}_i$. Since $\hat{y}_i = x_i^\top\theta$ is linear in $\theta$, $\partial \hat{y}_i / \partial \theta = x_i$, so by the chain rule
+
+$$\frac{\partial \mathcal{L}_i}{\partial \theta} = \underbrace{(-2 r_i)}_{\partial \mathcal{L}_i / \partial \hat{y}_i} \cdot \underbrace{x_i}_{\partial \hat{y}_i / \partial \theta} = -2\,\bigl(y_i - x_i^\top\theta\bigr)\,x_i$$
+
+**Average over the dataset.**
+
+$$\nabla_\theta \mathcal{L} = \frac{1}{n}\sum_{i=1}^n -2\,\bigl(y_i - x_i^\top\theta\bigr)\,x_i = -\frac{2}{n}\sum_{i=1}^n x_i\,\bigl(y_i - x_i^\top\theta\bigr)$$
+
+**Vectorize the sum.** Each feature vector $x_i$ is a column of $X^\top$, so a sum of the form $\sum_i x_i\,r_i$ is exactly the matrix–vector product $X^\top r$ with the residual vector $r = y - X\theta$:
+
+$$\sum_{i=1}^n x_i\,\bigl(y_i - x_i^\top\theta\bigr) = X^\top (y - X\theta) \quad\Longrightarrow\quad \nabla_\theta \mathcal{L} = -\frac{2}{n}\,X^\top(y - X\theta)$$
+
+**Set the gradient to zero and solve.**
+
+$$-\frac{2}{n}\,X^\top(y - X\theta) = 0 \implies X^\top X\,\theta = X^\top y \implies \theta = (X^\top X)^{-1} X^\top y$$
+
+The closed form exists because squaring makes the objective a quadratic in $\theta$, whose gradient is linear. **Linear gradient → linear system → closed form.** No iterative optimizer needed. (The last step needs $X^\top X$ to be invertible — i.e. $X$ has full column rank; perfect collinearity among features breaks it, which is exactly where ridge regression earns its keep.)
 
 ### When MSE is the right choice
 
