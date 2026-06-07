@@ -1,0 +1,332 @@
+---
+lessonId: c1.4
+chapter: 1
+title: Quiz — Linear & logistic regression
+description: 12 conceptually difficult questions on OLS, MLE, Gauss-Markov, regularization, VIF, perfect separation, and PCA.
+estimatedMinutes: 45
+---
+
+These 12 questions test whether you understand regression as *estimation* — sampling distributions, optimality, the Bayesian view — the way a quant-research interview does, not whether you can call `.fit()`. Try to answer before revealing.
+
+If you can derive Q1, Q2, Q5, and Q8 from scratch, and explain Q9 and Q10 cold, you're calibrated for the regression portion of any top-tier or quant interview.
+
+<Quiz id="1">
+
+**Q1.** Derive the OLS normal equations two ways — by calculus and by orthogonal projection. Then state which of these hat-matrix properties hold and why: symmetric, idempotent, invertible, $\text{trace}=p$, eigenvalues in $\{0,1\}$. When does the closed-form $\hat\beta$ exist?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Calculus.** $\text{RSS}(\beta)=\|y-X\beta\|^2$; $\nabla_\beta\text{RSS}=-2X^\top(y-X\beta)=0 \Rightarrow X^\top X\hat\beta = X^\top y \Rightarrow \hat\beta=(X^\top X)^{-1}X^\top y$. Hessian $2X^\top X\succeq 0$ ⇒ convex ⇒ global min.
+
+**Projection.** Minimizing $\|y-X\beta\|$ means $X\hat\beta$ is the orthogonal projection of $y$ onto $\text{col}(X)$, so the residual $e=y-X\hat\beta \perp \text{col}(X)$: $X^\top e=0 \Rightarrow X^\top X\hat\beta=X^\top y$. Same equations, no calculus.
+
+**Hat matrix** $H=X(X^\top X)^{-1}X^\top$, the projector onto $\text{col}(X)$:
+- **Symmetric** ✓ ($H^\top=H$ by inspection).
+- **Idempotent** ✓ ($H^2=X(X^\top X)^{-1}X^\top X(X^\top X)^{-1}X^\top=H$) — projecting twice = once.
+- **Invertible** ✗ — $H$ is $n\times n$ but has rank $p<n$, so it's singular (it collapses the residual space to 0).
+- **$\text{trace}=p$** ✓ ($\text{trace}(H)=\text{trace}((X^\top X)^{-1}X^\top X)=\text{trace}(I_p)=p$) — equals the effective degrees of freedom of the fit.
+- **Eigenvalues in $\{0,1\}$** ✓ — a projector satisfies $H^2=H$, so each eigenvalue $\lambda$ obeys $\lambda^2=\lambda$.
+
+**Existence.** The closed form needs $X^\top X$ invertible ⇔ $X$ has **full column rank** ($p$ linearly independent columns; requires $n\ge p$ and no perfect collinearity). Otherwise use the pseudoinverse or regularize (ridge).
+
+**Rubric:**
+- Both derivations land on $X^\top X\hat\beta=X^\top y$
+- Symmetric ✓, idempotent ✓, invertible ✗ (rank $p<n$), trace $=p$ ✓, eigenvalues $\{0,1\}$ ✓ — with reasons
+- Closed form needs full column rank / $X^\top X$ invertible
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** Show that OLS is the maximum-likelihood estimator under Gaussian noise. Under what noise distribution would MLE instead give you least-absolute-deviations? State the general principle (the c1.2 thesis) and what the unbiased estimate of $\sigma^2$ is.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**OLS = Gaussian MLE.** Assume $\varepsilon_i\overset{\text{iid}}\sim\mathcal{N}(0,\sigma^2)$, so $y_i\mid x_i\sim\mathcal{N}(x_i^\top\beta,\sigma^2)$. The log-likelihood is
+
+$$\log L = -\tfrac n2\log(2\pi\sigma^2) - \frac{1}{2\sigma^2}\sum_i(y_i-x_i^\top\beta)^2.$$
+
+Only the second term depends on $\beta$, and the positive constant $1/(2\sigma^2)$ doesn't change the argmin, so maximizing over $\beta$ ⇔ minimizing $\sum_i(y_i-x_i^\top\beta)^2=\text{RSS}$ = OLS.
+
+**Laplace → LAD.** If $\varepsilon_i\sim\text{Laplace}(0,b)$, the log-likelihood contributes $-\frac1b\sum_i|y_i-x_i^\top\beta|$, so MLE minimizes $\sum|r_i|$ — least-absolute-deviations (the conditional-median fit, exactly MAE from c1.2).
+
+**General principle (c1.2).** The loss you minimize is the negative log-likelihood of an assumed noise model: Gaussian → squared loss (OLS, conditional mean); Laplace → absolute loss (LAD, conditional median); Student-$t$ → a robust, Huber-like loss. Choosing a loss is choosing a noise model.
+
+**Unbiased $\sigma^2$.** The MLE is $\hat\sigma^2_{\text{MLE}}=\text{RSS}/n$ (biased downward). The unbiased estimator divides by the degrees of freedom: $\hat\sigma^2=\text{RSS}/(n-p)$.
+
+**Rubric:**
+- Write Gaussian log-likelihood; drop $\beta$-independent terms and the positive constant → minimize RSS
+- Laplace noise → MLE = LAD (sum of absolute residuals)
+- State the noise-model ↔ loss principle (Gaussian/squared, Laplace/absolute)
+- Unbiased $\sigma^2 = \text{RSS}/(n-p)$ vs MLE $\text{RSS}/n$
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** You add a column of pure random noise (independent of $y$) to an OLS regression. What happens to each of: (a) training RSS, (b) $R^2$, (c) adjusted $R^2$, (d) the $t$-statistic / $p$-value for that new coefficient? Explain the asymmetry between $R^2$ and adjusted $R^2$.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+- **(a) Training RSS: can only decrease (or stay equal).** OLS now minimizes over a larger column space (the old space is a subspace), so the achievable minimum RSS cannot increase. In finite samples the noise feature picks up some spurious correlation, so RSS strictly decreases almost surely.
+- **(b) $R^2 = 1-\text{RSS}/\text{TSS}$: can only increase.** Directly follows from (a) since TSS is fixed. **This is why $R^2$ is not a model-quality metric** — adding junk raises it.
+- **(c) Adjusted $R^2 = 1-\frac{\text{RSS}/(n-p)}{\text{TSS}/(n-1)}$: usually decreases.** The denominator's $n-p$ shrinks as $p$ grows, penalizing the added parameter. Unless the noise feature reduces RSS by more than the degrees-of-freedom penalty (rare for true noise), adjusted $R^2$ falls.
+- **(d) $t$-stat / $p$-value: usually non-significant.** For a feature truly independent of $y$, $\hat\beta_{\text{new}}$ is centered at 0 with its sampling SE, so $|t|$ is small and the $p$-value is large — by construction it'll exceed 0.05 about 95% of the time. (The ~5% false positives are the multiple-comparisons trap.)
+
+**Asymmetry.** $R^2$ rewards in-sample fit only; adjusted $R^2$ charges a price per parameter, so it can fall — making it the honest summary when comparing models with different $p$.
+
+**Rubric:**
+- RSS ↓, $R^2$ ↑ (larger column space)
+- Adjusted $R^2$ usually ↓ (dof penalty)
+- New coefficient usually non-significant (centered at 0), ~5% spurious hits
+- Articulate why $R^2$ is gameable and adjusted $R^2$ isn't
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** True or false, with justification: *"OLS is the minimum-variance unbiased estimator, and this guarantee requires the errors to be Gaussian."* Be precise about both clauses.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Both clauses are wrong as stated.**
+
+**Clause 1 — "minimum-variance unbiased."** Gauss–Markov says OLS is **BLUE — best *linear* unbiased estimator**: minimum variance *within the class of linear unbiased estimators*. It is **not** necessarily the minimum-variance estimator among *all* unbiased estimators (that stronger property — MVUE / attaining the Cramér–Rao bound — does hold for OLS under added Gaussianity, but Gauss–Markov alone gives only the "linear" qualifier). And it's certainly not best among *all* estimators: biased estimators (ridge, James–Stein) can have lower MSE.
+
+**Clause 2 — "requires Gaussian errors."** Gauss–Markov needs only: linearity, strict exogeneity $\mathbb{E}[\varepsilon\mid X]=0$, homoskedasticity $\text{Var}(\varepsilon\mid X)=\sigma^2I$, and no perfect collinearity. **Normality is not among them.** Normality is needed only for the *finite-sample* $t$/$F$ distributions and exact confidence intervals; without it, inference holds asymptotically via the CLT, but BLUE still stands.
+
+**Correct statement:** "Under the Gauss–Markov assumptions (which do not include normality), OLS is the best *linear* unbiased estimator."
+
+**Rubric:**
+- "Minimum-variance unbiased" → should be "best *linear* unbiased" (BLUE)
+- Note biased estimators can beat OLS in MSE
+- Normality NOT required for BLUE; only for finite-sample inference
+- List the actual Gauss–Markov assumptions
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** Ridge regression is $\hat\beta=(X^\top X+\lambda I)^{-1}X^\top y$. (a) Why is $X^\top X+\lambda I$ invertible even when $p>n$ or $X$ is collinear? (b) Ridge is a *biased* estimator — give the bias–variance argument for why it can still have lower mean squared error than OLS, and name the classical result behind it.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Invertibility.** $X^\top X$ is symmetric positive-*semi*definite (eigenvalues $\ge 0$); adding $\lambda I$ with $\lambda>0$ shifts every eigenvalue up by $\lambda$, making them all $\ge\lambda>0$, so $X^\top X+\lambda I$ is positive-*definite* and hence invertible — **regardless of rank**, even when $p>n$ (where $X^\top X$ is singular) or columns are collinear (near-zero eigenvalues). This is ridge's structural advantage: it always has a unique solution.
+
+**(b) Bias–variance.** $\text{MSE}(\hat\beta)=\text{Bias}(\hat\beta)^2+\text{Var}(\hat\beta)$. OLS is unbiased (bias 0) but, when $X^\top X$ has small eigenvalues (collinearity), $\text{Var}(\hat\beta_{\text{OLS}})=\sigma^2(X^\top X)^{-1}$ has huge entries. Ridge introduces a small bias (it shrinks $\hat\beta$ toward 0) but cuts variance substantially — and for an appropriate $\lambda>0$ the squared-bias increase is outweighed by the variance reduction, so total MSE drops below OLS's. OLS minimizes variance *subject to zero bias*, which is an unnecessarily restrictive constraint.
+
+**Classical result.** **James–Stein (1961):** the ordinary sample mean is *inadmissible* for estimating a multivariate Gaussian mean in dimension $\ge 3$ — a shrinkage estimator strictly dominates it in total MSE, even when the coordinates are independent. Ridge is the regression analogue: shrinkage is provably better, not a hack.
+
+**Rubric:**
+- $X^\top X$ PSD; $+\lambda I$ shifts eigenvalues to $\ge\lambda>0$ → positive-definite → always invertible (even $p>n$)
+- MSE = bias² + variance; ridge accepts bias to cut variance
+- Collinearity → huge OLS variance, so ridge wins for some $\lambda$
+- Cite James–Stein / inadmissibility for dim ≥ 3
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** On an orthonormal design ($X^\top X = I$), write the closed forms for the ridge and lasso solutions in terms of the OLS solution $\hat\beta^{\text{OLS}}$. Use them to explain precisely why lasso produces exact zeros while ridge never does.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+With $X^\top X=I$, the OLS solution is $\hat\beta^{\text{OLS}}=X^\top y$, and the two penalized problems decouple coordinate-wise.
+
+**Ridge:** minimize $(\beta_j-\hat\beta_j^{\text{OLS}})^2+\lambda\beta_j^2$ per coordinate ⇒
+
+$$\hat\beta_j^{\text{ridge}}=\frac{\hat\beta_j^{\text{OLS}}}{1+\lambda}.$$
+
+Pure proportional **shrinkage** by $1/(1+\lambda)$ — for finite $\lambda$ this is never exactly 0 unless the OLS coefficient was already 0.
+
+**Lasso:** minimize $(\beta_j-\hat\beta_j^{\text{OLS}})^2+\lambda|\beta_j|$ per coordinate ⇒ **soft-thresholding**
+
+$$\hat\beta_j^{\text{lasso}}=\text{sign}(\hat\beta_j^{\text{OLS}})\max\!\bigl(|\hat\beta_j^{\text{OLS}}|-\lambda,\ 0\bigr).$$
+
+Any coefficient with $|\hat\beta_j^{\text{OLS}}|\le\lambda$ is set **exactly to 0**.
+
+**Why the difference.** The L1 penalty has a constant-magnitude (sub)gradient $\pm\lambda$ that doesn't vanish as $\beta_j\to 0$, so it can overpower the data term and pin the coefficient at exactly 0 — the optimum sits at the non-differentiable kink. The L2 penalty's gradient $2\lambda\beta_j$ *vanishes* as $\beta_j\to0$, so the penalty's pull weakens near zero and never forces an exact zero. Geometrically: the L1 ball has corners on the axes (sparse vertices) where the contours touch; the L2 ball is round (no preferred sparse directions).
+
+**Rubric:**
+- Ridge: $\hat\beta_j^{\text{OLS}}/(1+\lambda)$ (shrinkage, never 0)
+- Lasso: soft-threshold $\text{sign}\cdot\max(|\cdot|-\lambda,0)$ (exact zeros)
+- Reason: L1 (sub)gradient is constant $\pm\lambda$ (doesn't vanish at 0) vs L2 gradient $2\lambda\beta_j\to0$
+- Bonus: L1-ball corners vs round L2-ball geometry
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** Identify the prior that makes ridge and lasso MAP estimates, respectively. Explain — via the shape of the prior — why the Laplace prior induces sparsity but the Gaussian prior does not. Connect this to the c1.2 "every loss is a noise model" framing.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**MAP setup.** With a Gaussian likelihood (squared-error data term), the MAP estimate maximizes $\log p(y\mid\beta)+\log p(\beta)$ — equivalently minimizes $\|y-X\beta\|^2 - 2\sigma^2\log p(\beta)$. The **negative log-prior is the penalty**.
+
+- **Gaussian prior** $\beta_j\sim\mathcal{N}(0,\tau^2)$: $-\log p(\beta)\propto\sum_j\beta_j^2$ → **ridge** (L2), with $\lambda=\sigma^2/\tau^2$.
+- **Laplace prior** $\beta_j\sim\text{Laplace}(0,b)$: $-\log p(\beta)\propto\sum_j|\beta_j|$ → **lasso** (L1).
+
+**Why Laplace → sparsity.** The Laplace density $\propto e^{-|\beta|/b}$ has a **sharp, non-differentiable peak at 0** and heavier tails than the Gaussian. The peak puts a lot of prior mass *exactly* at 0, so the posterior mode is frequently pinned at 0 (sparsity), while the heavy tails let genuinely large coefficients escape shrinkage. The Gaussian $\propto e^{-\beta^2/2\tau^2}$ is **smooth and flat at 0** (zero derivative there), so it never concentrates mass at exactly 0 — it shrinks everything proportionally but zeros nothing.
+
+**c1.2 tie-in.** This is the same lens, moved from the *data* to the *parameters*: in c1.2, the negative-log of the *noise* distribution was the data loss (Gaussian→squared, Laplace→absolute); here the negative-log of the *prior* on $\beta$ is the penalty (Gaussian→L2, Laplace→L1). Loss and penalty are both negative-log-densities; the whole objective is a negative-log-posterior.
+
+**Rubric:**
+- Ridge ↔ Gaussian prior; lasso ↔ Laplace prior
+- Negative log-prior = penalty (MAP)
+- Laplace: sharp peak at 0 → mass at 0 → sparsity; Gaussian smooth/flat at 0 → no exact zeros
+- Connect to c1.2: loss = −log(noise), penalty = −log(prior)
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** Show the logistic-regression negative log-likelihood is convex in $\beta$ by computing its Hessian. Why is fitting a sigmoid with squared error *not* convex, and which loss should you use? Why is there no closed-form solution?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Convexity.** Log-likelihood $\ell(\beta)=\sum_i[y_i\log p_i+(1-y_i)\log(1-p_i)]$ with $p_i=\sigma(x_i^\top\beta)$. Using $\partial p_i/\partial\beta = p_i(1-p_i)x_i$:
+
+$$\nabla\ell = \sum_i (y_i-p_i)x_i = X^\top(y-p), \qquad \nabla^2\ell = -\sum_i p_i(1-p_i)x_ix_i^\top = -X^\top W X$$
+
+with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \preceq 0$ — the log-likelihood is **concave**, hence the **NLL is convex**. No bad local minima; Newton/IRLS finds the global optimum.
+
+**Sigmoid + MSE is non-convex.** With $\mathcal{L}=\sum_i(y_i-\sigma(x_i^\top\beta))^2$, the Hessian involves $\sigma''$, which changes sign, so $\mathcal{L}$ is not convex in $\beta$ — multiple local minima even in 1-D. Plus it suffers vanishing gradients on saturated, confidently-wrong examples (c1.3). **Use cross-entropy** (the Bernoulli NLL), which is convex and has the clean $X^\top(y-p)$ gradient.
+
+**No closed form.** Setting $\nabla\ell=X^\top(y-p)=0$ gives an equation that is **nonlinear in $\beta$** because $p=\sigma(X\beta)$ — you cannot isolate $\beta$ algebraically. So you iterate (Newton–Raphson = IRLS, a sequence of weighted least-squares fits). Contrast OLS, where setting the gradient to zero gives the *linear* normal equations and thus a closed form.
+
+**Rubric:**
+- Gradient $X^\top(y-p)$, Hessian $-X^\top W X$, $W=\text{diag}(p_i(1-p_i))\succeq0$
+- Conclude log-lik concave → NLL convex → global optimum
+- Sigmoid+MSE non-convex (sign-changing $\sigma''$) + saturation; use cross-entropy
+- No closed form: score equation nonlinear in $\beta$ (vs OLS's linear normal equations) → IRLS
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9.** A logistic-regression model achieves perfect separation on the training data. Describe what happens to the MLE coefficients, the likelihood, and the standard errors — and explain *why*. Name two fixes.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**What happens.** If some hyperplane perfectly separates the two classes, take the separating direction $\beta^\*$ and scale it: $\beta=c\beta^\*$. As $c\to\infty$, every fitted probability $p_i=\sigma(x_i^\top\beta)\to$ its correct 0 or 1, so each likelihood term $\to 1$ and the log-likelihood $\to 0$ — its **supremum**, which is **never attained at any finite $\beta$**. Therefore:
+- **Coefficients diverge to $\pm\infty$** (at least along the separating direction).
+- **The likelihood has no maximizer** — the **MLE does not exist** (Albert & Anderson, *Biometrika* 1984; this is the "complete separation" case, with an analogous "quasi-complete" case).
+- **Standard errors explode** — the Hessian $X^\top W X$ becomes near-singular as $p_i(1-p_i)\to0$ for all $i$, so $\text{Var}(\hat\beta)\to\infty$. Optimizers report non-convergence or absurd coefficients/SEs.
+
+**Why it's counterintuitive.** It's *cleanly separable* data — the "easy" case — yet the unregularized fit blows up, precisely *because* it can keep improving the likelihood by becoming more confident without bound.
+
+**Two fixes.** (1) **Regularization** — any penalty (ridge/L2 is standard; it's exactly why sklearn's penalized default doesn't diverge) caps the coefficient magnitude, restoring a finite optimum. (2) **Firth's penalized likelihood** (a Jeffreys-prior bias correction) guarantees finite estimates and is the standard remedy in statistics. (Also acceptable: drop/merge the separating feature, or use exact logistic regression.)
+
+**Rubric:**
+- Coefficients → ±∞; likelihood → its supremum but unattained → MLE does not exist
+- SEs explode (Hessian → singular as $p(1-p)\to0$)
+- Explain *why*: confidence can grow without bound to keep raising the likelihood
+- Cite Albert–Anderson (complete/quasi separation)
+- Two fixes: regularization (ridge) and Firth
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10.** Two predictors in a linear model have $\text{VIF}=50$. Define VIF precisely, then explain the effect on (a) the coefficients' standard errors, (b) the stability and sign of the coefficients, and (c) the model's *predictive* accuracy. Why can prediction be fine while inference is wrecked?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Definition.** $\text{VIF}_j=1/(1-R_j^2)$, where $R_j^2$ is the $R^2$ from regressing predictor $x_j$ on **all the other predictors**. $\text{VIF}=50 \Rightarrow R_j^2=1-1/50=0.98$ — the predictor is 98% explained by the others.
+
+**(a) Standard errors.** $\text{Var}(\hat\beta_j)\propto\text{VIF}_j$, so $\text{SE}(\hat\beta_j)$ scales as $\sqrt{\text{VIF}_j}=\sqrt{50}\approx 7.1\times$ larger than under orthogonality. Confidence intervals balloon; $t$-stats shrink; truly-relevant predictors can look insignificant.
+
+**(b) Stability and sign.** With nearly-redundant columns, the data barely constrains how the shared effect is *split* between them, so tiny perturbations (a few resampled rows, adding/removing a point) swing the coefficients wildly and can **flip their signs**. The individual coefficients are essentially un-identifiable.
+
+**(c) Predictive accuracy.** Largely **unaffected**. Collinearity introduces **no bias**; the fitted values $\hat y=X\hat\beta$ and the model's predictions on $X$ drawn from the same distribution are fine — the instability is in how the (well-determined) total effect is *attributed* to the collinear features, not in the prediction itself.
+
+**Why the split.** Prediction depends on the *combination* $X\hat\beta$, which is well-determined; inference depends on *individual* $\hat\beta_j$, whose variance is inflated by collinearity. So multicollinearity is a problem for **interpretation/inference, not (usually) prediction**. (A tree model doesn't even care — it just splits on one of the redundant features. Connects to c1.1: this redundancy is exactly what defeats drop-column leakage detection.)
+
+**Rubric:**
+- VIF $=1/(1-R_j^2)$; $R_j^2$ from regressing $x_j$ on the others; VIF 50 → $R_j^2=0.98$
+- SEs scale $\sqrt{\text{VIF}}\approx7\times$
+- Coefficients unstable / sign-flipping (effect-splitting un-identifiable)
+- Prediction unaffected (no bias); $X\hat\beta$ well-determined
+- Articulate inference-vs-prediction distinction
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11.** Using the SVD form $\hat y_{\text{ridge}}=\sum_j u_j\,\frac{d_j^2}{d_j^2+\lambda}\,u_j^\top y$ (with $X=UDV^\top$), explain which directions ridge shrinks most. How does principal-component regression (PCR) differ, and in what sense is ridge "soft PCR"? When does this shrinkage help?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Shrinkage factors.** Along principal direction $j$, OLS uses factor $1$; ridge uses $\frac{d_j^2}{d_j^2+\lambda}\in(0,1)$. For **high-variance** directions ($d_j^2\gg\lambda$) the factor $\approx 1$ — barely shrunk. For **low-variance** directions ($d_j^2\ll\lambda$) the factor $\approx d_j^2/\lambda\approx 0$ — **shrunk hard**. So **ridge shrinks most along the low-variance principal directions** — which are exactly the ill-determined, collinear ones (small singular values ↔ near-dependencies). It leaves the well-determined high-variance directions almost untouched.
+
+**PCR.** Principal-component regression keeps the top $m$ components *fully* (factor 1) and drops the rest *entirely* (factor 0). That's a **hard threshold** on the same principal directions.
+
+**"Soft PCR."** Ridge replaces PCR's 0/1 cliff with the smooth ramp $d_j^2/(d_j^2+\lambda)$ — a continuous down-weighting of low-variance directions rather than an abrupt cut. Same idea (suppress the unstable directions), softened.
+
+**When it helps.** When the low-variance directions carry mostly *noise* (estimation variance) rather than signal — the usual case under collinearity — shrinking them trades a little bias for a large variance reduction and lowers MSE. It **hurts** if the target actually depends on a low-variance direction, since both ridge and (worse) PCR suppress exactly that direction — a manifestation of PCA/PCR being target-blind.
+
+**Rubric:**
+- Factor $d_j^2/(d_j^2+\lambda)$: ≈1 for large $d_j$, ≈0 for small $d_j$ → shrinks low-variance directions most
+- Low-variance ↔ collinear/ill-determined directions
+- PCR = hard threshold (keep top $m$, drop rest)
+- Ridge = soft version of the same
+- Helps when low-variance dirs are noise; hurts if signal lives there (target-blind)
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12.** You fit `LogisticRegression()` in scikit-learn and `Logit().fit()` in statsmodels on the same data and get *different coefficients*, and sklearn gives you no $p$-values. Explain both discrepancies. In scikit-learn 1.8, how do you reproduce *unregularized* logistic regression, and what replaced `penalty='l1'`?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Different coefficients.** scikit-learn's `LogisticRegression` is **L2-regularized by default** (`C=1.0`, where `C` is the *inverse* regularization strength) — it returns a penalized (shrunk) point estimate, *not* the textbook MLE. statsmodels' `Logit().fit()` is **unregularized maximum likelihood** by default. So the two optimize different objectives and land on different $\hat\beta$ (sklearn's are shrunk toward 0). This is the single most commonly-missed fact about sklearn logistic regression: out of the box it is not "plain" logistic regression.
+
+**No $p$-values from sklearn.** sklearn is a *prediction* library — it returns a point estimate and **no inferential statistics** (no standard errors, $t$/$z$-stats, $p$-values, or confidence intervals). statsmodels is built for *inference* and reports the full table from the asymptotic sampling distribution of the MLE. (Also: statsmodels does **not** add an intercept — you must `sm.add_constant(X)` — whereas sklearn adds one via `fit_intercept=True`.)
+
+**Reproduce unregularized in sklearn 1.8.** Set `C=np.inf` (effectively no penalty). In **scikit-learn 1.8**, the `penalty` parameter was **deprecated in favor of `l1_ratio`** (removal slated for 1.10): `penalty='l2'` → `l1_ratio=0` (the new default), `penalty='l1'` → **`l1_ratio=1`**, `penalty='elasticnet'` → `0<l1_ratio<1`, and `penalty=None` → `C=np.inf`. (On scikit-learn ≤1.7, `penalty='none'`/`penalty='l1'` is still the live API — so check the installed version.) For pure-L1 you also need a compatible solver (`saga`, or `liblinear`).
+
+**Rubric:**
+- sklearn L2-penalized by default (`C=1.0`, inverse strength) vs statsmodels unregularized MLE → different coefficients
+- sklearn returns no inference (no SEs/$p$-values); statsmodels does; statsmodels needs `add_constant`
+- Unregularized in sklearn: `C=np.inf`
+- sklearn 1.8: `penalty` deprecated → `l1_ratio`; `penalty='l1'` → `l1_ratio=1`
+- Bonus: note ≤1.7 still uses `penalty=`; L1 needs saga/liblinear
+
+</details>
+
+</Quiz>

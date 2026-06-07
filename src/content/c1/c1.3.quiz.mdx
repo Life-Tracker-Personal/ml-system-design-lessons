@@ -1,0 +1,360 @@
+---
+lessonId: c1.3
+chapter: 1
+title: Quiz — Classification losses
+description: 12 conceptually difficult questions on cross-entropy, focal loss, class-balanced loss, and calibration.
+estimatedMinutes: 45
+---
+
+These 12 questions probe whether you understand classification losses as maximum likelihood / KL minimization, and whether you can reason about *calibration* — not whether you can name them. Try to answer before revealing.
+
+If you can derive Q1, Q3, Q4, and Q8 from scratch on a whiteboard, you can handle the classification-loss portion of any top-tier ML interview.
+
+<Quiz id="1">
+
+**Q1.** Derive the gradient of softmax cross-entropy with respect to the logits, $\partial \mathcal{L}/\partial z_j$, starting from the softmax Jacobian. State the binary (sigmoid) analogue. Which specific cancellation makes the result clean, and why does it mean cross-entropy is the "natural" partner of softmax?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Setup.** $q = \text{softmax}(z)$, one-hot label $y$, loss $\mathcal{L} = -\sum_i y_i \log q_i$.
+
+**Softmax Jacobian.** $\dfrac{\partial q_i}{\partial z_j} = q_i(\delta_{ij} - q_j)$, where $\delta_{ij}$ is the Kronecker delta. (Derive: for $i=j$, $\partial q_i/\partial z_i = q_i(1-q_i)$; for $i\neq j$, $-q_i q_j$.)
+
+**Chain rule.**
+
+$$\frac{\partial \mathcal{L}}{\partial z_j} = \sum_i \frac{\partial \mathcal{L}}{\partial q_i}\frac{\partial q_i}{\partial z_j} = \sum_i \left(-\frac{y_i}{q_i}\right) q_i(\delta_{ij} - q_j) = -\sum_i y_i(\delta_{ij} - q_j)$$
+
+$$= -y_j + q_j \sum_i y_i = q_j - y_j$$
+
+using $\sum_i y_i = 1$. So $\nabla_z \mathcal{L} = q - y$.
+
+**Binary analogue.** With $q = \sigma(z)$ and $\mathcal{L}_{\text{BCE}} = -[y\log q + (1-y)\log(1-q)]$: $\partial \mathcal{L}/\partial z = \sigma(z) - y$. (Uses $\sigma'(z) = \sigma(1-\sigma)$, which cancels the $1/q$ and $1/(1-q)$ terms.)
+
+**The cancellation.** The $-y_i/q_i$ from differentiating $\log q_i$ has a $1/q_i$ that exactly cancels the $q_i$ factor in the softmax Jacobian. This cancellation is *specific to pairing the log loss with softmax* (and sigmoid): it's why the gradient is the simple "prediction minus target" with no $q(1-q)$ saturation factor. Pair cross-entropy with a different output nonlinearity, or squared error with softmax, and you reintroduce a multiplicative derivative term that can vanish.
+
+**Rubric:**
+- State the softmax Jacobian $q_i(\delta_{ij}-q_j)$
+- Chain-rule correctly to $q_j - y_j$, using $\sum y_i = 1$
+- Give the binary form $\sigma(z) - y$
+- Identify the $1/q_i$ ↔ $q_i$ cancellation as the reason
+- Conclude: this is why CE is softmax's natural partner (no saturation factor)
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** Show that cross-entropy is the maximum-likelihood objective under a Categorical model, and separately that $\text{CE}(p,q) = H(p) + \text{KL}(p\,\|\,q)$. What does each decomposition tell you about *what minimizing CE actually does*, and why does CE collapse to KL (and to NLL) under one-hot labels?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**MLE view.** Model the label as Categorical with parameters $q = \text{softmax}(z)$. The likelihood of one one-hot observation $y$ is $\prod_k q_k^{y_k}$, so its log-likelihood is $\sum_k y_k \log q_k$. Maximizing the dataset log-likelihood $\Leftrightarrow$ minimizing $-\sum_k y_k \log q_k$ = cross-entropy. **So CE is MLE under a Categorical noise model** — the discrete analogue of "MSE is MLE under Gaussian noise" (c1.2).
+
+**KL decomposition.**
+
+$$\text{CE}(p,q) = -\sum_k p_k \log q_k = \underbrace{-\sum_k p_k \log p_k}_{H(p)} + \underbrace{\sum_k p_k \log \frac{p_k}{q_k}}_{\text{KL}(p\,\|\,q)}$$
+
+Since $H(p)$ doesn't depend on $q$, **minimizing CE over $q$ is exactly minimizing $\text{KL}(p\,\|\,q)$** — dragging the prediction onto the label distribution.
+
+**One-hot collapse.** If $p$ is one-hot, $H(p) = 0$ (a degenerate distribution has zero entropy), so $\text{CE} = \text{KL}(p\,\|\,q) = -\log q_{c}$ where $c$ is the true class — which is also the per-example NLL. So all three coincide.
+
+**Why it matters.** The MLE view says the loss isn't arbitrary; it's the likelihood of an assumed label model. The KL view explains *the levers*: label smoothing and distillation work by changing the **target** $p$ (smoothed/soft), not the loss form.
+
+**Rubric:**
+- Categorical likelihood → CE is its NLL (MLE)
+- Algebraically split CE into $H(p) + \text{KL}$
+- State that minimizing CE ⇔ minimizing KL (since $H(p)$ fixed)
+- One-hot ⇒ $H(p)=0$ ⇒ CE = KL = NLL
+- Note the consequence: smoothing/distillation act on the target $p$
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** Give two independent reasons cross-entropy is preferred over mean squared error for classification. For a binary example that is *confidently wrong* ($z = -10$, true label $y = 1$), compute the approximate gradient magnitude w.r.t. the logit under both losses and interpret.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Reason 1 — gradient saturation.** With sigmoid + MSE, $\mathcal{L} = \tfrac12(\sigma(z) - y)^2$, so
+
+$$\frac{\partial \mathcal{L}_{\text{MSE}}}{\partial z} = (\sigma(z) - y)\,\sigma'(z), \qquad \sigma'(z) = \sigma(z)(1-\sigma(z))$$
+
+The $\sigma'(z)$ factor $\to 0$ as the unit saturates. With BCE, $\partial \mathcal{L}/\partial z = \sigma(z) - y$ — no saturation factor.
+
+**Compute at $z=-10$, $y=1$:** $\sigma(-10) \approx 4.54\times10^{-5}$.
+- **MSE:** $(\sigma - 1)\,\sigma(1-\sigma) \approx (-1)(4.54\times10^{-5})(1) \approx -4.5\times10^{-5}$. Essentially zero — the most-wrong example produces almost no learning signal.
+- **BCE:** $\sigma - 1 \approx -1$. Maximal push, exactly when the model is most wrong.
+
+So under MSE the model that most needs to update barely moves; under CE it moves hardest.
+
+**Reason 2 — convexity.** For a linear model, BCE is convex in the weights (composition of a convex function with an affine map), so gradient methods reach the global optimum. Sigmoid + MSE is *non-convex* in the weights (a sigmoid composed inside a quadratic), admitting bad local minima even in the simplest setting.
+
+**Rubric:**
+- Write both gradients; identify the $\sigma'(z)$ saturation factor in MSE
+- Compute $\sigma(-10)\approx 4.5\times10^{-5}$ and both gradient magnitudes ($\sim10^{-5}$ vs $\sim1$)
+- Interpret: confidently-wrong example learns under CE, not under MSE
+- Second reason: BCE convex, sigmoid+MSE non-convex in the weights
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** Prove that log loss is a *strictly proper scoring rule*: that the expected loss $\mathbb{E}_{y\sim p}[-\log q_y]$ is uniquely minimized at $q = p$. Then explain precisely why this disqualifies classification accuracy as a *training* loss.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Proof.** Fix the true distribution $p$ and minimize over the forecast $q$ (a valid distribution):
+
+$$\mathbb{E}_{y\sim p}[-\log q_y] = -\sum_k p_k \log q_k = \text{CE}(p,q) = H(p) + \text{KL}(p\,\|\,q)$$
+
+$H(p)$ is constant in $q$, and by Gibbs' inequality $\text{KL}(p\,\|\,q) \ge 0$ with **equality iff $q = p$**. So the expected log loss is minimized uniquely at $q = p$. That's the definition of a strictly proper scoring rule: truthful reporting of the probabilities is the unique optimum.
+
+(One can prove $\text{KL}\ge 0$ directly via Jensen: $-\sum p_k \log(q_k/p_k) \ge -\log\sum p_k (q_k/p_k) = -\log 1 = 0$.)
+
+**Why accuracy fails as a training loss.** Accuracy / 0-1 loss is **not proper**: many different forecasts $q$ yield identical accuracy (only the argmax matters), so optimizing accuracy does *not* identify the true probabilities — it's insensitive to calibration. Worse for optimization, 0-1 loss is **piecewise constant**, so its gradient is zero almost everywhere and undefined at the jumps — there is no descent signal for SGD. Cross-entropy is smooth, strictly proper (unique minimizer = true posterior), and convex for linear models. Hence: train on CE, *report* accuracy.
+
+**Rubric:**
+- Reduce expected log loss to $H(p) + \text{KL}(p\|q)$
+- Invoke $\text{KL}\ge0$ with equality iff $q=p$ (Gibbs / Jensen)
+- Conclude unique minimizer at $q=p$ → strictly proper
+- Accuracy not proper (insensitive to probabilities) AND zero-gradient-a.e.
+- Therefore unusable as a training objective
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** Focal loss is $\text{FL}(p_t) = -\alpha_t(1-p_t)^\gamma \log(p_t)$. With $\gamma = 2$, compute the factor by which the modulating term down-weights an example at (a) $p_t = 0.9$, (b) $p_t = 0.99$, (c) a hard example at $p_t = 0.1$, relative to plain cross-entropy. What $p_t$ yields exactly a $1000\times$ down-weight? What does focal loss reduce to at $\gamma = 0$?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+The modulating factor relative to CE is $(1-p_t)^\gamma$ (focal loss is CE times this factor, ignoring $\alpha$).
+
+**With $\gamma = 2$:**
+- (a) $p_t = 0.9$: $(1-0.9)^2 = (0.1)^2 = 0.01$ → **100× down-weight**.
+- (b) $p_t = 0.99$: $(0.01)^2 = 10^{-4}$ → **10,000× down-weight**.
+- (c) $p_t = 0.1$ (hard): $(0.9)^2 = 0.81$ → barely touched (~1.23× reduction). 
+
+So focal loss leaves hard examples almost at full CE weight while crushing easy ones — that's the "focusing."
+
+**1000× down-weight:** solve $(1-p_t)^2 = 10^{-3} \Rightarrow 1-p_t = \sqrt{10^{-3}} \approx 0.0316 \Rightarrow p_t \approx 0.9684$.
+
+**At $\gamma = 0$:** $(1-p_t)^0 = 1$, so $\text{FL} = -\alpha_t \log(p_t)$ — i.e. ($\alpha$-balanced) cross-entropy. Focal loss is a strict generalization of CE.
+
+**Rubric:**
+- Identify $(1-p_t)^\gamma$ as the factor relative to CE
+- 100×, 10,000×, ~1.23× for the three cases
+- Solve $(1-p_t)^2 = 10^{-3}$ → $p_t \approx 0.968$
+- $\gamma=0$ → $\alpha$-balanced CE
+- Interpret: down-weights easy, preserves hard
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** Class-balanced loss reweights by the inverse *effective number* $E_n = (1-\beta^n)/(1-\beta)$. Compute $E_n$ for $n = 1000$, $\beta = 0.999$. Show the $\beta \to 0$ and $\beta \to 1$ limits and interpret each. Why is inverse-frequency weighting the $\beta \to 1$ limit, and why can it overfit the tail?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Compute.** $\beta = 0.999$, $n = 1000$: $\beta^n = 0.999^{1000} \approx e^{-1} \approx 0.368$. So
+
+$$E_n = \frac{1 - 0.368}{1 - 0.999} = \frac{0.632}{0.001} = 632.$$
+
+The 1000 samples are worth an "effective" ~632 — diminishing returns from overlap.
+
+**Limits.**
+- $\beta \to 0$: $E_n = (1 - 0)/(1 - 0) = 1$ for all $n$. Every class weighted equally → **no reweighting**.
+- $\beta \to 1$: write $\beta = 1-\epsilon$. $E_n = (1-(1-\epsilon)^n)/\epsilon \to n$ as $\epsilon\to0$ (since $1-(1-\epsilon)^n \approx n\epsilon$). So $E_n \to n$, and the weight $1/E_n \to 1/n$ — **inverse-frequency weighting**.
+
+So class-balanced loss *interpolates* between no reweighting ($\beta=0$) and inverse-frequency ($\beta\to1$).
+
+**Why inverse-frequency can overfit the tail.** $1/n$ gives an ultra-rare class (say $n=5$) a weight $\sim 200\times$ a class with $n=1000$. The model is then pushed to fit a handful of tail examples extremely hard, overfitting their noise. The effective-number view says the *true* marginal value of samples saturates (they cover overlapping feature volume), so $1/n$ over-rewards the tail; $\beta = 0.99$–$0.999$ is a gentler reweighting. Empirically the best $\beta$ is dataset-dependent — it *hurt* on fine-grained CIFAR-100.
+
+**Rubric:**
+- $0.999^{1000}\approx e^{-1}$, so $E_{1000}\approx 632$
+- $\beta\to0 \Rightarrow E_n=1$ (no reweighting)
+- $\beta\to1 \Rightarrow E_n\to n$, weight $\to 1/n$ (inverse frequency)
+- Inverse-frequency over-weights ultra-rare classes → tail overfitting
+- Effective number is less than $n$ because samples overlap
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** Construct two probability forecasts for the same binary dataset that achieve *identical accuracy* but very different cross-entropy and Brier scores. Explain which is better calibrated and what this shows about accuracy as a metric.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Construction.** Take 10 examples, all with true label $y = 1$. Consider two models that both predict the positive class for all 10 (so both have **100% accuracy**):
+
+- **Model A** outputs $q = 0.6$ on every example.
+- **Model B** outputs $q = 0.99$ on every example.
+
+Both threshold to "predict 1" → identical accuracy (10/10).
+
+**Cross-entropy** (per-example $-\log q$):
+- A: $-\log 0.6 \approx 0.511$.
+- B: $-\log 0.99 \approx 0.0101$.
+
+**Brier** (per-example $(q-1)^2$):
+- A: $(0.6-1)^2 = 0.16$.
+- B: $(0.99-1)^2 = 10^{-4}$.
+
+So B has ~50× lower CE and ~1600× lower Brier, despite identical accuracy.
+
+**Which is better calibrated?** Since the empirical positive rate is 100%, Model B (predicting 0.99) is far closer to the truth — it is better calibrated *and* more confident in the right direction. Model A is under-confident. (One can also construct the reverse — an over-confident model penalized heavily — e.g. if some labels were 0, a 0.99-everywhere model would have huge CE.)
+
+**Lesson.** Accuracy ignores the magnitude of the probabilities entirely; it's invariant to any monotonic re-scaling that preserves the argmax. Proper scoring rules (CE, Brier) see the probabilities and therefore see calibration. This is *why* you train and model-select on CE, not accuracy.
+
+**Rubric:**
+- Two forecasts with identical argmax/accuracy but different confidences
+- Compute differing CE and Brier for both
+- Identify which is better calibrated and why (vs the empirical rate)
+- State the general point: accuracy is blind to probability magnitude; proper scores aren't
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** With label smoothing, the target becomes $y^{\text{LS}} = (1-\varepsilon)\,y + \varepsilon/K$. Show that the cross-entropy with this target is minimized by a prediction that assigns the true class probability $1-\varepsilon+\varepsilon/K$ (not 1). Use the KL framing to explain why label smoothing both *improves calibration* and *hurts knowledge distillation*.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Minimizer.** Smoothed CE is $\text{CE}(y^{\text{LS}}, q) = H(y^{\text{LS}}) + \text{KL}(y^{\text{LS}}\,\|\,q)$, minimized (over unconstrained $q$ on the simplex) when $q = y^{\text{LS}}$, i.e. $q_c = 1 - \varepsilon + \varepsilon/K$ for the true class and $\varepsilon/K$ for each other class. (Plug in $K=10$, $\varepsilon=0.1$: true-class target $0.91$, others $0.01$.) So the model is explicitly *told not to be 100% confident*.
+
+**Why calibration improves.** Hard one-hot targets push the true logit toward $+\infty$ (the minimizer of plain CE is at infinite logits), which is exactly the over-confidence Guo et al. documented. Label smoothing makes the optimal logits **finite** — the model targets $1-\varepsilon+\varepsilon/K$ instead of $1$ — so it stops driving confidence to the extremes. Calibration error drops.
+
+**Why distillation suffers.** Müller et al. (2019): minimizing KL to a target that's uniform off the true class forces every wrong class to the *same* small probability $\varepsilon/K$. This **collapses the penultimate-layer representations into tight, equidistant clusters**, erasing the relative similarities among wrong classes ("dog is closer to cat than to truck"). That relative structure — the "dark knowledge" in soft logits — is exactly what a student distills from. A teacher trained with label smoothing therefore makes a *worse* student, even though it may itself be more accurate and better calibrated.
+
+**Rubric:**
+- KL-minimizer of smoothed CE is $q = y^{\text{LS}}$; true-class target $1-\varepsilon+\varepsilon/K$
+- Hard labels → logits → ∞ (overconfidence); smoothing → finite logits → better calibration
+- Smoothing forces equal off-target probabilities → collapses logit/representation structure
+- That erased relative structure is what distillation needs → distillation degrades
+- Bonus: cite Müller 2019
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9.** Temperature scaling predicts $\text{softmax}(z/T)$ for a learned scalar $T>0$. Prove that for any $T>0$ it leaves the predicted class (and hence accuracy) unchanged. Show that it *does* change confidence/entropy. When would the optimal $T$ be less than 1?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Argmax invariance.** $\text{softmax}(z/T)_k = e^{z_k/T}/\sum_j e^{z_j/T}$ is a strictly increasing function of $z_k$ (for $T>0$, dividing by $T$ is order-preserving, and softmax is monotonic in each logit). So $\arg\max_k \text{softmax}(z/T)_k = \arg\max_k z_k$ for every $T>0$. The predicted class never changes ⇒ **accuracy is identical for all $T>0$**. This is why temperature scaling is a "free" calibration fix.
+
+**Confidence does change.** As $T \to \infty$, $z/T \to 0$ and $\text{softmax}\to$ uniform (entropy maximized, confidence → $1/K$). As $T \to 0^+$, the distribution concentrates on the argmax (entropy → 0, confidence → 1). So $T$ is a pure confidence/entropy knob: $T>1$ softens (fixes over-confidence), $T<1$ sharpens.
+
+**When is optimal $T<1$?** $T$ is fit by minimizing validation NLL. If the model is *under*-confident — its correct predictions sit at modest probabilities (like Model A in Q7) — sharpening ($T<1$) lowers NLL. This is rarer for modern deep nets (which are over-confident, so usually $T>1$), but happens with heavily regularized models, strong label smoothing, or small ensembles averaged into mush.
+
+**Rubric:**
+- Argmax preserved because $z\mapsto z/T$ is order-preserving and softmax monotonic → accuracy unchanged
+- Entropy/confidence varies: $T\to\infty$ uniform, $T\to0$ one-hot
+- $T$ fit by validation NLL
+- Optimal $T<1$ when the model is under-confident
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10.** Evaluate $\log \text{softmax}([1000, 1001, 1002])$ both naively (softmax then log) and via the log-sum-exp trick, and show why the naive route fails. Which PyTorch loss should you use to avoid this, and what silent bug appears if you apply softmax yourself and then pass the result to `NLLLoss`?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Naive route fails.** Computing $\text{softmax}$ first requires $e^{1000}, e^{1001}, e^{1002}$ — all overflow to `inf` in float32/float64 (max representable $\approx 10^{308}$, and $e^{1000}\approx 10^{434}$). Then $\text{inf}/\text{inf} = \text{NaN}$. Even where it doesn't overflow, the subsequent $\log$ of an underflowed $0$ gives $-\text{inf}$.
+
+**Log-sum-exp.** $\log\text{softmax}(z)_k = z_k - \operatorname{logsumexp}(z)$, with $\operatorname{logsumexp}(z) = m + \log\sum_j e^{z_j-m}$, $m=\max_j z_j = 1002$:
+
+$$\operatorname{logsumexp} = 1002 + \log(e^{-2} + e^{-1} + e^{0}) = 1002 + \log(0.1353 + 0.3679 + 1) = 1002 + \log(1.5032) \approx 1002.4076$$
+
+So $\log\text{softmax} \approx [\,-2.408,\ -1.408,\ -0.408\,]$, and $\text{softmax} \approx [0.0900, 0.2447, 0.6652]$. The max-subtraction keeps every exponent $\le 0$, so nothing overflows.
+
+**Which loss.** Use `nn.CrossEntropyLoss` (it takes raw logits and is `LogSoftmax + NLLLoss` fused with the stable log-sum-exp), or `nn.BCEWithLogitsLoss` for the binary/multilabel case.
+
+**The silent bug.** `nn.NLLLoss` expects **log-probabilities**. If you compute `softmax(z)` yourself and pass it to `NLLLoss`, you've passed probabilities, not log-probabilities — the loss takes a stray $\log$ where there should be none / none where there should be one, training on a wrong objective. No exception is raised; the model just trains poorly. (Symmetrically, passing already-softmaxed values to `CrossEntropyLoss` applies softmax twice.)
+
+**Rubric:**
+- Naive softmax overflows ($e^{1000}=$ inf) → NaN
+- Log-sum-exp with max-subtraction; compute logsumexp ≈ 1002.41 and the log-probs
+- Use `CrossEntropyLoss` (logits in; LogSoftmax+NLLLoss fused)
+- `NLLLoss` expects log-probs; feeding softmax/logits is a silent correctness bug
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11.** You train a binary classifier on a 1:99 positive:negative dataset with `BCEWithLogitsLoss`. Explain the role of `pos_weight`, what value you'd start with, and the qualitative effect of raising it on precision, recall, and the model's effective decision threshold. How does `pos_weight` differ from the `weight` argument?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**What `pos_weight` does.** `BCEWithLogitsLoss` with `pos_weight = w` computes, per example, $-w\,y\log\sigma(z) - (1-y)\log(1-\sigma(z))$. It multiplies **only the positive term**, so each positive example contributes $w\times$ the gradient of a negative. This counteracts the 99:1 dominance of negatives in the summed loss.
+
+**Starting value.** The standard heuristic is $\text{pos\_weight} = \#\text{neg}/\#\text{pos} = 99$ — equalizing the total gradient mass of the two classes. Treat it as a starting point to tune, not gospel.
+
+**Effect of raising it.** Larger `pos_weight` makes false negatives costlier relative to false positives, so the model is pushed to predict positive more readily: **recall ↑, precision ↓**. Equivalently, it shifts the *effective decision threshold* downward (the model's optimal operating point moves to flag more positives) and **inflates predicted probabilities** for the positive class (so you'll likely need to recalibrate before treating outputs as true probabilities).
+
+**`pos_weight` vs `weight`.** `weight` scales the *entire* per-example (or per-element) loss — it reweights examples/elements regardless of their label. `pos_weight` scales *only the positive term within* the BCE expression — it reweights the positive class specifically. Use `pos_weight` for class imbalance in a binary/multilabel setting; use `weight` for per-example importance weighting.
+
+**Rubric:**
+- `pos_weight` multiplies the positive term of BCE → boosts positive-class gradient
+- Start at #neg/#pos = 99
+- Raising it: recall ↑, precision ↓, effective threshold drops, probabilities inflate (recalibrate)
+- `weight` scales whole-example loss; `pos_weight` scales only the positive term
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12.** Refute both halves of the claim: *"focal loss only helps with class imbalance, and cross-entropy gives you calibrated probabilities for free."* Cite named evidence. Then make the deeper point: for long-tailed classification, when is the loss function the *wrong* lever, and what works better?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Half 1 — "focal loss only helps imbalance" is false.** Mukhoti et al. (NeurIPS 2020, "Calibrating Deep Neural Networks using Focal Loss") show focal loss trains *better-calibrated* models than cross-entropy on **balanced** benchmarks. Mechanism: focal loss can be bounded below by a KL term minus an entropy-like term, so it implicitly **regularizes confidence** (penalizes overconfident predictions) — an effect independent of imbalance. So focal loss has a real, general second use: confidence regularization.
+
+**Half 2 — "CE is calibrated for free" is false.** Guo et al. (ICML 2017, "On Calibration of Modern Neural Networks") show modern deep nets are **systematically overconfident**: increasing depth/width and adding batch norm *worsen* calibration, and networks overfit NLL (test error keeps dropping while test NLL rises — confidence inflates). That's why temperature scaling exists. Nuance worth stating: Minderer et al. (NeurIPS 2021) find newer non-convolutional architectures (ViT, MLP-Mixer) are *better* calibrated out of the box — so even the "modern nets are overconfident" story is architecture-dependent and has evolved.
+
+**Deeper point — the loss is often the wrong lever.** Kang et al. (ICLR 2020, "Decoupling Representation and Classifier") found that on long-tailed recognition, **class imbalance barely hurts representation learning — the bottleneck is the classifier**. Training the backbone normally (instance-balanced sampling) and then *retraining only the classifier head* (cRT) or rescaling its weight norms ($\tau$-normalization) beats elaborate reweighted/resampled losses on ImageNet-LT, Places-LT, and iNaturalist. And Menon et al. (ICLR 2021, "Logit Adjustment") give a **Bayes-consistent** alternative — add $\log \pi_y$ to the logits — that is theoretically grounded where focal/reweighting are heuristics. So the strong answer: focal loss ≈ a confidence regularizer + soft hard-mining; class-balanced ≈ a principled reweighting *magnitude*; but on real long-tail problems both are often dominated by *decoupling* or *logit adjustment*. Reach for the loss last, not first.
+
+**Rubric:**
+- Refute "focal only for imbalance": Mukhoti 2020, focal improves calibration on balanced data via confidence regularization
+- Refute "CE auto-calibrated": Guo 2017 overconfidence (depth/width/BN, NLL overfitting); bonus Minderer 2021 architecture caveat
+- Deeper point: Kang 2020 decoupling (classifier is the bottleneck, not the representation)
+- Menon 2021 logit adjustment as the Bayes-consistent alternative
+- Conclusion: the loss is frequently not the best lever for long-tail
+
+</details>
+
+</Quiz>

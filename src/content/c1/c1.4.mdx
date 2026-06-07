@@ -1,0 +1,187 @@
+---
+id: c1.4
+chapter: 1
+title: Linear & logistic regression
+subtitle: OLS, MLE, regularization, VIF, PCA — the statistics a quant interview lives in
+refs: [7, 19]
+estimatedMinutes: 70
+---
+
+## TL;DR
+
+Linear and logistic regression are the two models every other model is measured against, and they're where **quant-research and frontier-lab interviews spend the most time on fundamentals**. The throughline from c1.2 holds: **OLS is maximum likelihood under Gaussian noise; logistic regression is MLE under Bernoulli noise.** The statistics is the point — what the estimator is, what its *sampling distribution* is, which assumption breaks, and what the MLE/Bayesian view says. Ridge and lasso are just **Gaussian and Laplace priors** on the coefficients; multicollinearity wrecks *inference* (not necessarily prediction) and is diagnosed by VIF; PCA is unsupervised dimensionality reduction whose relationship to ridge is precise.
+
+## What you'll be able to do after this lesson
+
+- Derive the OLS normal equations two ways (calculus and orthogonal projection) and state when a closed form exists.
+- Show OLS is MLE under Gaussian noise, and state the Gauss–Markov theorem precisely (including what it does *not* require).
+- Write the sampling distribution of $\hat\beta$ and use it for standard errors, $t$-tests, and confidence intervals.
+- Explain why logistic regression has no closed form, why its NLL is convex, and what happens under perfect separation.
+- Derive ridge's closed form, explain lasso's sparsity, and identify both as MAP estimation under Gaussian/Laplace priors.
+- Define VIF, explain variance inflation, and separate the *inference* damage of collinearity from its (often negligible) *prediction* damage.
+- Relate PCA, principal-component regression, and ridge — and say when PCA helps a model and when it quietly hurts.
+
+## Why these two models, before the fancy ones
+
+> **Goal — master the substrate every other model generalizes, and the statistical vocabulary interviews probe.** Trees, boosting, and nets are elaborations on "fit a function, define a loss, estimate parameters." Linear and logistic regression are the cases where you can do the estimation theory exactly — closed forms, sampling distributions, provable optimality — so they're where interviewers test whether you understand *estimation*, not just `model.fit`.
+
+Quant-research interviews in particular live here: factor models are OLS, "betas" are regression slopes, and the failure modes (collinear factors, overfit backtests, heteroskedastic returns) are the failure modes of regression. So we treat the statistics as first-class.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **Design matrix** $X$ — the $n \times p$ matrix of features (a column of 1s gives the intercept).
+> - **Estimator** — a function of the data that produces a parameter estimate $\hat\beta$. It's a *random variable* (it depends on the random sample), so it has a distribution.
+> - **Unbiased / consistent / efficient / BLUE** — $\mathbb{E}[\hat\beta]=\beta$; $\hat\beta\to\beta$ as $n\to\infty$; minimum variance among a class; **B**est **L**inear **U**nbiased **E**stimator.
+> - **Logit / odds** — $\text{logit}(p)=\log\frac{p}{1-p}$, the log-odds. Logistic regression makes the log-odds linear in $x$.
+> - **MAP** — maximum a posteriori: the Bayesian point estimate that maximizes likelihood × prior.
+
+## Part 1 — Ordinary least squares
+
+> **Goal — derive the estimator, prove its optimality, and write down its sampling distribution, because that distribution is what every $p$-value and confidence interval comes from.**
+
+### The normal equations, two ways
+
+**Model:** $y = X\beta + \varepsilon$. **Objective:** minimize $\text{RSS}(\beta) = \|y - X\beta\|_2^2$.
+
+*Calculus.* $\nabla_\beta \text{RSS} = -2X^\top(y - X\beta) = 0 \Rightarrow X^\top X\,\hat\beta = X^\top y \Rightarrow \boxed{\hat\beta = (X^\top X)^{-1}X^\top y}$ (when $X^\top X$ is invertible, i.e. $X$ has full column rank). The Hessian is $2X^\top X \succeq 0$, so RSS is convex — the stationary point is the global minimum.
+
+*Projection (no calculus).* $\hat\beta$ minimizes $\|y - X\beta\|$ iff $X\hat\beta$ is the **orthogonal projection** of $y$ onto the column space of $X$, iff the residual $e = y - X\hat\beta$ is orthogonal to that space: $X^\top e = 0$ — the same normal equations. The fitted values are $\hat y = Hy$ with the **hat matrix** $H = X(X^\top X)^{-1}X^\top$, the projector onto $\text{col}(X)$: symmetric, idempotent ($H^2=H$), eigenvalues in $\{0,1\}$, and $\text{trace}(H)=\text{rank}(H)=p$. Pythagoras on $y = \hat y + e$ gives $\text{TSS} = \text{ESS} + \text{RSS}$, which is *why* $R^2 \in [0,1]$.
+
+### OLS is MLE under Gaussian noise — the c1.2 throughline
+
+Assume $\varepsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2)$. The log-likelihood is
+
+$$\log L(\beta,\sigma^2) = -\tfrac{n}{2}\log(2\pi\sigma^2) - \frac{1}{2\sigma^2}\sum_i (y_i - x_i^\top\beta)^2$$
+
+Maximizing over $\beta$ is identical to minimizing $\sum_i (y_i - x_i^\top\beta)^2 = \text{RSS}$. **So MLE = OLS under Gaussian noise.** This is the exact same statement as c1.2 ("the loss is the negative log-likelihood of an assumed noise model"): Gaussian noise → squared loss → OLS; Laplace noise → absolute loss → least-absolute-deviations; Student-$t$ → a Huber-like robust fit. (Note the MLE for $\sigma^2$ is $\text{RSS}/n$ — biased; the unbiased estimator divides by $n-p$, the degrees-of-freedom correction.)
+
+### Gauss–Markov: OLS is BLUE — and what that does *not* require
+
+Among all **linear unbiased** estimators, OLS has minimum variance, assuming only: (i) linearity, (ii) strict exogeneity $\mathbb{E}[\varepsilon\mid X]=0$, (iii) homoskedasticity $\text{Var}(\varepsilon\mid X)=\sigma^2 I$, (iv) no perfect collinearity. **Normality is NOT required for BLUE.** Normality is only needed for the *finite-sample* $t$/$F$ distributions and exact intervals; without it those hold asymptotically via the CLT. (Sketch: any other linear unbiased estimator is $C = (X^\top X)^{-1}X^\top + D$ with $DX=0$; its covariance exceeds OLS's by $\sigma^2 DD^\top \succeq 0$.)
+
+### The sampling distribution — where inference comes from
+
+$\hat\beta = (X^\top X)^{-1}X^\top y = \beta + (X^\top X)^{-1}X^\top\varepsilon$, so $\mathbb{E}[\hat\beta]=\beta$ (unbiased) and
+
+$$\hat\beta \sim \mathcal{N}\!\bigl(\beta,\ \sigma^2 (X^\top X)^{-1}\bigr)$$
+
+(Normal under Gaussian $\varepsilon$; asymptotically Normal otherwise.) From this: $\text{SE}(\hat\beta_j) = \sqrt{\hat\sigma^2 (X^\top X)^{-1}_{jj}}$, the $t$-statistic $t_j = \hat\beta_j/\text{SE}(\hat\beta_j) \sim t_{n-p}$ under $H_0:\beta_j=0$, and the $F$-test for joint significance. **Everything a regression table prints — $p$-values, confidence intervals — is read off this one distribution.**
+
+> **Stop and think.** Your residuals are heteroskedastic (e.g. volatility clustering in returns). Is $\hat\beta$ still unbiased? What breaks? *Hint: $\hat\beta$ stays unbiased — exogeneity, not homoskedasticity, controls bias — but $\sigma^2(X^\top X)^{-1}$ is the wrong covariance, so your $t$-stats are wrong. Fix with **White/HC** robust standard errors (HC3 for small samples), or Newey–West (HAC) for autocorrelation.*
+
+### $R^2$ vs adjusted $R^2$
+
+$R^2 = 1 - \text{RSS}/\text{TSS}$ is **monotonically non-decreasing** in the number of predictors: adding *any* column (even pure noise) can only shrink the min-RSS, because you're minimizing over a larger column space. So $R^2$ rises when you add junk features. **Adjusted $R^2 = 1 - \frac{\text{RSS}/(n-p)}{\text{TSS}/(n-1)}$** penalizes $p$ and *can* fall. Reporting plain $R^2$ to argue model quality is a classic tell.
+
+## Part 2 — Logistic regression
+
+> **Goal — see why "linear regression for classification" is wrong, and why logistic regression is the Bernoulli-noise MLE with a convex objective and no closed form.**
+
+Model the log-odds as linear: $\text{logit}(p(x)) = x^\top\beta$, i.e. $p(x) = \sigma(x^\top\beta)$. The Bernoulli log-likelihood is $\ell(\beta) = \sum_i[y_i\log p_i + (1-y_i)\log(1-p_i)]$ — the negative of this is **binary cross-entropy** (c1.3). The score and Hessian are
+
+$$\nabla\ell = X^\top(y - p), \qquad \nabla^2\ell = -X^\top W X,\quad W=\text{diag}(p_i(1-p_i))$$
+
+$W \succeq 0 \Rightarrow$ the NLL is **globally convex** (no bad local minima). But the score equation $X^\top(y-p)=0$ is **nonlinear in $\beta$** (because $p=\sigma(X\beta)$), so there is **no closed form**. You solve it iteratively with Newton–Raphson, which here takes the form of **iteratively reweighted least squares (IRLS)** — each step is a weighted OLS fit. The decision boundary $\{x: x^\top\beta=0\}$ is a hyperplane (linear classifier), and $e^{\beta_j}$ is the **odds ratio** for a unit increase in $x_j$.
+
+> **Why not squared error on $\sigma(x^\top\beta)$?** It's non-convex in $\beta$ (sigmoid inside a quadratic) and saturates (c1.3's vanishing-gradient argument). Cross-entropy is the Bernoulli MLE *and* convex — use it.
+
+**Perfect separation breaks the MLE.** If a hyperplane perfectly separates the classes, scaling $\beta \to c\beta$ with $c\to\infty$ drives every $p_i \to \{0,1\}$ and the likelihood toward its supremum without ever attaining it — **the MLE is at infinity and does not exist** (Albert & Anderson, *Biometrika* 1984); coefficients and standard errors blow up. Fixes: any penalty (ridge), or **Firth's penalized likelihood** (a Jeffreys prior) that guarantees finite estimates. This is why an unregularized logistic fit can "diverge" on clean, easily-separable data — a counterintuitive interview favorite.
+
+## Part 3 — Regularization (and its Bayesian meaning)
+
+> **Goal — trade a little bias for a lot of variance, and recognize the two standard penalties as priors — the same noise-model thinking from c1.2, now on the coefficients.**
+
+**Ridge (L2):** minimize $\|y-X\beta\|^2 + \lambda\|\beta\|_2^2 \Rightarrow \hat\beta_{\text{ridge}} = (X^\top X + \lambda I)^{-1}X^\top y$. The $+\lambda I$ makes the matrix **positive-definite and always invertible**, even when $p > n$ or $X$ is collinear — ridge's structural superpower. It shrinks coefficients toward zero but never to exactly zero.
+
+**Lasso (L1):** minimize $\|y-X\beta\|^2 + \lambda\|\beta\|_1$. No closed form (non-differentiable at $\beta_j=0$); solved by coordinate descent / LARS. It produces **exact zeros** (sparsity). On orthonormal $X$ the two are transparent: lasso is **soft-thresholding** $\hat\beta_j = \text{sign}(\hat\beta_j^{\text{OLS}})\max(|\hat\beta_j^{\text{OLS}}|-\lambda,\,0)$, while ridge is pure shrinkage $\hat\beta_j = \hat\beta_j^{\text{OLS}}/(1+\lambda)$ — the cleanest way to see "L1 zeros vs L2 shrinks."
+
+**The Bayesian view (ties straight back to c1.2).** MAP estimation maximizes $\log p(y\mid\beta) + \log p(\beta)$ — the negative log-prior *is* the penalty, exactly as the negative log-likelihood is the data loss. Gaussian likelihood + **Gaussian prior** $\beta\sim\mathcal{N}(0,\tau^2 I)$ → **ridge** (with $\lambda=\sigma^2/\tau^2$). Gaussian likelihood + **Laplace prior** → **lasso**. The Laplace prior's heavier tail and sharp peak at 0 are *why* L1 induces sparsity while L2 doesn't. So: L2 penalty ⟺ Gaussian prior, L1 penalty ⟺ Laplace prior — the same "every loss is a noise model" lens, applied to the parameters.
+
+**Bias for variance — and why unbiased isn't sacred.** Ridge is biased, yet its variance reduction can lower total MSE below OLS's (recall $\text{MSE} = \text{Bias}^2 + \text{Variance}$; OLS minimizes variance *subject to zero bias*, an often-suboptimal constraint). The deep version: **James–Stein (1961)** — the ordinary sample mean is *inadmissible* for estimating a Gaussian mean in dimension $\ge 3$; a shrinkage estimator strictly dominates it in total MSE, even with independent coordinates. Shrinkage isn't a hack; it's provably better in $\ge 3$ dimensions. Ridge is the regression analogue.
+
+## Part 4 — Multicollinearity and VIF
+
+> **Goal — diagnose redundant predictors, and separate the damage they do to *inference* from the damage (often none) they do to *prediction*.**
+
+The **variance inflation factor** for predictor $j$ is
+
+$$\text{VIF}_j = \frac{1}{1 - R_j^2}$$
+
+where $R_j^2$ is the $R^2$ from regressing $x_j$ on *all the other predictors*. It multiplies the coefficient's variance: $\text{Var}(\hat\beta_j) \propto \text{VIF}_j$, so $\text{SE}(\hat\beta_j)$ scales as $\sqrt{\text{VIF}_j}$. Rules of thumb: $\text{VIF}>5$ moderate, $>10$ serious ($R_j^2>0.9$); $\text{VIF}=1$ means orthogonal.
+
+**Inference vs prediction.** Collinearity inflates coefficient variances → **unstable, sign-flipping coefficients and wide confidence intervals** → coefficient *inference* is wrecked. But the model's *predictions* on similar $X$ can be perfectly fine — collinearity introduces no bias, it just makes the individual coefficients un-identifiable. A tree model doesn't care for prediction at all (it just splits on one of the redundant features). This is the precise resolution to "is multicollinearity bad?": **bad for interpretation, often harmless for prediction.** (This connects directly to c1.1: redundant/collinear features are exactly what defeats the drop-column leakage test and split tree-importance.)
+
+## Part 5 — PCA and principal-component regression
+
+> **Goal — understand the most-asked dimensionality-reduction method, and its precise relationship to ridge — including when it quietly hurts.**
+
+**PCA.** Center $X$, then take the **SVD** $X = UDV^\top$ (equivalently, eigendecompose the covariance $\frac{1}{n-1}X^\top X = V\Lambda V^\top$). The columns of $V$ are the **principal-component directions**, the scores are $z_j = Xv_j$, and the **explained-variance ratio** of component $j$ is $d_j^2/\sum_k d_k^2$. PCA keeps the high-variance directions.
+
+**Ridge is "soft PCR."** With $X=UDV^\top$, the ridge fit is
+
+$$\hat y_{\text{ridge}} = \sum_{j=1}^p u_j\,\frac{d_j^2}{d_j^2+\lambda}\,u_j^\top y$$
+
+OLS uses shrinkage factor $1$ on every principal direction; ridge multiplies direction $j$ by $\frac{d_j^2}{d_j^2+\lambda}\in(0,1)$ — so it **shrinks most along the low-variance (small $d_j$) directions**, which are exactly the unstable, collinear ones. **Principal-component regression (PCR)** is the hard-threshold version: keep the top $m$ components fully, drop the rest. This is the exact sense in which "ridge ≈ smooth PCR."
+
+**When PCA hurts.** PCA is **unsupervised — target-blind**. It keeps high-*variance* directions, which may be exactly the *irrelevant* ones; the predictive signal can live in a low-variance component that PCA discards. It also assumes linearity and "variance = importance," and destroys interpretability (components are blends of features). It helps when collinearity/dimensionality is the problem *and* signal aligns with high-variance directions; otherwise supervised methods (PLS, or just ridge) are better.
+
+## The stats / quant-research lens (read this before a quant interview)
+
+- **Estimator ladder.** *Unbiased* ($\mathbb{E}[\hat\beta]=\beta$), *consistent* ($\hat\beta\to^p\beta$), *efficient* (attains the Cramér–Rao bound; MLE is asymptotically efficient), *BLUE* (min-variance among linear unbiased — Gauss–Markov). The gaps matter: unbiased $\not\Rightarrow$ consistent and vice-versa; BLUE is "best" only within the linear class — a biased nonlinear estimator (ridge) can beat it in MSE.
+- **Factor models are OLS.** CAPM / Fama–French / Carhart: $r_i - r_f = \alpha + \beta\cdot(\text{factors}) + \varepsilon$. The "betas" are regression slopes; $\alpha$ (the intercept) is tested for $\ne 0$ via its $t$-stat. Value/quality/size factors are correlated → high VIF → **unstable, sign-flipping factor loadings** even when portfolio *prediction* is fine.
+- **Heteroskedastic, autocorrelated returns** → must use White (HC) or Newey–West (HAC) standard errors, or you "discover" spurious alpha.
+- **Overfit backtests.** More factors mechanically raise in-sample $R^2$ → inflated backtest Sharpe. This is the multiple-testing / data-snooping problem — cross-reference c1.1 leakage, adjusted $R^2$, and CV.
+
+## Tradeoff matrix
+
+| Method | Estimates | Closed form? | Handles collinearity | Sparse? | Bayesian prior |
+|---|---|---|---|---|---|
+| OLS | Conditional mean (Gaussian MLE) | Yes | No (singular if rank-deficient) | No | None (flat) |
+| Ridge | Shrunk mean | Yes: $(X^\top X+\lambda I)^{-1}X^\top y$ | Yes (always invertible) | No | Gaussian |
+| Lasso | Sparse mean | No (coordinate descent) | Partially | Yes | Laplace |
+| Logistic | $P(y=1\mid x)$ (Bernoulli MLE) | No (IRLS) | via penalty | via L1 | via penalty |
+| PCR | Mean on top-$m$ PCs | Yes (per $m$) | Yes (drops low-variance) | No (in PC space) | — |
+
+## Worked decision walk-throughs
+
+**Scenario A: you need interpretable coefficients with $p$-values (which factors matter?).** Use **statsmodels OLS** (or Logit) — it reports SEs, $t$-stats, $p$-values, CIs. Check VIFs first; if factors are collinear, the individual coefficients are untrustworthy even if the fit is good.
+
+**Scenario B: $p > n$ or heavy collinearity, you care about prediction.** **Ridge.** It's always invertible and shrinks the unstable low-variance directions. If you also want feature selection, **lasso** or **elastic net**.
+
+**Scenario C: binary classification, want probabilities + interpretable odds ratios.** Logistic regression. Watch for **perfect separation** (regularize or use Firth) and remember sklearn's default is *penalized* (below) — calibrate if you need true probabilities.
+
+**Scenario D: high-dimensional correlated features, mostly nuisance variance.** Consider **PCA/PCR** — but verify the target correlates with the top components (it's target-blind); ridge is often the safer "soft PCR."
+
+## Production failure modes
+
+1. **`sklearn.LogisticRegression` is regularized by default.** It applies an **L2 penalty with `C=1.0`** out of the box — it is *not* textbook MLE. For unregularized logistic regression use `statsmodels.Logit`, or sklearn `C=np.inf`. (Version note: in **scikit-learn 1.8** the `penalty` parameter is **deprecated in favor of `l1_ratio`** — `penalty='l2'`→`l1_ratio=0`, `'l1'`→`1`, `None`→`C=np.inf` — with removal in 1.10. Most environments are still on ≤1.7 where `penalty=` is live; check the installed version.)
+2. **Wanting $p$-values from sklearn.** sklearn gives a penalized point estimate and **no inference** (no SEs/$p$-values). Use statsmodels for inference; remember to **`add_constant`** (statsmodels does *not* add an intercept, unlike sklearn).
+3. **VIF computed without an intercept.** `statsmodels`' `variance_inflation_factor` needs a constant column added first, or the VIFs are wrong (the implicit regressions are forced through the origin).
+4. **Ridge vs Lasso $\alpha$ aren't on the same scale.** sklearn `Ridge` puts `alpha` on the raw RSS; `Lasso`/`ElasticNet` carry a $1/(2n)$ factor. Don't copy an $\alpha$ between them.
+5. **Reporting in-sample $R^2$ as model quality.** It only goes up with more features; use adjusted $R^2$ or out-of-sample/CV.
+6. **Unregularized logistic on separable data diverges.** Coefficients run to $\pm\infty$; add a penalty or use Firth.
+
+## Interview gotchas
+
+- **"Is OLS the minimum-variance unbiased estimator, and does it need Gaussian errors?"** — It's BLUE (best *linear* unbiased) by Gauss–Markov; normality is **not** required for BLUE, only for finite-sample $t$/$F$ inference. A nonlinear or biased estimator can beat it.
+- **"When is a biased estimator better than OLS?"** — bias-variance: ridge trades bias for a larger variance cut → lower MSE; James–Stein proves dominance for dimension $\ge 3$.
+- **"Why does logistic regression have no closed form, and is the objective convex?"** — score equation is nonlinear in $\beta$ (no closed form); Hessian $-X^\top W X \preceq 0$ for the log-likelihood → NLL convex → IRLS/Newton finds the global optimum.
+- **"What happens under perfect separation?"** — MLE diverges to $\pm\infty$; regularize or use Firth. (Cite Albert–Anderson.)
+- **"Ridge vs lasso — and what priors are they?"** — L2 shrinks / Gaussian prior; L1 zeros / Laplace prior; show soft-thresholding.
+- **"Two predictors have VIF 50 — what's affected?"** — coefficient SEs ($\times\sqrt{50}$), sign stability, interpretation — but not necessarily prediction.
+- **"How does ridge relate to PCA?"** — ridge is soft PCR: it shrinks most along low-variance principal directions; PCR hard-drops them.
+
+## Take the quiz
+
+Twelve conceptually difficult questions — derivations, the sampling distribution, perfect separation, ridge-as-soft-PCR, and the version traps. **[Take the quiz →](/c/c1/c1.4/quiz)**
+
+## Cited references
+
+- Ref 7 — *A Tour of Machine Learning Algorithms* (Machine Learning Mastery) — `c1/references/07_traditional_ml_algos.html` (taxonomy only; not a math source)
+- Ref 19 — *L1 and L2 regularization* — `c1/references/19_l1_l2_regularization.html` (use with care — the page conflates the L1/L2 *penalty* with the L1/L2 *loss*; see the lesson for the correct distinction)
+
+External works (the real sources for the math):
+- Hastie, T., Tibshirani, R., Friedman, J. *The Elements of Statistical Learning*, 2nd ed., Ch. 3. Normal equations, hat matrix, ridge-via-SVD (eq. 3.47), lasso soft-thresholding, James–Stein.
+- Albert, A., Anderson, J. A. 1984. "On the existence of maximum likelihood estimates in logistic regression models." *Biometrika* 71(1):1–10. Perfect separation ⇒ no MLE.
+- James, W., Stein, C. 1961. "Estimation with quadratic loss." Inadmissibility of the sample mean in dimension $\ge 3$.
+- Firth, D. 1993. "Bias reduction of maximum likelihood estimates." *Biometrika* 80:27–38. Penalized-likelihood fix for separation.
