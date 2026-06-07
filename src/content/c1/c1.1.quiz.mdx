@@ -541,3 +541,10 @@ Additional interview-calibrated questions — the ones that tend to separate can
 18. **Choosing class-weight magnitude.** How do fixed class weights rescale per-example gradient contributions, and why can very large minority weights destabilize training and hurt calibration? How would you pick the magnitude?
 19. **Importance weights and their variance.** When you change the sampling distribution (oversample, undersample, curriculum), how do importance weights recover an unbiased estimate of the original risk — and when is their variance so high that the correction is worse than the bias it removes?
 20. **Design a sampler end-to-end.** You're handed a 1,000:1 fraud dataset. Walk through how you'd combine split strategy, batch sampling, weighting/augmentation, metric choice, and threshold/calibration into one coherent training + evaluation plan — and justify each choice.
+
+## Rapid-fire: leakage & feature redundancy
+
+Same format — no answers, ~2 minutes each.
+
+1. **The low-importance leaker.** A leaky feature shows surprisingly *low* permutation/tree importance, and dropping it barely moves AUC — yet it *is* leaking. Explain how feature redundancy (collinearity) produces both symptoms at once, and what detection approach surfaces it where drop-column and single-feature importance both fail.
+2. **VIF — detection vs. prediction.** Why is multicollinearity primarily a *leakage-detection* and *coefficient-inference* problem rather than a *prediction* problem for a tree model? Define the variance inflation factor $\text{VIF}_j = 1/(1 - R_j^2)$ and state precisely what $R_j^2$ is the result of regressing on what.
