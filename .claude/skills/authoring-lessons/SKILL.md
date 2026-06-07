@@ -55,6 +55,7 @@ Inside the core sections, every lesson must hit all four:
 - **Full derivations.** Write the likelihood, take the log, drop constants *with justification*, land on the result, write **QED**. Show shapes for anything tensor-valued. The reader should be able to reproduce it on a whiteboard.
 - **Quantified, not vibes.** Replace "MSE is sensitive to outliers" with the computation: *999 residuals ≈1 plus one ≈100 → outlier is 9.1% of the gradient under MSE vs 0.1% under MAE.* Pick concrete numbers and units; do the arithmetic in-text.
 - **Named real-world grounding.** At least one real incident or system, by name: CheXNet, Roberts et al. 2021, the Kaggle Mercedes-Benz leak, XGBoost's `reg:absoluteerror`. Generic "in practice…" is not grounding.
+- **Stats / quant-research lens (where applicable).** When a topic has a statistics backbone — distributions & noise models, estimators (bias/variance/consistency/BLUE), OLS, PCA, hypothesis testing, calibration — surface the angle a quant-research / hedge-fund / research-lab interviewer probes: *what is the estimator, what's its sampling distribution, which assumption breaks, what's the MLE/Bayesian view.* (Explicit user preference; especially distributions, PCA, OLS.)
 
 ---
 
@@ -171,6 +172,7 @@ Before considering a lesson + quiz done:
 - [ ] Quiz: **12 questions**, derive/prove/construct phrasing, each with a **model answer + explicit rubric**, plus the intro + calibration line.
 - [ ] **Plain-English-first** ordering throughout; intuition precedes every equation.
 - [ ] Every section / sub-section / worked example **opens with a 1–2 sentence goal statement** (big-picture-first, `**Goal — …**`).
+- [ ] Where the topic has a statistics backbone (distributions, estimators, OLS, PCA, testing, calibration), the **stats/quant-research angle** is surfaced.
 - [ ] All **library claims are version-accurate** with the mechanism named (§7); primary sources cited.
 - [ ] **No unescaped `<`/`>`** outside math/code; links and anchors resolve; frontmatter matches the schema.
 - [ ] Forward-references (e.g. to `c1.10`) and the `id` sort order are consistent (§9).
