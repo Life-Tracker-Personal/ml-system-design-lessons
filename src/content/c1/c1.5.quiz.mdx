@@ -1,0 +1,332 @@
+---
+lessonId: c1.5
+chapter: 1
+title: Quiz — Trees & ensembles
+description: 12 conceptually difficult questions on CART, bagging/random forests, boosting/GBDT, and stacking.
+estimatedMinutes: 45
+---
+
+These 12 questions test whether you understand ensembles as *bias-variance engineering* — the decorrelation identity, functional gradient descent, and the XGBoost objective — not whether you can name them. Try to answer before revealing.
+
+If you can derive Q2, Q4, Q5, and Q6 from scratch, you're calibrated for the trees/ensembles portion of any top-tier or quant interview.
+
+<Quiz id="1">
+
+**Q1.** A node has 8 class-A and 2 class-B examples. A candidate split sends $\{6A, 0B\}$ left and $\{2A, 2B\}$ right. Compute the **Gini** impurity decrease and the **entropy** information gain. Do they agree that this is a good split?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Gini.** Parent: $p_A=0.8$, $p_B=0.2$, $G = 1 - (0.8^2 + 0.2^2) = 1 - 0.68 = 0.32$.
+- Left $\{6A,0B\}$: pure, $G_L = 0$.
+- Right $\{2A,2B\}$: $G_R = 1 - (0.5^2 + 0.5^2) = 0.5$.
+- Weighted child Gini: $\frac{6}{10}(0) + \frac{4}{10}(0.5) = 0.2$.
+- **Gini decrease $= 0.32 - 0.2 = 0.12$.**
+
+**Entropy** (bits). Parent: $H = -(0.8\log_2 0.8 + 0.2\log_2 0.2) = -(0.8(-0.3219) + 0.2(-2.3219)) \approx 0.722$.
+- Left: pure, $H_L = 0$. Right: $\{2,2\}$, $H_R = 1$.
+- Weighted child entropy: $0.6(0) + 0.4(1) = 0.4$.
+- **Information gain $= 0.722 - 0.4 \approx 0.322$ bits.**
+
+Both criteria give a positive decrease, so both agree it's a good split (it perfectly isolates 6 of the A's). In general Gini and entropy rarely disagree on the chosen split — both peak at $p=0.5$, where $G = 0.5$ equals half the entropy *in bits* — and Gini is cheaper (no logarithm).
+
+**Rubric:**
+- Parent Gini 0.32; weighted child 0.2; decrease 0.12
+- Parent entropy ≈0.722; weighted child 0.4; gain ≈0.322
+- Both positive → both favor the split
+- Note Gini and entropy track closely (both peak at 0.5, where $G=0.5=H_{\text{bits}}/2$); Gini cheaper
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** Derive the variance of an average of $B$ trees each with variance $\sigma^2$ and pairwise correlation $\rho$. State the $B\to\infty$ limit. If a random forest cuts $\rho$ from 0.9 to 0.5 (with $\sigma^2$ fixed), by what factor does the large-$B$ variance fall?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Derivation.** For $\bar X = \frac1B\sum_b X_b$ with $\operatorname{Var}(X_b)=\sigma^2$ and $\operatorname{Cov}(X_i,X_j)=\rho\sigma^2$ for $i\ne j$:
+
+$$\operatorname{Var}(\bar X) = \frac{1}{B^2}\left[\sum_b \operatorname{Var}(X_b) + \sum_{i\ne j}\operatorname{Cov}(X_i,X_j)\right] = \frac{1}{B^2}\left[B\sigma^2 + B(B-1)\rho\sigma^2\right]$$
+
+$$= \frac{\sigma^2}{B} + \frac{B-1}{B}\rho\sigma^2 = \rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$$
+
+**Limit.** As $B\to\infty$, $\operatorname{Var}(\bar X) \to \rho\sigma^2$ — a **floor set entirely by the correlation**. Adding trees only helps until you hit it.
+
+**Factor.** The large-$B$ variance is $\rho\sigma^2$, so cutting $\rho$ from 0.9 to 0.5 multiplies it by $0.5/0.9 \approx 0.556$ — about a **44% reduction** in the variance floor. This is precisely why random forests inject per-split feature randomness: to drive $\rho$ down.
+
+**Rubric:**
+- Expand $\operatorname{Var}(\bar X)$ into variance + covariance terms
+- Land on $\rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$
+- $B\to\infty$ floor $=\rho\sigma^2$
+- Factor $0.5/0.9\approx0.556$; connect to RF's purpose (lower $\rho$)
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** Derive the fraction of training rows left out of a single bootstrap sample as $n\to\infty$. For $n=1000$, how many rows are out-of-bag per tree, and how many *distinct* rows are in-bag? With 100 trees, roughly how many trees vote in a given row's OOB prediction?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Derivation.** A bootstrap draws $n$ rows with replacement. The probability a specific row is *not* picked in one draw is $1 - \frac1n$; over $n$ independent draws it's $\left(1-\frac1n\right)^n$. As $n\to\infty$:
+
+$$\left(1 - \frac1n\right)^n \to e^{-1} \approx 0.368$$
+
+So **~36.8% of rows are out-of-bag** per tree, and ~63.2% are in-bag.
+
+**For $n=1000$:** $\approx 368$ rows OOB per tree; expected distinct in-bag $\approx n(1-e^{-1}) \approx 632$.
+
+**With 100 trees:** each row is OOB for ~36.8% of trees, so ~**37 trees** never saw it and contribute to its OOB prediction. Averaging those gives the row's OOB estimate; doing this for all rows yields a near-free, CV-quality error estimate.
+
+**Rubric:**
+- $(1-1/n)^n \to e^{-1} \approx 0.368$
+- ~368 OOB, ~632 distinct in-bag for $n=1000$
+- ~37 of 100 trees score a given row OOB
+- Note OOB ≈ free cross-validation
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** Show that AdaBoost's stagewise coefficient comes from minimizing exponential loss, deriving $\beta = \tfrac12\ln\frac{1-\text{err}}{\text{err}}$. What is $\beta$ when $\text{err}=0$, $\text{err}=0.5$? Why does this make AdaBoost fragile to label noise?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Setup.** At stage $m$ we add $\beta G(x)$ to $f_{m-1}$, minimizing exponential loss over the (normalized) weights $w_i \propto e^{-y_i f_{m-1}(x_i)}$:
+
+$$\sum_i w_i\, e^{-y_i \beta G(x_i)} = e^{-\beta}\!\!\sum_{y_i = G(x_i)}\!\! w_i + e^{\beta}\!\!\sum_{y_i \ne G(x_i)}\!\! w_i$$
+
+Let $W = \sum_i w_i$ and $\text{err} = \frac{\sum_{\text{wrong}} w_i}{W}$. The objective is $W\!\left[e^{-\beta}(1-\text{err}) + e^{\beta}\,\text{err}\right]$.
+
+**Minimize over $\beta$.** $\frac{d}{d\beta} = -e^{-\beta}(1-\text{err}) + e^{\beta}\,\text{err} = 0 \Rightarrow e^{2\beta} = \frac{1-\text{err}}{\text{err}} \Rightarrow \boxed{\beta = \tfrac12\ln\frac{1-\text{err}}{\text{err}}}$.
+
+(Discrete AdaBoost often quotes the classifier weight $\alpha_m = \ln\frac{1-\text{err}}{\text{err}} = 2\beta$; the factor of 2 washes out under reweight-and-renormalize and doesn't change predicted signs.)
+
+**Edge cases.** $\text{err}\to0 \Rightarrow \beta\to+\infty$ (a perfect learner gets infinite vote); $\text{err}=0.5 \Rightarrow \beta=0$ (a chance learner is ignored); $\text{err}>0.5 \Rightarrow \beta<0$ (flip it).
+
+**Fragility to noise.** Exponential loss $e^{-yf}$ grows *exponentially* in the negative margin, so a persistently misclassified point (e.g. a mislabeled example) gets its weight blown up round after round, and the ensemble keeps contorting to fit it. That's why AdaBoost degrades under label noise, and why gradient boosting with a robust loss (or random forests) is preferred there.
+
+**Rubric:**
+- Split exp-loss into correct/incorrect sums; define err
+- Differentiate, solve $e^{2\beta}=(1-\text{err})/\text{err}$ → $\beta=\tfrac12\ln\frac{1-\text{err}}{\text{err}}$
+- Edge cases: err 0 → ∞, 0.5 → 0
+- Exp-loss up-weights mislabeled points exponentially → noise fragility
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** In gradient boosting, what does each new tree fit? Give the pseudo-residual for squared loss, MAE, and log loss. Why does plain gradient boosting with squared loss reduce to "fit the residuals," and why is a leaf's value the mean under squared loss but the median under MAE?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**What it fits.** Each tree fits the **negative gradient of the loss w.r.t. the current prediction** (the pseudo-residual), evaluated at $f_{m-1}$:
+
+$$r_{im} = -\left[\frac{\partial L(y_i, f(x_i))}{\partial f(x_i)}\right]_{f = f_{m-1}}$$
+
+This is gradient descent in function space: the tree approximates the steepest-descent direction.
+
+**Specializations.**
+- **Squared loss** $L=\tfrac12(y-f)^2$: $-\partial L/\partial f = (y-f) = r$, the **ordinary residual**.
+- **MAE** $L=|y-f|$: $-\partial L/\partial f = \text{sign}(y-f)$.
+- **Log loss** (binary, $f$ = logit, $p=\sigma(f)$): $-\partial L/\partial f = y - p$.
+
+**Why "fit the residuals."** Because for squared loss the pseudo-residual *is* the residual $y-f$, so each round literally fits a tree to the current residuals and adds it — the classic intuition.
+
+**Mean vs median leaf value.** After fitting the tree's structure, the leaf value is chosen to minimize the *actual loss* on that leaf's points. The constant $c$ minimizing $\sum(y_i - c)^2$ is the **mean**; the constant minimizing $\sum|y_i - c|$ is the **median** (the same mean-vs-median result as c1.2: squared loss → conditional mean, absolute loss → conditional median).
+
+**Rubric:**
+- Each tree fits the negative gradient (pseudo-residual)
+- Squared → residual $y-f$; MAE → $\text{sign}(y-f)$; log → $y-p$
+- L2 pseudo-residual = residual ⇒ "fit the residuals"
+- Leaf value: mean for L2, median for L1 (argmin of the loss)
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** Derive XGBoost's optimal leaf weight $w_j^\star = -G_j/(H_j+\lambda)$ from its second-order objective. Show it reduces to the shrunk mean residual for squared loss. What goes wrong for MAE, and how does that connect to c1.2?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Objective.** A 2nd-order Taylor expansion of the loss around $f_{m-1}$, plus L2 leaf regularization, gives (per leaf $j$ with instance set $I_j$, $g_i, h_i$ the first/second derivatives):
+
+$$\text{obj}_j(w_j) = G_j w_j + \tfrac12(H_j + \lambda) w_j^2, \qquad G_j = \sum_{i\in I_j} g_i,\ \ H_j = \sum_{i\in I_j} h_i$$
+
+**Minimize.** $\frac{d}{dw_j} = G_j + (H_j+\lambda)w_j = 0 \Rightarrow \boxed{w_j^\star = -\dfrac{G_j}{H_j+\lambda}}$. Substituting back gives the structure score contribution $-\tfrac12 G_j^2/(H_j+\lambda)$, which drives the split-gain formula.
+
+**Squared loss.** $L=\tfrac12(y-f)^2 \Rightarrow g_i = f - y_i = -r_i$, $h_i = 1$. So $G_j = -\sum_{i\in I_j} r_i$, $H_j = n_j$, and
+
+$$w_j^\star = \frac{\sum_{i\in I_j} r_i}{n_j + \lambda} = \frac{n_j\,\bar r_j}{n_j+\lambda} = \frac{\bar r_j}{1 + \lambda/n_j}$$
+
+— the **mean residual, shrunk** by the regularizer. With $\lambda=0$ it's exactly the mean residual, recovering plain gradient boosting.
+
+**MAE.** $L=|y-f|$ has $h_i = 0$ almost everywhere (it's piecewise linear). Then $w_j^\star = -G_j/\lambda$ — it depends *only* on $\lambda$, and is undefined/degenerate at $\lambda=0$. The Newton leaf step has no curvature to work with. **This is the c1.2 connection:** naive MAE breaks XGBoost's second-order method (the "zero gradient" warning is really zero *Hessian*); the fix is `reg:pseudohubererror` (smooth, positive Hessian) or the special-cased `reg:absoluteerror` (a constant Hessian for split-finding, plus an adaptive leaf-update that sets each leaf to ~the median of its residuals).
+
+**Rubric:**
+- Per-leaf objective $G_j w + \tfrac12(H_j+\lambda)w^2$
+- Minimize → $w^\star = -G_j/(H_j+\lambda)$
+- Squared loss: $g=f-y$, $h=1$ → shrunk mean residual; $\lambda=0$ → mean (= plain GB)
+- MAE: $h=0$ → degenerate; c1.2 tie (zero Hessian; pseudo-Huber / reg:absoluteerror)
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** Construct a learner for which bagging yields essentially zero improvement, and explain why using the decorrelation identity. Bonus: why might bagging even slightly *increase* its error?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The learner.** Any **stable, low-variance, high-bias** learner — e.g. **ordinary linear/OLS regression** (or LDA, or large-$k$ kNN). Fit on different bootstrap resamples, OLS produces nearly identical coefficients, so the bagged models are almost perfectly correlated: $\rho \approx 1$.
+
+**Why, via the identity.** Bagging's variance is $\rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$. With $\rho\approx1$ this is $\approx\sigma^2$ for any $B$ — the $\frac{1-\rho}{B}$ term is ~0, so averaging buys nothing. Bagging reduces *variance*, and a stable learner has little variance to remove; it does nothing for the *bias* that dominates such a learner's error. (Bagging helps unstable, high-variance learners — deep trees, small-$k$ kNN — which is exactly why trees are the canonical bagging base learner.)
+
+**Bonus — why it can hurt.** Each bootstrap contains only ~63% distinct rows, so each base model is trained on effectively less data than the full set → slightly higher bias/variance *per model*. For a stable learner, averaging near-identical slightly-worse models can't compensate, so bagged error can edge *above* the single full-data fit.
+
+**Rubric:**
+- Pick a stable high-bias learner (OLS / LDA / large-$k$ kNN); note $\rho\approx1$
+- Apply identity: $\rho\approx1$ → variance $\approx\sigma^2$ regardless of $B$ → no gain
+- Bagging removes variance, not bias; stable learners are bias-dominated
+- Bonus: ~63% distinct rows → each base model slightly worse → can increase error
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** You add 5,000 estimators to both a random forest and a gradient-boosted model. One overfits (test error rises); one doesn't. Which, and prove it. As a corollary, why does a random forest want *deep* trees while GBDT wants *shallow* ones?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**GBDT overfits; RF does not.**
+
+**RF (doesn't).** The trees are i.i.d. draws from the same randomized procedure (bootstrap + feature subsampling). Averaging $B$ such trees, the generalization error converges almost surely as $B\to\infty$ (a strong-law-of-large-numbers result — Breiman 2001): more trees drive the Monte Carlo averaging error to zero and the error settles at a fixed limit (the $\rho\sigma^2$-floor regime). Adding trees can only *reduce* the averaging variance — it never increases test error. So RF needs no early stopping.
+
+**GBDT (does).** Boosting is *sequential* and *adaptive*: each round fits the negative gradient of the residual loss, monotonically reducing training loss. Past the point where the signal is captured, additional rounds fit noise — training loss keeps falling while test loss turns up. So more rounds overfit, and early stopping on a validation set is essential.
+
+**Corollary (tree depth).** RF reduces **variance** by averaging, so it wants each tree to be **low-bias** → grow **deep** trees (their high variance is washed out by averaging). GBDT reduces **bias** by adding many small corrections, so each tree should be a **weak, high-bias** learner → **shallow** trees (depth controls the interaction order; deep trees + boosting overfit immediately).
+
+**Rubric:**
+- GBDT overfits, RF doesn't
+- RF: i.i.d. trees → LLN convergence → more trees never hurt (Breiman)
+- GBDT: sequential bias reduction → eventually fits noise → early stop
+- Corollary: RF deep (low-bias to average), GBDT shallow (weak learners)
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9.** An engineer trains stacking base models on the full training set, predicts on that same set to build meta-features, and trains the meta-learner on them — reporting excellent training metrics. Identify the leak, explain why a 1-NN base model makes it catastrophic, and describe the fix.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The leak.** Building meta-features from base models' **in-sample** predictions is train/test leakage. Each base model has already seen the rows it's now predicting, so its meta-features reflect *memorization*, not generalization. The meta-learner then learns weights tuned to optimistic, in-sample base predictions that won't hold at test time.
+
+**Why 1-NN makes it catastrophic.** A 1-nearest-neighbor base model has **zero training error** — predicting on the training set, every point's nearest neighbor is itself, so its meta-feature equals the true label exactly. The meta-learner sees a "base model" that's perfectly correct and hands it ~all the weight. At test time the 1-NN generalizes far worse, and the stack collapses. (Any low-bias/high-variance base model produces the same pathology in milder form.)
+
+**The fix — out-of-fold (OOF) predictions.** Split the training data into $K$ folds. For each base model, produce each row's meta-feature from a copy trained on the *other* $K-1$ folds (so it never saw that row). Train the meta-learner on these honest OOF meta-features. Then refit each base model on all the data for inference. (This is the c1.1 leakage principle: a feature must be computable without the row's own label.) "Blending" is the simpler one-held-out-set variant.
+
+**Rubric:**
+- Identify in-sample meta-features as train/test leakage
+- 1-NN has zero training error → its meta-feature = the label → meta over-weights it → collapse
+- Fix: out-of-fold (K-fold) meta-features; refit base models on all data for inference
+- Tie to c1.1 (feature must not use the row's own label)
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10.** A random forest's impurity (MDI) importance ranks a useless 1000-cardinality ID column #1, above a genuinely predictive binary feature. Explain the mechanism, and say what you'd use instead — including why that alternative is *also* unreliable under feature correlation.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Mechanism.** Impurity (Gini/MDI) importance sums the impurity decrease attributed to each feature across all splits. A high-cardinality feature offers **many candidate cut-points**, so by sheer multiple comparisons it can find a split that reduces impurity *on the training data* by chance — even with no real signal (Strobl et al. 2007). Combined with the fact that MDI is computed **on training data** (so it rewards overfitting), a noise ID column with 1000 distinct values can out-rank a real binary feature. This is a bias of the metric, not a finding about the data.
+
+**Use instead — permutation importance on held-out data.** Permute one feature's values in a validation set and measure the drop in performance; an irrelevant feature causes no drop, regardless of cardinality. Because it's measured on held-out data against actual performance, it's not fooled by cardinality or training-set overfitting.
+
+**Why permutation is also unreliable under correlation.** If two features are collinear, permuting one barely hurts performance because the model recovers the same information from its correlated partner — so *both* look unimportant even if the underlying signal is crucial. (Same redundancy that defeats drop-column leakage detection in c1.1 and inflates VIF in c1.4.) The fix is to **cluster correlated features and permute the cluster jointly**, or use conditional/grouped permutation importance.
+
+**Rubric:**
+- MDI bias: high-cardinality → many cut-points → spurious impurity decrease (Strobl 2007); computed on train data
+- Use permutation importance on held-out data
+- Permutation also fails under collinearity (partner carries the info) → both look unimportant
+- Fix: cluster/permute correlated features jointly (c1.1/c1.4 tie)
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11.** Sketch the reliability (calibration) curves you'd expect from an out-of-the-box random forest and from AdaBoost. Explain the mechanism behind each distortion, and name the standard fixes (and which needs more data).
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Both are sigmoid-distorted — under-confident at the extremes.** The counterintuitive part: RF *and* AdaBoost push their probabilities *toward* 0.5 (away from 0 and 1), so both have the same qualitative reliability shape, for different reasons (Niculescu-Mizil & Caruana 2005).
+
+**Random forest.** RF probabilities are the *average* of many trees' bounded $[0,1]$ votes. Averaging bounded values compresses the result toward the middle, so the forest rarely outputs values near 0 or 1 — for a prediction of, say, 0.8 the empirical accuracy is *higher* than 0.8. The reliability curve is sigmoidal, lying above the diagonal at the high-confidence end: under-confident at the extremes.
+
+**AdaBoost.** AdaBoost maximizes margins; mapping its margin scores to $[0,1]$ pushes the probability mass *away* from 0 and 1, so its predictions are also too moderate — again a sigmoidal curve, under-confident at the extremes (*not* over-confident, despite the exponential loss).
+
+**Fixes.** Post-hoc calibration on a held-out set: **Platt scaling** (fit a logistic/sigmoid to the scores) or **isotonic regression** (fit a monotonic step function). Wrap with `CalibratedClassifierCV`. **Isotonic is more flexible but needs more data** (it can overfit on small calibration sets, where Platt's two-parameter sigmoid is safer). Verify with a reliability diagram + ECE/Brier (c1.3).
+
+**Rubric:**
+- BOTH RF and AdaBoost are under-confident at the extremes (sigmoid curves; probabilities pushed toward 0.5) — Niculescu-Mizil & Caruana 2005
+- RF mechanism: averaging bounded tree votes compresses toward the middle; AdaBoost mechanism: margin maximization pushes mapped scores away from 0/1
+- Fixes: Platt (sigmoid) / isotonic on held-out data
+- Isotonic needs more data (overfits small sets); Platt safer when small
+- (c1.3 tie: reliability diagram, ECE, Brier)
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12.** You call `RandomForestRegressor()` in current scikit-learn expecting the textbook random forest with $m=p/3$ features per split. What actually happens, and how does it change the model's variance? Bonus: what is XGBoost's default `tree_method` since v2.0?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**What actually happens.** Modern scikit-learn's `RandomForestRegressor` defaults to **`max_features=1.0`** — i.e. it considers **all $p$ features at every split**. With no per-split feature randomness, the only randomization left is bootstrapping, so you've actually built **bagged trees, not a random forest**. (The classifier still defaults to `max_features="sqrt"`; the regressor's `1.0` default is the trap — it changed from `"auto"` in the 1.x line.)
+
+**Effect on variance.** Considering all features at each split makes the trees pick the same dominant splits, so they're **more correlated** — $\rho$ is higher. By the decorrelation identity, the large-$B$ variance floor $\rho\sigma^2$ is **higher**, so the ensemble has more variance (worse generalization) than a true RF would. **Fix:** set `max_features="sqrt"` or `max_features=1/3` to restore per-split feature subsampling and decorrelate the trees.
+
+**Bonus.** Since **XGBoost 2.0**, the default `tree_method` is **`"hist"`** (histogram-based split finding — fast, the former LightGBM-style approach), replacing the older auto-selection of exact/approximate methods. (Also: the unified `device="cpu"/"cuda"` parameter replaced `gpu_hist`.)
+
+**Rubric:**
+- `max_features=1.0` default (regressor) → all features per split → **bagged trees, not RF**
+- Higher $\rho$ → higher variance floor $\rho\sigma^2$ → worse than a true RF
+- Fix: `max_features="sqrt"` or `1/3`
+- Bonus: XGBoost ≥2.0 default `tree_method="hist"`
+
+</details>
+
+</Quiz>
