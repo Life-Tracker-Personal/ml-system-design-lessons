@@ -11,7 +11,9 @@ The lesson list for this ML-interview-prep course. Authoring standard lives in
 | c1.2 | Regression losses (loss = −log p(noise)) | ✅ written |
 | c1.3 | Classification losses (cross-entropy, focal, class-balanced; calibration) | ✅ written |
 | c1.4 | Linear & logistic regression (OLS/MLE, regularization, VIF, PCA) | ✅ written |
-| c1.5–c1.9 | *not yet fixed* | ⬜ TBD |
+| c1.5 | Trees & ensembles (CART, bagging/RF, boosting/GBDT, stacking) | ✅ written |
+| c1.6 | Kernel methods & instance-based (SVM, kNN) | ✅ written |
+| c1.7–c1.9 | *not yet fixed* | ⬜ TBD |
 | c1.10 | Evaluation metrics | ⬜ planned — see spec below |
 
 > **Sort-order gotcha (from authoring skill §9):** `listLessons` sorts by `id.localeCompare`
