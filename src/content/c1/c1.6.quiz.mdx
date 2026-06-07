@@ -1,0 +1,319 @@
+---
+lessonId: c1.6
+chapter: 1
+title: Quiz — Kernel methods & instance-based learning
+description: 12 conceptually difficult questions on SVMs, the kernel trick, kNN, and the curse of dimensionality.
+estimatedMinutes: 45
+---
+
+These 12 questions test whether you understand SVMs and kNN *geometrically* — margins, duality, kernels, and why distance breaks in high dimensions — not whether you can name them. Try to answer before revealing.
+
+If you can derive Q1, Q4, Q6, and Q9 from scratch, you're calibrated for the kernel/instance-based portion of any top-tier or quant interview.
+
+<Quiz id="1">
+
+**Q1.** Derive that the SVM margin width is $2/\|w\|$, starting from the canonical margin hyperplanes. Why does maximizing the margin equal minimizing $\tfrac12\|w\|^2$, and why must it be the *geometric* margin, not the functional margin?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Setup.** Decision function $f(x)=w^\top x + b$; fix the scale so the closest points satisfy $y_i(w^\top x_i+b)=1$. The margin hyperplanes are $w^\top x + b = \pm 1$.
+
+**Derivation.** Take $x_+$ on the $+1$ plane and $x_-$ on the $-1$ plane: $w^\top x_+ + b = +1$, $w^\top x_- + b = -1$. Subtract: $w^\top(x_+ - x_-) = 2$. The margin width is the component of $x_+ - x_-$ along the unit normal $w/\|w\|$:
+
+$$\text{margin} = \frac{w^\top (x_+ - x_-)}{\|w\|} = \frac{2}{\|w\|}$$
+
+**Max margin ⇔ min $\tfrac12\|w\|^2$.** Maximizing $2/\|w\|$ is minimizing $\|w\|$, equivalently $\tfrac12\|w\|^2$ (monotone, and the square makes it a smooth convex quadratic with a clean gradient).
+
+**Geometric vs functional.** The functional margin $y_i(w^\top x_i + b)$ can be made arbitrarily large by rescaling $(w,b)\to(cw,cb)$ — it's not scale-invariant, so maximizing it is meaningless. Dividing by $\|w\|$ gives the geometric margin (actual Euclidean distance to the boundary), which is invariant to that rescaling. The canonical constraint $y_i f(x_i)\ge1$ removes the scale degree of freedom.
+
+**Rubric:**
+- Subtract the two canonical plane equations → $w^\top(x_+-x_-)=2$
+- Project onto $w/\|w\|$ → $2/\|w\|$
+- Max margin ⇔ min $\tfrac12\|w\|^2$
+- Functional margin is scale-dependent; geometric (÷‖w‖) is the real distance
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** A student says "we can kernelize the primal SVM directly — just replace $x$ with $\phi(x)$." Explain precisely why the **dual** is what makes kernelization possible, and what $w=\sum_i\alpha_i y_i x_i$ implies when $\phi$ is infinite-dimensional.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Why the dual.** The dual objective and the decision function depend on the data *only through inner products* $\langle x_i, x_j\rangle$:
+
+$$\max_\alpha \sum_i\alpha_i - \tfrac12\sum_{i,j}\alpha_i\alpha_j y_iy_j\langle x_i,x_j\rangle, \qquad f(x)=\sum_i\alpha_i y_i\langle x_i,x\rangle + b$$
+
+Every place the data appears is an inner product, so you can substitute $K(x_i,x_j)=\langle\phi(x_i),\phi(x_j)\rangle$ **without ever computing $\phi$**. The primal, by contrast, contains $w$ explicitly and $w^\top\phi(x)$ — to kernelize it you'd need to represent $w$ in feature space.
+
+**The infinite-dimensional point.** The optimal weight is $w=\sum_i\alpha_i y_i\phi(x_i)$ (representer theorem). For an RBF kernel $\phi$ is infinite-dimensional, so $w$ is an infinite-dimensional object — you *cannot* store it as a coordinate vector. But you never need to: predictions are $f(x)=\sum_i\alpha_i y_i K(x_i,x)+b$, a finite sum over support vectors. The dual reduces an infinite-dimensional optimization to one over $n$ coefficients $\alpha_i$.
+
+**Rubric:**
+- Dual touches data only via inner products → can swap in $K$
+- Primal has $w$/$w^\top\phi(x)$ explicitly → can't kernelize without representing $w$
+- $w=\sum\alpha_i y_i\phi(x_i)$ is infinite-dim for RBF → can't materialize
+- Predictions are a finite sum over SVs; dual = $n$ coefficients
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** For a soft-margin SVM, classify a training point by its dual coefficient: (a) $\alpha_i = 0$, (b) $0 < \alpha_i < C$, (c) $\alpha_i = C$. Give each point's geometric position and which points are used to solve for $b$.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+By the KKT conditions (complementary slackness) of the soft-margin SVM:
+
+- **(a) $\alpha_i = 0$** → $y_i f(x_i) \ge 1$: the point is **outside or on the correct side of the margin**, correctly classified with room to spare. It is **not a support vector** and has zero influence on $w$.
+- **(b) $0 < \alpha_i < C$** → $y_i f(x_i) = 1$ and $\xi_i = 0$: the point lies **exactly on the margin boundary**. This is a **free (margin) support vector**. These are the points used to **solve for $b$** (from $y_i f(x_i) = 1$).
+- **(c) $\alpha_i = C$** → $y_i f(x_i) \le 1$, $\xi_i \ge 0$: the point is **inside the margin or misclassified**. This is a **bounded support vector**.
+
+Only (b) and (c) — the support vectors — appear in $w=\sum_i\alpha_i y_i x_i$, which is why the solution is sparse.
+
+**Rubric:**
+- $\alpha=0$: outside margin, correct, not an SV
+- $0<\alpha<C$: on the margin (free SV), used for $b$
+- $\alpha=C$: inside margin / misclassified (bounded SV)
+- Only SVs contribute to $w$ → sparsity
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** Hinge loss and logistic loss are both convex, calibrated classification surrogates. Explain precisely why minimizing hinge loss produces a *sparse* set of support vectors while logistic regression uses every training point.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+Write both as functions of the margin $m = y f(x)$:
+
+- **Hinge:** $\ell(m) = \max(0,\, 1 - m)$. For $m \ge 1$ (correctly classified beyond the margin), $\ell(m) = 0$ and $\ell'(m) = 0$.
+- **Logistic:** $\ell(m) = \log(1 + e^{-m})$. This is *strictly positive and strictly decreasing for all finite $m$*; $\ell'(m) = -\sigma(-m) < 0$ everywhere, never reaching zero.
+
+**Consequence.** In a (sub)gradient method, a point's contribution to the gradient of $w$ is proportional to $\ell'(m_i)\, y_i x_i$. Under hinge loss, every point with $m_i > 1$ has $\ell'(m_i) = 0$ — it contributes **nothing**, so it is not a support vector and could be deleted without changing the solution. Only points with $m_i \le 1$ (on or inside the margin, or misclassified) have nonzero gradient. Under logistic loss, $\ell'(m_i) \ne 0$ for *every* point, so all points contribute (those far on the correct side contribute a tiny but nonzero amount) — hence no sparsity, but you get smooth, probabilistic outputs in exchange.
+
+**The trade-off.** Hinge's flat zero region buys sparsity (memory/speed: store only SVs) at the cost of probabilities; logistic's everywhere-positive loss buys calibrated probabilities at the cost of density.
+
+**Rubric:**
+- Hinge is exactly 0 (and gradient 0) for $m\ge1$
+- Logistic is strictly positive / nonzero-gradient for all finite $m$
+- Zero gradient ⇒ point drops out of $w$ ⇒ not an SV ⇒ sparsity
+- Trade-off: sparsity vs probabilities
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** State the bias-variance direction of increasing $C$ and increasing the RBF $\gamma$ *separately*. Then: a model has ~100% training accuracy, near-chance test accuracy, and almost every training point is a support vector. Which knob(s), and which direction, do you turn?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**$C$.** $C$ penalizes margin violations. **Large $C$** → the model refuses to tolerate slack → harder margin, fits training data tightly → *less* regularization → **lower bias, higher variance** (overfit). Small $C$ → wider soft margin, more violations allowed → more regularization → higher bias, lower variance.
+
+**$\gamma$ (RBF).** $K(x,x')=\exp(-\gamma\|x-x'\|^2)$. **Large $\gamma$** → small kernel width → each point's influence is very local → a wiggly boundary that can wrap individual points → **high variance** (overfit); in the limit each support vector only matches itself. Small $\gamma$ → wide, smooth bumps → can underfit.
+
+**Diagnosis.** Perfect train accuracy + chance test accuracy + nearly all points as SVs is the classic **overfitting** signature for RBF SVM — the boundary has become extremely local. **Decrease $\gamma$** (smooth the kernel) and/or **decrease $C$** (allow a softer margin). Re-tune jointly by cross-validation; $\gamma$ is usually the dominant culprit when "almost every point is an SV."
+
+**Rubric:**
+- Large $C$ = less regularization, higher variance (overfit)
+- Large $\gamma$ = more local/wiggly, higher variance (overfit)
+- Diagnose the symptoms as overfitting
+- Fix: lower $\gamma$ and/or $C$; re-tune by CV
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** Prove that the Gaussian (RBF) kernel corresponds to an infinite-dimensional feature map. What goes wrong if someone tries to "just compute $\phi(x)$" and run a plain linear model on it?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Proof.** Write $K(x,x') = \exp(-\gamma\|x-x'\|^2) = \exp(-\gamma\|x\|^2)\exp(-\gamma\|x'\|^2)\exp(2\gamma\, x^\top x')$. Expand the cross term as a power series:
+
+$$\exp(2\gamma\, x^\top x') = \sum_{k=0}^{\infty} \frac{(2\gamma)^k (x^\top x')^k}{k!}$$
+
+Each term $(x^\top x')^k$ is itself an inner product of the degree-$k$ monomial features of $x$ and $x'$ (the $k$-fold tensor power). Summing over all $k = 0, 1, 2, \dots$ means the feature map $\phi$ contains monomials of *every* degree — infinitely many coordinates:
+
+$$\phi_k(x) \propto e^{-\gamma\|x\|^2}\,\frac{(2\gamma)^{k/2}}{\sqrt{k!}}\, x^{\otimes k}, \quad k = 0,1,2,\dots$$
+
+So $\phi$ is infinite-dimensional.
+
+**Why you can't materialize it.** There is no finite feature vector $\phi(x)$ to compute or store — it has infinitely many entries. The kernel trick's value is exactly that you evaluate the scalar $K(x,x')$ in $O(d)$ time and *never* touch $\phi$. A "plain linear model on $\phi(x)$" is impossible to even instantiate. The practical price for staying in the dual is the $n\times n$ Gram matrix and $O(n^2)$–$O(n^3)$ training — which is why kernel SVMs don't scale to large $n$. (If you want an *approximate* finite $\phi$, that's what Nyström / random Fourier features provide.)
+
+**Rubric:**
+- Factor $K$ and power-series-expand $\exp(2\gamma x^\top x')$
+- Identify monomials of all degrees → infinitely many feature coordinates
+- Conclude no finite $\phi$ exists → can't materialize
+- Note the dual's cost instead ($n\times n$ Gram, $O(n^2)$–$O(n^3)$); RFF/Nyström as the approximate escape
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** State Mercer's condition for a valid kernel. Is $K(x,x') = (x^\top x' + 1)^3$ a valid kernel? Is $K(x,x') = \tanh(x^\top x')$? Justify.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Mercer's condition.** $K$ is a valid (Mercer) kernel iff it is **symmetric** and its **Gram matrix** $G_{ij} = K(x_i, x_j)$ is **positive semidefinite (PSD)** for every finite set of points. Equivalently, $K$ then corresponds to an inner product $\langle\phi(x),\phi(x')\rangle$ in some Hilbert space.
+
+**$(x^\top x' + 1)^3$ — valid.** It's the polynomial kernel (degree 3, with bias). Build it from closure properties: $x^\top x'$ is a valid kernel (linear); adding the constant $1$ (a valid kernel) preserves validity; and **products and positive integer powers of kernels are kernels** (the Schur product theorem: the elementwise product of PSD matrices is PSD). So $(x^\top x'+1)^3$ is PSD — valid. Its feature map is the finite set of all monomials up to degree 3.
+
+**$\tanh(x^\top x')$ — not valid in general.** The sigmoid/tanh "kernel" is **not PSD for all parameter values / all data** — one can construct point sets whose Gram matrix has a negative eigenvalue. It's used heuristically in some SVM packages (it "works" sometimes), but it does *not* satisfy Mercer's condition in general, so there's no guaranteed underlying inner-product space and the QP can become non-convex/ill-posed.
+
+**Rubric:**
+- Mercer: symmetric + PSD Gram matrix for all finite samples ⇔ inner product in a Hilbert space
+- Poly kernel valid via closure (sum/product/power of kernels are kernels; Schur product)
+- tanh kernel not PSD in general → not a valid Mercer kernel (heuristic only)
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** State the Cover–Hart bound for asymptotic 1-nearest-neighbor error in terms of the Bayes error $R^\star$ (binary case). Interpret "$R \le 2R^\star$." How does using $k \to \infty$ with $k/n \to 0$ change the conclusion?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Cover–Hart (1967).** As $n \to \infty$, the 1-NN error $R$ satisfies, for $M$ classes,
+
+$$R^\star \le R \le R^\star\Bigl(2 - \tfrac{M}{M-1}R^\star\Bigr)$$
+
+In the **binary** case ($M=2$): $R^\star \le R \le 2R^\star(1 - R^\star) \le 2R^\star$.
+
+**Interpretation of $R \le 2R^\star$.** Even the crudest possible classifier — "copy the label of the single closest point" — has asymptotic error no worse than **twice** the best achievable error of *any* classifier (the Bayes classifier, which knows the true $P(y\mid x)$). Put differently, at least **half the achievable information about the label is contained in the single nearest neighbor**. That's a remarkable guarantee for a method that does no training at all.
+
+**$k \to \infty,\ k/n \to 0$.** With $k$ growing (so the vote averages over many neighbors → variance $\to 0$) but slowly enough that the neighborhood still shrinks to the query point ($k/n \to 0$ → bias $\to 0$), kNN becomes **Bayes-consistent**: $R \to R^\star$. So 1-NN pays a factor-of-2 price for using only one neighbor; letting $k$ grow appropriately recovers the optimal error in the limit.
+
+**Rubric:**
+- State the bound (general $M$ and binary $R\le 2R^\star(1-R^\star)\le 2R^\star$)
+- Interpret: 1-NN ≤ 2× Bayes; half the info is in the nearest neighbor
+- $k\to\infty$, $k/n\to0$ ⇒ variance→0 and bias→0 ⇒ Bayes-consistent ($R\to R^\star$)
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9.** Explain the curse of dimensionality for kNN as a *probability statement*, not a vibe. State the Beyer et al. (1999) condition and conclusion, give the $1/\sqrt{d}$ argument for why distances concentrate, and explain why this drives modern retrieval toward learned embeddings + approximate NN.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The probability statement (Beyer et al. 1999).** Let $\text{Dmin}_d$ and $\text{Dmax}_d$ be the nearest and farthest distances from a query to $n$ points in dimension $d$. **If** the relative variance of distance vanishes,
+
+$$\lim_{d\to\infty}\operatorname{Var}\!\left(\frac{D_d}{\mathbb{E}[D_d]}\right) = 0 \qquad (D_d = \text{query-to-point distance in dim } d)$$
+
+(true for i.i.d. features and much more broadly), **then** for every $\varepsilon > 0$,
+
+$$\Pr\bigl[\text{Dmax}_d \le (1+\varepsilon)\,\text{Dmin}_d\bigr] \longrightarrow 1.$$
+
+The nearest and farthest points become indistinguishable — the "relative contrast" $(\text{Dmax}-\text{Dmin})/\text{Dmin} \to 0$ in probability.
+
+**Why $1/\sqrt{d}$.** For independent coordinates, $\|x - x'\|^2 = \sum_{j=1}^d (x_j - x_j')^2$ is a sum of $d$ i.i.d. terms. By the law of large numbers its mean grows $\propto d$ while its standard deviation grows $\propto \sqrt{d}$, so the **coefficient of variation** (std/mean) shrinks like $\sqrt{d}/d = 1/\sqrt{d} \to 0$. All pairwise distances bunch around the same value.
+
+**Why retrieval moved to embeddings + ANN.** Raw high-dimensional kNN is meaningless (every point is ~equidistant) and exact search is $O(nd)$ with tree indices collapsing to $O(n)$ past ~20 dimensions. So modern systems (1) **learn low-dimensional embeddings** where semantic similarity gives genuine distance contrast (low *intrinsic* dimension), and (2) use **approximate nearest-neighbor** indices (HNSW, FAISS, ScaNN) for sub-linear, high-recall search. That's the backbone of semantic search and RAG.
+
+**Rubric:**
+- State Beyer condition (relative variance → 0) and conclusion ($\Pr[\text{Dmax}\le(1+\varepsilon)\text{Dmin}]\to1$)
+- $1/\sqrt d$ coefficient-of-variation argument (mean $\propto d$, std $\propto\sqrt d$)
+- Consequence: nearest ≈ farthest, distance meaningless
+- Drives learned embeddings (low intrinsic dim) + ANN (HNSW/FAISS) for retrieval/RAG
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10.** A kNN model uses two features: annual income (range \$0–\$500,000) and a normalized risk score (range 0–1), with raw Euclidean distance. Explain why the model effectively ignores the risk score, and give two distinct fixes naming the metric each implies.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The problem.** Euclidean distance is $\sqrt{(\Delta\text{income})^2 + (\Delta\text{score})^2}$. Income differences are on the order of $10^4$–$10^5$; score differences are at most $1$. So $(\Delta\text{income})^2$ dominates the sum by ~$10^8$–$10^{10}$, and $(\Delta\text{score})^2$ is numerically negligible. The "nearest neighbors" are determined almost entirely by income; the risk score has essentially zero influence on the distance, so the model ignores it regardless of how predictive it is.
+
+**Fix 1 — standardize, then Euclidean.** Z-score each feature ($x \mapsto (x-\mu)/\sigma$) or min-max scale to $[0,1]$, so both features have comparable spread. Distance is then Euclidean **on the standardized features**, and the score contributes on equal footing.
+
+**Fix 2 — Mahalanobis distance.** Use $d(x,x') = \sqrt{(x-x')^\top \Sigma^{-1}(x-x')}$. The $\Sigma^{-1}$ rescales each direction by its variance (and rotates out correlations), so it bakes the standardization (and decorrelation) directly into the metric — no separate scaling step. (For magnitude-invariant data like text/embeddings, **cosine distance** is a third option.)
+
+**Rubric:**
+- Identify scale dominance: $(\Delta\text{income})^2 \gg (\Delta\text{score})^2$ → distance ≈ income only
+- Fix 1: standardize/min-max → Euclidean on scaled features
+- Fix 2: Mahalanobis ($\Sigma^{-1}$) bakes in scaling/decorrelation
+- (Bonus) cosine for magnitude-invariant data
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11.** Express kNN regression as a local-averaging estimator and relate it to Nadaraya–Watson kernel regression. What plays the role of "bandwidth" in kNN, and how does $k$ trade bias against variance in the regression risk?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**kNN as local averaging.** kNN regression predicts $\hat f(x) = \frac1k \sum_{i\in N_k(x)} y_i$, the average target over the $k$ nearest neighbors $N_k(x)$. This is a weighted average of all training targets with weights that are $1/k$ on the $k$ nearest and $0$ elsewhere.
+
+**Relation to Nadaraya–Watson.** N–W is $\hat f(x) = \frac{\sum_i K_h(x,x_i)\,y_i}{\sum_i K_h(x,x_i)}$, a kernel-weighted average with a *fixed* bandwidth $h$. kNN is the special case using a **uniform kernel over the $k$-NN ball** with an **adaptive bandwidth**: instead of a fixed radius $h$, the radius is whatever distance contains exactly $k$ neighbors. So both estimate $\mathbb{E}[Y \mid X = x]$ by averaging nearby points; kNN's bandwidth adapts to local density (wider in sparse regions, narrower in dense ones), N–W's is fixed. kNN's estimate is a step function; a Gaussian-kernel N–W estimate is smooth.
+
+**$k$ as bandwidth and the bias-variance trade.** $k$ is the (inverse) bandwidth knob. The regression risk decomposes as irreducible noise + bias$^2$ + variance. The variance of the average of $k$ neighbors is $\approx \sigma^2/k$ — **decreasing in $k$**. The bias **increases with $k$**: a larger neighborhood reaches farther from $x$, averaging in points whose true mean differs, so $\hat f$ is smoothed away from $f(x)$. Small $k$ → low bias, high variance ($k=1$ interpolates the data); large $k$ → high bias, low variance ($k=n$ predicts the global mean). Optimal $k$ balances the two and grows with $n$.
+
+**Rubric:**
+- kNN regression = $\frac1k\sum_{i\in N_k}y_i$, a local average
+- Relate to Nadaraya–Watson: kNN = uniform kernel + *adaptive* bandwidth vs N–W fixed $h$
+- Bandwidth role played by $k$ (radius to $k$-th neighbor)
+- Variance $\propto \sigma^2/k$ (↓ with $k$), bias ↑ with $k$; optimal $k$ balances, grows with $n$
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12.** A quant has 5 million rows of high-dimensional, sparse features. Explain precisely why `SVC(kernel='rbf')` is the wrong choice (cite the computational reason), and name scalable alternatives that preserve a margin/linear-SVM flavor — including one kernel-approximation route. Bonus: what does sklearn's `gamma='scale'` compute, and why does `LinearSVC` differ from `SVC(kernel='linear')`?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Why not `SVC(kernel='rbf')`.** Kernel SVM training (libsvm) scales **$O(n^2)$ to $O(n^3)$** in the number of samples — it forms/operates on the $n \times n$ Gram matrix. sklearn's own docs warn the fit time "scales at least quadratically … impractical beyond tens of thousands of samples." At $n = 5\text{M}$ this is completely infeasible (memory for the Gram matrix alone is $\sim n^2$). The model also stores all support vectors, which can be a large fraction of 5M.
+
+**Scalable alternatives.**
+- **`LinearSVC`** (liblinear) or **`SGDClassifier(loss='hinge')`** — solve the *linear* SVM (hinge + L2) directly in the input space, scaling roughly linearly in $n$. Ideal here because high-dimensional sparse data (e.g. text-like features) is usually linearly separable enough that a linear margin is competitive.
+- **Kernel approximation:** if you genuinely need RBF-like nonlinearity, map features through **Nyström** or **random Fourier features** (`sklearn.kernel_approximation.RBFSampler`) to an explicit *finite* approximate feature space, then fit a linear SVM / SGD on those — recovering most of the RBF benefit at linear cost.
+
+**Bonus — `gamma='scale'`.** It sets $\gamma = \dfrac{1}{n_{\text{features}} \cdot \operatorname{Var}(X)}$ — concretely `1 / (n_features * X.var())`, where `X.var()` is the variance over *all* entries of the training matrix (so it implicitly assumes roughly comparable feature scales — standardize anyway). It's the default since sklearn 0.22; the older `gamma='auto'` is $1/n_{\text{features}}$. `'scale'` adapts to feature spread, making it more robust to unscaled data (though you should still standardize).
+
+**Bonus — `LinearSVC` vs `SVC(kernel='linear')`.** They optimize *different* objectives: `LinearSVC` (liblinear) defaults to **squared hinge** loss and regularizes the intercept differently, while `SVC(kernel='linear')` (libsvm) uses plain hinge via the dual. `LinearSVC` scales far better to large $n$; `SVC` returns exact support vectors and supports `predict_proba` only if `probability=True` (off by default; Platt scaling fit via internal cross-validation, which can disagree with `decision_function`). So they give different coefficients on the same data.
+
+**Rubric:**
+- Kernel SVM is $O(n^2)$–$O(n^3)$ (Gram matrix); infeasible at 5M (cite the scaling)
+- `LinearSVC` / `SGDClassifier(hinge)` for the linear margin at scale
+- Kernel approximation (Nyström / random Fourier features) for approximate RBF
+- Bonus: `gamma='scale'` $= 1/(n_\text{features}\cdot\operatorname{Var}(X))$ vs `'auto'` $=1/n_\text{features}$
+- Bonus: `LinearSVC` (squared hinge, liblinear) ≠ `SVC(linear)` (hinge, libsvm)
+
+</details>
+
+</Quiz>

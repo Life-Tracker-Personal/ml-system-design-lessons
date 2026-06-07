@@ -1,0 +1,165 @@
+---
+id: c1.5
+chapter: 1
+title: Trees & ensembles
+subtitle: CART, bagging/random forests, boosting/GBDT, stacking — bias-variance engineering
+refs: [3, 4, 5, 7]
+estimatedMinutes: 70
+---
+
+## TL;DR
+
+Ensembles are **bias-variance engineering**. A single decision tree is a *low-bias, high-variance* learner — flexible enough to fit anything, unstable enough to fit noise. The two great ensemble families are the two ways to fix that, and they pull opposite levers. **Bagging / random forests** average many high-variance trees to crush **variance** — and the whole game is *decorrelating* the trees. **Boosting** adds many high-bias weak trees in sequence to crush **bias** — and the whole game is *fitting the negative gradient of the loss in function space*. Knowing which lever each pulls (and the one identity and one gradient that make each precise) is the single most-tested ensemble concept, and these models — gradient-boosted trees especially — still win most tabular problems.
+
+## What you'll be able to do after this lesson
+
+- Compute the impurity decrease of a split (Gini, entropy, variance reduction) and explain why a single tree is low-bias/high-variance.
+- Derive the bagging **decorrelation identity** $\rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$ and explain what random forests do to $\rho$.
+- Derive the OOB $\sim37\%$ (the $1/e$ result).
+- Show AdaBoost is forward-stagewise minimization of **exponential loss** and derive its stagewise coefficient $\beta=\tfrac12\ln\frac{1-\text{err}}{\text{err}}$ (the classifier vote is $\alpha_m=2\beta$).
+- Explain gradient boosting as **functional gradient descent** (pseudo-residuals) and derive XGBoost's leaf weight $w^\star=-G/(H+\lambda)$.
+- Explain why stacking needs **out-of-fold** predictions, and diagnose feature-importance and calibration traps.
+
+## Why trees & ensembles deserve their own chapter
+
+> **Goal — master the model family that actually wins on tabular data, and the bias-variance reasoning behind it.** Despite a decade of deep-learning hype, **gradient-boosted decision trees still beat tuned neural nets on most tabular problems** (Grinsztajn et al. 2022) — because trees handle uninformative features gracefully, match the axis-aligned structure of real tabular data, and fit irregular target functions that NN smoothness priors resist (the c1.1 "trees dominate tabular" claim, now with the citation). For interviews, ensembles are where you prove you understand bias-variance as an *engineering* discipline, not a slogan.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **Impurity** — how mixed a node's labels are (Gini, entropy for classification; variance for regression). Splits reduce it.
+> - **Base / weak learner** — the simple model an ensemble combines (here, a decision tree; "weak" = slightly better than chance).
+> - **Bagging** — bootstrap aggregating: fit base learners on bootstrap resamples and average them.
+> - **Boosting** — fit base learners *sequentially*, each correcting its predecessors' errors.
+> - **OOB (out-of-bag)** — the ~37% of rows a given bootstrap tree didn't see; free validation data.
+> - **Pseudo-residual** — the negative gradient of the loss w.r.t. the current prediction; what gradient boosting fits next.
+
+## Part 1 — Decision trees (CART)
+
+> **Goal — understand the base learner: a greedy, axis-aligned partition that is flexible (low bias) but unstable (high variance) — exactly the raw material ensembles need.**
+
+A CART tree greedily splits the data with axis-aligned cuts. At each node it searches over (feature $j$, threshold $s$) to maximize the impurity decrease
+
+$$\Delta I = I(R) - \frac{N_L}{N}I(R_L) - \frac{N_R}{N}I(R_R)$$
+
+**Classification impurities** (with class fractions $p_k$): **Gini** $G = \sum_k p_k(1-p_k) = 1 - \sum_k p_k^2$ and **entropy** $H = -\sum_k p_k\log_2 p_k$ (information gain $= \Delta H$). Both are concave, so a split never increases impurity, and both reward pure children; Gini is cheaper (no log) and the two rarely disagree on which split to pick. (Misclassification error $1-\max_k p_k$ is concave too but piecewise-linear and insensitive to changes in node probabilities, so it's a poor *growing* criterion — it, or the Gini/entropy used for growing, is what's typically used for cost-complexity *pruning*.) **Regression impurity** is the within-node variance/SSE; the variance-reducing split is the one that minimizes $\sum(y_i - \bar y_R)^2$, and the leaf prediction is the mean $\bar y_R$ (the median under MAE — a callback to c1.2's mean-vs-median).
+
+**Why a single tree is low-bias/high-variance.** Grown deep, a tree interpolates the training data (bias $\to 0$), but the partition is a *discontinuous* function of the data — perturb a few points and a high split can flip, changing the entire downstream partition. That instability is precisely what makes trees the ideal base learner for **variance reduction by averaging**.
+
+**Pruning.** A fully grown tree overfits, so prune by **cost-complexity**: minimize $R_\alpha(T) = R(T) + \alpha|T|$ over subtrees, trading fit $R(T)$ against the number of leaves $|T|$. As $\alpha$ grows from 0 there's a finite nested sequence of optimal subtrees (sklearn: `ccp_alpha`). The same $\alpha|T|$ regularization reappears inside XGBoost.
+
+## Part 2 — Bagging & random forests
+
+> **Goal — turn one unstable tree into a low-variance committee, and see that the entire benefit is capped by how *correlated* the trees are.**
+
+**Bagging** (Breiman 1996): draw $B$ bootstrap samples (size $n$, with replacement), fit a tree on each, and average (regression) or vote (classification): $\hat f_{\text{bag}}(x) = \frac1B\sum_b \hat f^{*b}(x)$.
+
+**The decorrelation identity — the key result.** If each tree has variance $\sigma^2$ and pairwise correlation $\rho$, the average of $B$ trees has variance
+
+$$\operatorname{Var}\!\left(\frac1B\sum_b X_b\right) = \rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$$
+
+As $B\to\infty$ the second term vanishes, leaving a **floor of $\rho\sigma^2$**. So adding trees only helps until you hit $\rho\sigma^2$ — and **the correlation $\rho$ caps the whole benefit**. Identical trees ($\rho=1$) give no gain; independent trees ($\rho=0$) give $\sigma^2/B$. *This single inequality is the entire motivation for random forests.*
+
+**Random forests** (Breiman 2001) = bagging **+ a random subset of $m \le p$ features considered at each split**. Forcing each split to choose among different features makes the trees disagree more → **lowers $\rho$** → lowers the $\rho\sigma^2$ floor. The trade: smaller $m$ lowers $\rho$ (good) but weakens each tree (raises its bias) — so there's a sweet spot, classically $m=\sqrt p$ (classification) or $p/3$ (regression). Breiman proved that as $B\to\infty$ the generalization error *converges* (a law-of-large-numbers result over the tree randomness) — **adding more trees does not overfit a random forest**; it just converges.
+
+**OOB error and the $1/e$ result.** The probability a given row is missed by one bootstrap draw is $(1-\tfrac1n)^n \to e^{-1} \approx 0.368$, so **each tree leaves out ~37% of rows** (~63% in-bag). Scoring each row using only the trees that didn't see it yields a near-free, cross-validation-quality error estimate — the OOB error.
+
+> **Stop and think.** You add 5,000 trees to a random forest *and* to a gradient-boosted model. One degrades on the test set; one doesn't. Which, and why? *Hint: RF averages i.i.d.-randomized trees, so by the decorrelation identity / LLN it converges to a floor — more trees never hurt. Boosting fits the loss sequentially, so each added round further reduces bias and eventually fits noise — more rounds DO overfit. That's why RF needs no early stopping and GBDT does.*
+
+**Feature importance — a trap (ties to c1.1 / c1.4).** Default **impurity (Gini/MDI) importance is biased toward high-cardinality and continuous features** (more candidate cut-points → more chances to look good by chance — Strobl et al. 2007) and is inflated by overfitting (it's computed on training data). Worse, **correlated features split their importance** (two collinear predictors each get ~half), so low importance ≠ irrelevant — the same redundancy that defeats drop-column leakage detection (c1.1) and inflates VIF (c1.4). Prefer **permutation importance on held-out data** — but note it too is distorted by collinearity (permuting one of two collinear features barely hurts), so cluster correlated features and permute jointly.
+
+## Part 3 — Boosting
+
+> **Goal — drive down *bias* by adding weak trees in sequence, each fitting what the ensemble so far gets wrong — which, made precise, is gradient descent in function space.**
+
+**AdaBoost** (Freund & Schapire 1997). Start with uniform weights. Each round: fit a classifier $G_m$ to the weighted data, compute its weighted error $\text{err}_m$, give it vote
+
+$$\alpha_m = \ln\frac{1-\text{err}_m}{\text{err}_m}$$
+
+then up-weight the misclassified points and repeat; predict $\text{sign}(\sum_m \alpha_m G_m)$. A classifier at chance ($\text{err}=0.5$) gets weight 0; a perfect one gets $\infty$. The statistical view (Friedman, Hastie, Tibshirani 2000): **AdaBoost is forward-stagewise additive modeling under exponential loss** $L(y,f)=e^{-yf}$ — which is why it's fragile to label noise (a mislabeled point gets exponentially up-weighted).
+
+**Gradient boosting** (Friedman 2001) generalizes this to *any* differentiable loss by reframing boosting as **gradient descent in function space**. At round $m$, compute the **pseudo-residual** (negative functional gradient) for each point,
+
+$$r_{im} = -\left[\frac{\partial L(y_i, f(x_i))}{\partial f(x_i)}\right]_{f=f_{m-1}}$$
+
+fit a regression tree to the $\{(x_i, r_{im})\}$, and add it with a **shrinkage / learning rate** $\nu$: $f_m = f_{m-1} + \nu\, h_m$. For squared loss the pseudo-residual is just the ordinary residual $y - f$ (so "plain GB" = "fit the residuals"); for log loss it's $y - p$; for MAE it's $\text{sign}(y-f)$. Smaller $\nu$ with more rounds generalizes better (regularization), and **stochastic GB** (Friedman 2002) subsamples rows per round for extra variance reduction.
+
+**XGBoost** (Chen & Guestrin 2016) uses a **second-order (Newton)** objective — gradient *and* Hessian — plus explicit regularization $\Omega(f)=\gamma T + \tfrac12\lambda\|w\|^2$. A 2nd-order Taylor expansion (with $g_i, h_i$ the first/second derivatives of the loss) makes each leaf a quadratic in its weight, so the **optimal leaf weight** and **split gain** are closed-form:
+
+$$w_j^\star = -\frac{G_j}{H_j + \lambda}, \qquad \text{Gain} = \tfrac12\!\left[\frac{G_L^2}{H_L+\lambda} + \frac{G_R^2}{H_R+\lambda} - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right] - \gamma$$
+
+where $G_j=\sum_{i\in I_j} g_i$, $H_j=\sum_{i\in I_j} h_i$. **This is exactly the c1.2 connection:** for squared loss $h_i=1$, so $w_j^\star$ is the (shrunk) mean residual — recovering plain GB; for **MAE the Hessian is zero**, so $w^\star=-G/\lambda$ is degenerate, which is why naive MAE breaks XGBoost and you reach for `reg:pseudohubererror` or the special-cased `reg:absoluteerror`. **LightGBM** (Ke et al. 2017) speeds this up with leaf-wise (best-first) growth, histogram binning, and gradient-based sampling (GOSS); **CatBoost** (Prokhorenkova et al. 2018) adds ordered boosting (to remove a target-leakage "prediction shift") and native categorical handling.
+
+## Part 4 — Stacking
+
+> **Goal — combine *different* model families with a learned meta-model — without leaking.** Train diverse level-0 base learners, then a level-1 meta-learner on their predictions (Wolpert 1992). The non-negotiable detail: the meta-learner must train on **out-of-fold (OOF)** predictions — for each base model, each row's meta-feature comes from a fold that did *not* train on that row. Otherwise an overfit base model (imagine a 1-NN with zero training error) looks perfect in-sample, the meta-learner over-weights it, and the stack collapses at test time. That's pure train/test leakage (c1.1), and OOF prediction is the fix.
+
+## The stats / quant-research lens
+
+> **Goal — the lens a quant interviewer applies: which lever each family pulls, and where calibration and monotonicity bite.**
+
+- **The dichotomy to memorize:** **bagging/RF reduce variance** (average low-bias/high-variance trees; bias ≈ a single tree's), **boosting reduces bias** (sequentially fit the loss; variance can creep up → can overfit). This is the single most-asked ensemble idea.
+- **Boosting = functional gradient descent / forward stagewise additive modeling** — the unifying frame; XGBoost is Newton's method in function space (it uses curvature $h_i$).
+- **Calibration (c1.3 tie):** trees/RF/GBDT are **not calibrated** out of the box. Both RF and boosting are *sigmoid-distorted* — their probabilities get pushed *toward* 0.5, so both are **under-confident at the extremes** (Niculescu-Mizil & Caruana 2005): RF because averaging bounded tree votes compresses toward the middle, AdaBoost because margin maximization pushes the mapped scores away from 0/1. A *sigmoid* (Platt) calibrator fits both (isotonic is the alternative), via `CalibratedClassifierCV` on held-out data. Contrast modern deep nets, which are *over*-confident (c1.3).
+- **Monotonic constraints** (quant favorite): enforce e.g. "default probability increases in leverage" via `monotone_constraints` (XGBoost/LightGBM/CatBoost) or `monotonic_cst` (sklearn HistGB).
+- **Why GBDT dominates tabular:** Grinsztajn et al. 2022 — robustness to uninformative features, rotational non-invariance matching tabular structure, and the ability to fit non-smooth targets.
+
+## Tradeoff matrix
+
+| Method | Pulls down | Base trees | More estimators overfit? | Tuning burden | Reach for it when |
+|---|---|---|---|---|---|
+| Single tree | — (interpretable) | one, pruned | n/a | low | You need a human-readable model |
+| Bagging / RF | **Variance** | many, deep | **No** (converges) | low (near zero) | Robust default; noisy labels; parallel |
+| Boosting / GBDT | **Bias** | many, shallow | **Yes** (early-stop) | higher | Max accuracy on clean tabular data |
+| Stacking | Both (via diversity) | heterogeneous | — | high | Squeezing the last % (competitions) |
+
+## Worked decision walk-throughs
+
+**Scenario A: a fresh tabular prediction problem, accuracy matters.** Start with **gradient-boosted trees** — `HistGradientBoostingClassifier`, XGBoost, or LightGBM. They're the tabular default; tune learning rate, depth/leaves, and use **early stopping**.
+
+**Scenario B: noisy labels, little time to tune, want robustness.** **Random forest.** Near-zero tuning, robust to label noise (unlike AdaBoost's exp-loss), parallelizes trivially, and more trees never hurt.
+
+**Scenario C: you need trustworthy probabilities (expected-value decisions).** Whatever the model, **calibrate** it — RF/GBDT are not calibrated out of the box; fit Platt/isotonic on a held-out set and check a reliability diagram (c1.3).
+
+**Scenario D: a competition, chasing the last 0.5%.** **Stacking** diverse base models (GBDT + RF + linear + kNN) with a simple meta-learner — using OOF predictions to avoid leakage.
+
+## Production failure modes
+
+1. **`RandomForestRegressor()` isn't a random forest by default.** In modern scikit-learn its `max_features=1.0` means *every* feature is considered at each split — that's **bagged trees** ($\rho$ high, variance floor high), not the textbook RF. Set `max_features="sqrt"` or `1/3` to actually decorrelate.
+2. **GBDT with no early stopping.** More boosting rounds reduce bias and then fit noise — train loss keeps dropping while validation loss turns up. Always early-stop on a validation set.
+3. **Trusting MDI feature importance.** It's biased toward high-cardinality features and split across correlated ones — use permutation importance on held-out data (with the collinearity caveat).
+4. **Shipping uncalibrated tree probabilities.** Downstream EV math is biased; calibrate.
+5. **AdaBoost on noisy/mislabeled data.** Exponential loss exponentially up-weights mislabeled points and chases them; prefer RF or gradient boosting with a robust loss.
+6. **Naive MAE in XGBoost.** Zero Hessian breaks the Newton leaf step (c1.2); use `reg:pseudohubererror` or `reg:absoluteerror`.
+
+## Interview gotchas
+
+- **"Bagging vs boosting — what does each reduce?"** Bagging/RF → variance; boosting → bias. Be ready to justify with the decorrelation identity and the stagewise-bias-reduction argument.
+- **"Why random feature subsampling in a forest?"** To lower the inter-tree correlation $\rho$, which caps the variance reduction ($\rho\sigma^2$ floor).
+- **"Do more trees overfit?"** RF: no (converges); GBDT: yes (early-stop). Know *why* (LLN vs sequential bias reduction).
+- **"What loss does AdaBoost minimize?"** Exponential loss, forward-stagewise; derive the stagewise coefficient $\beta=\tfrac12\ln\frac{1-\text{err}}{\text{err}}$ (vote $\alpha_m=2\beta=\ln\frac{1-\text{err}}{\text{err}}$).
+- **"What does gradient boosting fit at each step?"** The negative gradient (pseudo-residual); for squared loss that's the residual.
+- **"Derive XGBoost's leaf weight."** $w^\star=-G/(H+\lambda)$ from the 2nd-order objective; note MAE's zero Hessian breaks it (c1.2).
+- **"Why can feature importance mislead?"** Gini cardinality bias + correlated-feature splitting (c1.1/c1.4).
+
+## Take the quiz
+
+Twelve conceptually difficult questions — impurity arithmetic, the decorrelation derivation, the OOB $1/e$, AdaBoost's weight, XGBoost's leaf formula, and the RF-vs-GBDT overfitting contrast. **[Take the quiz →](/c/c1/c1.5/quiz)**
+
+## Cited references
+
+- Ref 3 — *Bootstrap aggregating (bagging)* (Wikipedia) — `c1/references/03_bagging.html`
+- Ref 4 — *What is boosting?* (AWS) — `c1/references/04_boosting.html` (overview only; no math)
+- Ref 5 — *Stacking ensemble* (Machine Learning Mastery) — `c1/references/05_stacking.html`
+- Ref 7 — *A Tour of Machine Learning Algorithms* (Machine Learning Mastery) — `c1/references/07_traditional_ml_algos.html` (taxonomy only)
+
+External works (the real sources for the math):
+- Breiman, L. 1996. "Bagging Predictors." *Machine Learning* 24(2). And 2001. "Random Forests." *Machine Learning* 45(1) — decorrelation, convergence.
+- Freund, Y., Schapire, R. 1997. "A Decision-Theoretic Generalization of On-Line Learning…" *JCSS* 55(1) — AdaBoost.
+- Friedman, Hastie, Tibshirani. 2000. "Additive Logistic Regression: A Statistical View of Boosting." *Annals of Statistics* 28(2) — AdaBoost = exponential-loss stagewise.
+- Friedman, J. 2001. "Greedy Function Approximation: A Gradient Boosting Machine." *Annals of Statistics* 29(5); and 2002. "Stochastic Gradient Boosting." — gradient boosting.
+- Chen, T., Guestrin, C. 2016. "XGBoost: A Scalable Tree Boosting System." *KDD.* — second-order objective, $w^\star=-G/(H+\lambda)$.
+- Ke, G. et al. 2017. "LightGBM." *NeurIPS.* / Prokhorenkova, L. et al. 2018. "CatBoost." *NeurIPS.*
+- Wolpert, D. 1992. "Stacked Generalization." *Neural Networks* 5(2).
+- Strobl, C. et al. 2007. "Bias in random forest variable importance measures." *BMC Bioinformatics* 8:25.
+- Grinsztajn, L. et al. 2022. "Why do tree-based models still outperform deep learning on typical tabular data?" *NeurIPS Datasets & Benchmarks.*
+- Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., Ch. 9, 10, 15.
