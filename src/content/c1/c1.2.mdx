@@ -37,6 +37,8 @@ So we treat losses as first-class, *before* picking model families.
 > - **MLE** — Maximum Likelihood Estimation. The classical procedure for fitting model parameters: pick parameters that make the observed data most probable under the model.
 > - **Gradient** — the partial derivative of the loss with respect to the model's parameters. Almost every modern optimizer follows the negative gradient downhill.
 > - **Subgradient** — a generalization of the gradient that's defined for non-smooth functions (functions with kinks, like $|x|$). At a kink, the subgradient is a *set* of slopes rather than a single value.
+> - **Jacobian** — for a function with vector output (e.g. a model's prediction as a function of its parameters $\theta$), the matrix of all first partial derivatives: entry $(i,j)$ is $\partial(\text{output}_i)/\partial\theta_j$. When the output is a single scalar it collapses to one row — the gradient. The "model-Jacobian" $\partial\hat{y}/\partial\theta$ below is just *how the prediction moves as you nudge each parameter*.
+> - **Hessian** — the matrix of *second* partial derivatives of a scalar function, $H_{jk} = \partial^2\mathcal{L}/(\partial\theta_j\,\partial\theta_k)$. It measures **curvature**: how fast the gradient itself changes. Second-order optimizers (Newton's method, and XGBoost's leaf-value step) divide the gradient by the Hessian to size each step — which is exactly why a loss whose Hessian is zero, like MAE, breaks a naive Newton update.
 > - **Outlier** — an example whose label is far from what the model would predict given its features. Often (not always) due to measurement error or labeling mistake.
 
 ## The big idea: every regression loss is a noise model
