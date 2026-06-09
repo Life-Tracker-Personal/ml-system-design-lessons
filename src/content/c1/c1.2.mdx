@@ -281,6 +281,18 @@ $$\mathcal{L}_\epsilon(r) = \max(0, |r| - \epsilon)$$
 
 Predictions within $\epsilon$ of the true label contribute *zero* loss. Beyond that, the loss is linear in the residual. Encourages a model that "fits the tube" rather than the exact line. Used when you want a sparse-support, robust regression and don't care about residuals below a noise threshold.
 
+## Seeing the shapes
+
+**Goal — make the whole lesson visible in two pictures.** Everything above is one claim about *shape*, and shapes are easier to see than to read. The left panel is the loss; the right panel is its gradient. (Constants like $1/2$ are dropped so Huber's quadratic branch overlays MSE exactly until the threshold, then peels off — that's the point.)
+
+<LossChart variant="loss" delta={1} caption="Loss vs. residual. Huber tracks MSE's parabola for |r| < δ, then switches to MAE's straight line — quadratic in the middle, linear in the tails." />
+
+The loss picture shows the bowl shape, but the **gradient** picture is where robustness actually lives — because the optimizer only ever sees the gradient, never the loss value itself.
+
+<LossChart variant="gradient" delta={1} caption="Gradient vs. residual — the panel that explains robustness. MSE's gradient grows without bound (a single big residual can dominate); MAE's is pinned at ±1; Huber's rises linearly, then saturates at ±δ." />
+
+Read the right panel as the thesis of the lesson: **outlier sensitivity is just the slope of the gradient curve in the tails.** MSE's gradient keeps climbing, so one residual of 100 pulls 100× harder than a residual of 1. MAE flattens to $\pm 1$ immediately, so every residual — outlier or not — pulls with the same unit force. Huber is the deliberate compromise: linear (MSE-like, statistically efficient) near zero, then clamped (MAE-like, robust) once $|r|$ passes $\delta$.
+
 ## Tradeoff matrix
 
 | Loss | Noise model | Predicts | Outlier sensitivity | Differentiable everywhere | Closed-form linear fit |

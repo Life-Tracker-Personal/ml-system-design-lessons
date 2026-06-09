@@ -4,6 +4,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeSlug from "rehype-slug";
 import { DeepDive } from "./deep-dive";
+import { LossChart } from "./loss-chart";
 import { Quiz } from "./quiz";
 
 export function MdxContent({ source }: { source: string }) {
@@ -12,6 +13,7 @@ export function MdxContent({ source }: { source: string }) {
       source={source}
       components={{
         DeepDive,
+        LossChart,
         Quiz,
       }}
       options={{
