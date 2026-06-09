@@ -3,6 +3,27 @@
 The lesson list for this ML-interview-prep course. Authoring standard lives in
 `.claude/skills/authoring-lessons/`. Reference lessons that set the bar: `c1.1`, `c1.2`.
 
+## Chapter roadmap (planned)
+
+The book's spine moves from paradigm-agnostic foundations → deep-learning mechanics →
+architectures → a separate reinforcement-learning paradigm. Only Chapter 1 is partly
+written; the rest are planned placement, not yet authored.
+
+| Chapter | Title | Covers | Status |
+|---|---|---|---|
+| 1 | Data & ML foundations | data, losses, linear/logistic models, evaluation | 🟡 in progress |
+| 2 | Deep learning fundamentals | MLPs, backprop, optimization, normalization, regularization | ⬜ planned |
+| 3 | Architectures | **CNNs** (weight sharing / translation equivariance), sequence models/RNNs, **Transformers** (Q/K/V, self-attention) | ⬜ planned |
+| 4 | Sequence / LLM & generative | language models, pretraining, generative models (optional bridge) | ⬜ planned |
+| 5 | Reinforcement learning | MDPs, Bellman, value/policy methods, policy gradients; RLHF/DPO bridge to Ch 4 | ⬜ planned |
+
+> **Why CNNs + Transformers share a chapter but RL does not.** CNNs and Transformers are
+> both supervised-learning *architectures* and belong together once Ch 2 establishes backprop
+> and optimization. RL is a different *paradigm* (agent/environment/reward, MDPs, Bellman) and
+> earns its own chapter rather than being folded in with architectures. The authoring skill §4
+> already anticipates Transformer content ("Q vs K: which part of the role is forced by the
+> architecture and which is just the human label?").
+
 ## Chapter 1 — Data & ML foundations
 
 | Lesson | Title | Status |
