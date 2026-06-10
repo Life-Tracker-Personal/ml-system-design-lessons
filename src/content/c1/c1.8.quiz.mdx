@@ -1,0 +1,328 @@
+---
+lessonId: c1.8
+chapter: 1
+title: Quiz — Naive Bayes & probabilistic classifiers
+description: 12 conceptually difficult questions on Naive Bayes, generative vs. discriminative, smoothing, and calibration.
+estimatedMinutes: 45
+---
+
+These 12 questions test whether you understand Naive Bayes as a *generative MLE model* — its linearity, its generative–discriminative pairing with logistic regression, and why it classifies well but lies about probabilities — not whether you can name it. Try to answer before revealing.
+
+If you can derive Q1, Q2, Q3, and Q6 from scratch, you're calibrated for the probabilistic-classifier portion of any top-tier or quant interview.
+
+<Quiz id="1">
+
+**Q1.** Prove that Bernoulli Naive Bayes has a linear decision boundary. Derive the weight $w_j$ and bias $b$ explicitly.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+For binary $x_j\in\{0,1\}$ let $\theta_{cj}=p(x_j{=}1\mid y{=}c)$. The per-feature log-likelihood is
+
+$$\log p(x_j\mid c)=x_j\log\theta_{cj}+(1-x_j)\log(1-\theta_{cj})=x_j\log\tfrac{\theta_{cj}}{1-\theta_{cj}}+\log(1-\theta_{cj})$$
+
+— **affine in $x_j$**. The two-class log-odds is the sum over $j$ of the $c{=}1$ minus $c{=}0$ versions, plus the prior log-odds:
+
+$$\log\frac{p(1\mid x)}{p(0\mid x)} = \underbrace{\log\frac{p(1)}{p(0)} + \sum_j \log\frac{1-\theta_{1j}}{1-\theta_{0j}}}_{b} + \sum_j x_j \underbrace{\log\frac{\theta_{1j}(1-\theta_{0j})}{\theta_{0j}(1-\theta_{1j})}}_{w_j} = w^\top x + b$$
+
+Since the log-odds is affine in $x$, the boundary $\{x: w^\top x + b = 0\}$ is a **hyperplane** — NB is a linear classifier, of the same log-linear form as logistic regression. The difference is only in how $w,b$ are obtained: NB plugs in $\theta_{cj}$ from counts; logistic fits $w,b$ by maximizing the conditional likelihood.
+
+**Rubric:**
+- $\log p(x_j\mid c)$ is affine in $x_j$ (show the slope/intercept split)
+- Sum over $j$, subtract classes → $w^\top x + b$
+- State $w_j=\log\frac{\theta_{1j}(1-\theta_{0j})}{\theta_{0j}(1-\theta_{1j})}$ and the prior+correction bias $b$
+- Conclude linear boundary; note same form as logistic, different fit
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** Show that Gaussian Naive Bayes with variance shared across classes reduces to logistic regression in functional form. What happens to the boundary if the per-class variances are *not* shared?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Shared variance.** With $p(x_j\mid c)=\mathcal{N}(x_j;\mu_{cj},\sigma_j^2)$ (note $\sigma_j^2$ does *not* depend on $c$), the log-odds is
+
+$$\log\frac{p(1\mid x)}{p(0\mid x)} = \log\frac{p(1)}{p(0)} + \sum_j\left[-\frac{(x_j-\mu_{1j})^2}{2\sigma_j^2} + \frac{(x_j-\mu_{0j})^2}{2\sigma_j^2}\right]$$
+
+Expand the squares: the $x_j^2$ terms are $-\frac{x_j^2}{2\sigma_j^2}+\frac{x_j^2}{2\sigma_j^2}=0$ — **they cancel because the variance is shared.** What remains is linear in $x_j$:
+
+$$= b + \sum_j \frac{\mu_{1j}-\mu_{0j}}{\sigma_j^2}\,x_j = w^\top x + b \;\Rightarrow\; p(1\mid x) = \sigma(w^\top x + b)$$
+
+— exactly the logistic/sigmoid form, with $w_j=(\mu_{1j}-\mu_{0j})/\sigma_j^2$. So GNB (equal-variance) and logistic regression assume the **same** $p(y\mid x)$ family; they differ only in fitting (GNB plugs in class moments; logistic maximizes conditional likelihood).
+
+**Unshared variance.** If $\sigma_{1j}^2\neq\sigma_{0j}^2$, the $x_j^2$ terms **do not cancel**, leaving a quadratic-in-$x$ log-odds → a **quadratic decision boundary**. That's **QDA** (quadratic discriminant analysis), no longer logistic-equivalent.
+
+**Rubric:**
+- Write both log-Gaussians; expand squares
+- Show $x_j^2$ terms cancel *only* under shared variance → linear → sigmoid
+- $w_j=(\mu_{1j}-\mu_{0j})/\sigma_j^2$
+- Unshared variance → quadratic terms survive → QDA
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** Show that Laplace/Lidstone smoothing is MAP estimation of a multinomial under a Dirichlet prior. Derive the smoothed estimate as the posterior mode.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Setup.** A multinomial over $d$ outcomes with counts $N_1,\dots,N_d$ ($N=\sum_j N_j$) has likelihood $\propto \prod_j \theta_j^{N_j}$. Put a symmetric **Dirichlet$(\beta,\dots,\beta)$** prior, $p(\theta)\propto\prod_j \theta_j^{\beta-1}$.
+
+**Posterior.** Conjugacy gives $p(\theta\mid N)\propto \prod_j \theta_j^{N_j+\beta-1}$ — a **Dirichlet$(N_j+\beta)$**.
+
+**MAP = posterior mode.** Maximize $\sum_j (N_j+\beta-1)\log\theta_j$ subject to $\sum_j\theta_j=1$ (Lagrange multiplier $\lambda$): $\frac{N_j+\beta-1}{\theta_j}=\lambda \Rightarrow \theta_j\propto N_j+\beta-1$. Normalizing,
+
+$$\hat\theta_j^{\text{MAP}} = \frac{N_j+\beta-1}{N+d(\beta-1)}$$
+
+Set $\alpha=\beta-1$: $\hat\theta_j=\frac{N_j+\alpha}{N+\alpha d}$ — exactly Laplace ($\alpha=1$, i.e. a Dirichlet$(2)$ prior) / Lidstone ($0<\alpha<1$) smoothing. (Plain **MLE** is the $\alpha=0$ / flat-prior case, the raw frequencies.)
+
+**The point.** Smoothing isn't a hack — it's the **MAP estimate under a Dirichlet prior**, the same loss=−log-likelihood, penalty=−log-prior structure as ridge/lasso in c1.4 (Gaussian/Laplace priors on coefficients). It shrinks empirical frequencies toward uniform — variance reduction on rare events (James–Stein logic).
+
+**Rubric:**
+- Multinomial likelihood × Dirichlet prior → Dirichlet posterior (conjugacy)
+- Maximize log-posterior with the simplex constraint (Lagrange) → mode $\propto N_j+\beta-1$
+- Identify $\alpha=\beta-1$ → recovers $\frac{N_j+\alpha}{N+\alpha d}$
+- Connect: MLE = raw counts; MAP = smoothed; the c1.4 prior/shrinkage thread
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** A spam classifier sees a legitimate email containing one word never seen in the "ham" training set. Show that *unsmoothed* Naive Bayes assigns $p(\text{ham}\mid x)=0$ regardless of how ham-like every other word is. Explain in log-space and show how $\alpha=1$ fixes it.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The veto.** Unsmoothed MLE sets $\hat\theta_{\text{ham},j}=N_{\text{ham},j}/N_{\text{ham}}=0$ for the unseen word $j$. The class score is a product:
+
+$$p(\text{ham})\prod_k p(x_k\mid\text{ham}) = p(\text{ham})\cdot \underbrace{0}_{\text{word }j}\cdot \prod_{k\neq j}p(x_k\mid\text{ham}) = 0$$
+
+A single zero factor annihilates the entire product, no matter how strongly the other 500 words point to ham. After normalization $p(\text{ham}\mid x)=0$, so the email is classified spam on the strength of one unseen word.
+
+**In log-space** (where NB is actually computed): $\log p(x_j\mid\text{ham})=\log 0=-\infty$, and $\sum_k \log p(x_k\mid\text{ham}) = -\infty$ — an **absorbing state** no finite evidence escapes.
+
+**The fix.** Laplace smoothing $\hat\theta_{cj}=\frac{N_{cj}+1}{N_c+d}$ (or Lidstone with $0<\alpha<1$) ensures every probability is strictly positive, so $\log p(x_j\mid\text{ham})$ is finite and the unseen word contributes a small (not infinite) penalty. The class decision is then driven by the *accumulated* evidence rather than vetoed by one zero.
+
+**Rubric:**
+- Unsmoothed MLE gives $\hat\theta=0$ for the unseen feature
+- One zero factor → whole product 0 → $p(\text{ham}\mid x)=0$
+- Log-space: $\log 0=-\infty$, absorbing
+- $\alpha>0$ smoothing makes every term finite/positive → no veto
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** You accidentally duplicate a feature ($x_2 := x_1$). Show what happens to NB's log-odds contribution from that feature, to the true evidence, and to the predicted probability. Does the classification change? Connect to calibration (ECE/Brier).
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Log-odds doubles.** NB treats $x_1$ and $x_2$ as conditionally independent, so each contributes its own term $w_1 x_1$ and $w_2 x_2 = w_1 x_1$ (identical, since $x_2=x_1$). The feature's contribution to the log-odds is therefore **counted twice** — $2 w_1 x_1$ instead of $w_1 x_1$.
+
+**True evidence is unchanged.** A duplicated feature carries no new information; the correct log-likelihood-ratio contribution is $w_1 x_1$ (once). NB's independence assumption is violated (the two features are perfectly dependent), and the error is exactly this double-counting.
+
+**Probability is pushed toward 0/1.** Doubling the log-odds pushes the posterior $\sigma(\text{log-odds})$ further from $\tfrac12$ — toward 0 or 1. The model becomes **overconfident**. Concretely, if the true posterior is $0.7$ (log-odds $\approx 0.847$), double-counting reports $\sigma(1.69)\approx 0.84$.
+
+**Classification usually unchanged.** The argmax depends only on the *sign* of the log-odds, and doubling a nonzero number preserves its sign. So accuracy / AUC are unaffected — the prediction is still "class 1." Only the *probability* is wrong.
+
+**Calibration link.** This is Domingos–Pazzani in miniature: correlated features degrade the *probabilities* (worse ECE / Brier — c1.3), not the *ranking/argmax* (fine AUC). It's why NB has good AUC and bad calibration, and why you must calibrate (Platt/isotonic) before using NB probabilities for expected-value decisions.
+
+**Rubric:**
+- Duplicated feature → its log-odds term counted twice (independence assumption violated)
+- True evidence unchanged (no new information)
+- Posterior pushed toward 0/1 → overconfident
+- Argmax (sign) preserved → accuracy/AUC unaffected
+- Tie to Domingos–Pazzani / calibration (ECE/Brier degrade, ranking doesn't)
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** State the Ng–Jordan result on Naive Bayes vs. logistic regression: their sample complexities in the number of features $n$, which has the lower asymptotic error, and the two-regime consequence. Why does each scaling hold?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Sample complexity.** To reach within $\varepsilon$ of its own asymptotic (infinite-data) error over $n$ features:
+- **Naive Bayes (generative):** needs $m = O(\log n)$ examples. Its parameters are $O(n)$ *independent univariate* estimates ($p(x_j\mid y)$ per feature), each converging at $O(1/\sqrt m)$; a union bound over $n$ of them gives error $\lesssim \sqrt{(\log n)/m}$.
+- **Logistic regression (discriminative):** needs $m = O(n)$ examples — it fits the joint weight vector by conditional likelihood, a problem of VC-dimension $\Theta(n)$, so uniform convergence requires $m=\Omega(n)$.
+
+**Asymptotic error.** Logistic regression has the **lower** asymptotic error: it optimizes $p(y\mid x)$ directly, so it isn't biased by NB's (usually false) conditional-independence assumption. NB's independence assumption biases its asymptote upward.
+
+**Two regimes (the consequence).** With **few** examples, NB reaches its (worse) plateau quickly and **wins**; with **many** examples, logistic regression converges and **overtakes**, ending lower. The crossover is real (Ng–Jordan, ~15 UCI datasets). Takeaway: generative models aren't obsolete — they're the right choice when labels are scarce relative to dimension (the high-bias/low-variance estimator wins in the small-data regime). This is bias-variance at the *estimator-class* level.
+
+**Rubric:**
+- NB $O(\log n)$ vs logistic $O(n)$ sample complexity
+- Why: NB = $n$ independent 1-D estimates (union bound); logistic = $\Theta(n)$ VC-dim joint fit
+- Logistic has lower asymptotic error (fits $p(y\mid x)$ directly; NB biased by independence)
+- Two regimes: NB wins small-data, logistic wins large-data; crossover
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** Construct (a) a distribution where Naive Bayes classifies with 0% error but its estimated posteriors are off by an arbitrary amount, and (b) a distribution where the independence violation actually flips the argmax and NB misclassifies.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Perfect classification, arbitrarily wrong probabilities.** Take two strongly correlated (even identical) features that both genuinely predict the class. Class 1: $x_1=x_2=1$ w.p. ~1; Class 0: $x_1=x_2=0$ w.p. ~1. NB double-counts the (identical) evidence, so for a class-1 point it might report $p(1\mid x)=0.999$ when the true posterior is, say, $0.7$. But the *argmax* is correct on every point → **0% classification error with grossly miscalibrated probabilities.** By adding more duplicated features you push the reported probability arbitrarily close to 1 while the truth stays at 0.7 — the error is unbounded. (This is the constructive version of Domingos–Pazzani: the 0-1-optimality region is vastly larger than the probability-optimality region.)
+
+**(b) Independence violation flips the argmax.** Make the features informative *jointly* but misleading *marginally*, e.g. an XOR-like structure: class 1 iff $x_1 \neq x_2$. Marginally, each $x_j$ is independent of $y$ ($p(x_j{=}1\mid y)=0.5$ for both classes), so NB learns $w_j\approx 0$ and predicts by the prior alone — **it cannot represent XOR** (a linear classifier can't), so it misclassifies ~half the points even though the classes are perfectly separable jointly. More generally, when correlated features' double-counting pushes the (wrong) class's biased posterior across $\tfrac12$, the argmax flips.
+
+**Rubric:**
+- (a) correlated/duplicated predictive features → double-counting → arbitrarily overconfident but correct argmax → 0% error, terrible probabilities
+- Note this is the Domingos–Pazzani optimality-region gap
+- (b) XOR / jointly-informative-marginally-uninformative → NB (linear) can't represent it → misclassifies
+- Distinguish: (a) ranking fine/probabilities wrong vs (b) argmax actually flips
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** Logistic regression and equal-variance Gaussian NB have the same $p(y\mid x)$ functional form, yet they fit different $(w,b)$ on the same finite data. Explain exactly why, what each optimizes, and predict which wins with (a) 20 examples, (b) 20,000 examples.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Same form, different objective.** Both assume $p(1\mid x)=\sigma(w^\top x+b)$ (shown in Q2). But:
+- **GNB maximizes the joint likelihood** $\sum_i \log p(x_i,y_i)$ — equivalently it estimates class priors and per-feature class-conditional moments ($\mu_{cj},\sigma_j^2$) and *plugs them in* to get $w,b$. It spends modeling effort on $p(x)$.
+- **Logistic regression maximizes the conditional likelihood** $\sum_i \log p(y_i\mid x_i)$ directly — it fits $w,b$ to the boundary and never models $p(x)$.
+
+On finite data these give different $(w,b)$ because GNB's plug-in estimates are only optimal if the Gaussian/equal-variance/independence assumptions hold exactly; when they don't (the usual case), the direct conditional fit is better at the actual task. (If the generative assumptions were exactly true, both would converge to the same answer.)
+
+**Predictions (Ng–Jordan).**
+- **(a) 20 examples:** **GNB wins.** Its $O(\log n)$ sample complexity means it reaches its plateau fast; logistic hasn't had enough data to fit its $O(n)$ parameters and is high-variance.
+- **(b) 20,000 examples:** **logistic wins.** It has converged to its lower asymptotic error; GNB has plateaued at its higher (independence-biased) asymptote.
+
+**Rubric:**
+- Same $p(y\mid x)$ family (from Q2), different *objective* (joint vs conditional likelihood)
+- GNB plugs in moments (models $p(x)$); logistic fits the boundary directly
+- Finite-data divergence because generative assumptions don't hold exactly
+- 20 → GNB (fast convergence); 20,000 → logistic (lower asymptote)
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9.** Derive the decision rules for Bernoulli NB and Multinomial NB on a bag-of-words document, and show that Bernoulli NB *penalizes word absence* while Multinomial NB ignores absent words. Give a concrete document where they predict differently.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Bernoulli NB** ($x_j\in\{0,1\}$ = presence of word $j$ in the vocabulary): the likelihood explicitly includes *both* presence and absence,
+
+$$\log p(x\mid c)=\sum_{j=1}^{|V|}\bigl[x_j\log\theta_{cj}+(1-x_j)\log(1-\theta_{cj})\bigr]$$
+
+The $(1-x_j)\log(1-\theta_{cj})$ term means **every word in the vocabulary that is *absent* from the document contributes evidence** (the $\log(1-\theta_{cj})$ term).
+
+**Multinomial NB** ($x_j$ = count of word $j$): the score sums only over words that *appear*,
+
+$$\log p(x\mid c)=\log p(c)+\sum_{j}x_j\log\theta_{cj}$$
+
+Absent words have $x_j=0$, contributing $0$ — **Multinomial NB never penalizes absence**, and it weights present words by their counts.
+
+**Where they disagree.** Consider a *short* document containing only the word "free" (count 1) over a vocabulary that also contains, say, "meeting" (a strong ham indicator). Multinomial NB sees only "free" → leans spam. Bernoulli NB additionally adds, for "meeting," the absence term $\log(1-\theta_{\text{ham},\text{meeting}})$ vs $\log(1-\theta_{\text{spam},\text{meeting}})$ — the *absence* of a strong ham word is itself spam-evidence, and the absence of many common ham words can tip Bernoulli NB more strongly toward spam (or, symmetrically, the absence of spammy words toward ham). On documents where absence patterns matter, they predict differently — Bernoulli NB tends to do better on short texts/binary presence, Multinomial on longer count-rich texts.
+
+**Rubric:**
+- Bernoulli: likelihood includes $(1-x_j)\log(1-\theta_{cj})$ → absence contributes
+- Multinomial: $\sum_j x_j\log\theta_{cj}$ → absent words ($x_j=0$) contribute nothing; counts matter
+- Construct a short doc where the absence terms flip the prediction
+- Note the use-case split (Bernoulli short/binary, Multinomial long/counts)
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10.** In scikit-learn ≥1.4 you set `MultinomialNB(alpha=0)` expecting unsmoothed MLE, but smoothing still seems applied or you get a warning. Explain the `force_alpha` default and exactly how to get truly-unsmoothed NB — and why you usually shouldn't.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The `force_alpha` change.** Older scikit-learn silently floored any `alpha < 1e-10` up to `1e-10` to avoid numerical issues — so `alpha=0` was quietly turned into `1e-10` (effectively still smoothed). In **scikit-learn 1.4**, `force_alpha` defaulted to **`True`**, which means your `alpha` is used **as given**. So:
+- `MultinomialNB(alpha=0, force_alpha=False)` → clips to `1e-10` (a tiny smoothing).
+- `MultinomialNB(alpha=0, force_alpha=True)` → **truly unsmoothed** MLE (the default `force_alpha=True` in ≥1.4 means just `alpha=0` now gives unsmoothed).
+
+**Why you usually shouldn't.** Unsmoothed NB hits the zero-count catastrophe (Q4): any feature with a zero count in a class makes $\log\theta=-\infty$, vetoing that class on any test document containing that feature. On real vocabularies that's almost guaranteed. Keep `alpha>0` (Laplace `alpha=1` or tune Lidstone $0<\alpha<1$ by CV).
+
+**Rubric:**
+- Old behavior: `alpha<1e-10` silently floored to `1e-10`
+- `force_alpha=True` (default since 1.4) uses `alpha` as-is
+- Truly unsmoothed = `alpha=0` with `force_alpha=True`
+- Warn: unsmoothed → zero-count $-\infty$ veto; keep `alpha>0`
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11.** Why is standard Multinomial NB biased on imbalanced text data, and how does Complement NB (Rennie 2003) fix it? What does scikit-learn's `norm=False` default change relative to the paper?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The bias.** Multinomial NB estimates each class's word weights $\log\theta_{cj}$ from *that class's own* documents. When one class has far more training data than another, its parameter estimates are sharper and the decision systematically favors the majority class — and with skewed priors the $\log p(c)$ term compounds it. Minority classes with few documents get noisy, under-weighted parameters.
+
+**Complement NB's fix.** Instead of estimating word weights from class $c$'s documents, CNB estimates them from the **complement** of $c$ (all documents *not* in $c$):
+
+$$\tilde\theta_{cj}=\frac{\alpha+\sum_{i:y_i\neq c}x_{ij}}{\alpha d+\sum_{i:y_i\neq c}\sum_k x_{ik}}$$
+
+and classifies by the **smallest** complement match: $\hat y=\arg\min_c\sum_j x_j\log\tilde\theta_{cj}$ ("this document looks *least* like everything that isn't $c$"). Because the complement of a minority class is large and balanced, its weight estimates are far more stable — CNB is much more robust on imbalanced text and competitive with linear SVMs.
+
+**`norm=False`.** scikit-learn's `ComplementNB` defaults to `norm=False`, which **omits** the paper's second correction — the L2-normalization of the per-class weight vectors that addresses the magnitude bias from documents of differing lengths. So sklearn's default CNB matches the Weka/Mahout variant, not the full Rennie algorithm; set `norm=True` for the complete weight-normalized version.
+
+**Rubric:**
+- MNB estimates weights from each class's own (possibly tiny) data → majority-class bias
+- CNB estimates from the *complement* (large, stable) and picks the smallest complement match
+- Complement of a minority class is big → robust estimates → better on imbalanced text
+- `norm=False` default omits the paper's weight-vector normalization (Weka-style, not full Rennie)
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12.** Your Naive Bayes fraud model has AUC 0.94, but you're told its "probabilities" are useless for an expected-loss threshold ($p\times\$$). Explain why high AUC and bad calibration coexist *for NB specifically*, prove the mechanism, and give the fix.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Why both are true.** AUC measures only the *ranking* of scores — whether positives tend to score above negatives (c1.10: AUC = concordance probability). Calibration measures whether a "0.9" *happens* 90% of the time. They're orthogonal: any monotonic transform of the scores leaves AUC unchanged but can wreck calibration. NB can rank fraud cases well (high AUC) while reporting probabilities that are systematically too extreme.
+
+**The mechanism (prove it).** Real fraud features are correlated (e.g. "amount", "amount relative to history", "merchant risk" all move together). NB assumes conditional independence, so it **multiplies their likelihood ratios as if independent — double-counting (here, multiply-counting) the shared evidence.** Each redundant feature adds its (correlated) term to the log-odds, so the log-odds is inflated in magnitude, and $\sigma(\text{inflated log-odds})$ is pushed toward 0 or 1. The posteriors are therefore **overconfident** — pushed to the extremes — even though their *order* (hence AUC) is fine. This is Domingos–Pazzani: violated independence damages probabilities, not the argmax/ranking. (Unlike the deep-net overconfidence of Guo 2017 in c1.3, this one is *structural* — it comes from the independence assumption itself.)
+
+**The fix.** Don't use NB's `predict_proba` as a probability. **Calibrate** with `CalibratedClassifierCV` on a held-out set: **isotonic** regression (nonparametric monotone map — flexible, needs more data) or **Platt/sigmoid** scaling (two-parameter sigmoid — safer on small calibration sets). Both are *monotone*, so they fix log-loss/Brier/ECE **without changing the AUC** (the cleanest demonstration that ranking and calibration are independent — c1.3). Verify with a reliability diagram before trusting $p\times\$$.
+
+**Rubric:**
+- AUC = ranking only; calibration = probability accuracy; orthogonal (monotone transforms preserve AUC)
+- Mechanism: correlated features → NB multiply-counts evidence → log-odds inflated → posteriors pushed to 0/1 (overconfident)
+- Domingos–Pazzani: hurts probabilities, not ranking; structural (vs Guo 2017 deep-net case)
+- Fix: `CalibratedClassifierCV` isotonic (more data) vs sigmoid (less); monotone → AUC unchanged; verify with reliability diagram
+
+</details>
+
+</Quiz>
