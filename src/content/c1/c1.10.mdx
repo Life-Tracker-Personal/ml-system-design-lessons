@@ -1,0 +1,166 @@
+---
+id: c1.10
+chapter: 1
+title: Evaluation metrics
+subtitle: AUC is a ranking statistic — and that one fact explains everything
+refs: [15]
+estimatedMinutes: 60
+---
+
+## TL;DR
+
+**AUC is a ranking statistic** — the *concordance probability* $P(\text{score}_+ > \text{score}_-)$ for a random positive/negative pair, identical to the normalized Mann–Whitney $U$. That single fact explains both of its famous properties: it is **invariant to class balance** (because TPR and FPR are each computed *within one class*) and it is **invariant to any monotone rescaling of scores** (so it says *nothing* about calibration). Everything in this lesson hangs off that — when ROC misleads (imbalanced data → use PR), why a perfect-AUC model can be useless (wrong operating point, or miscalibrated), and how to actually pick a threshold (from the cost matrix, not habit). (c1.1 *defined* precision/recall/ROC/AUC; this lesson derives and stress-tests them.)
+
+## What you'll be able to do after this lesson
+
+- Derive that $\text{AUC} = P(\text{score}_+ > \text{score}_-)$ and that this equals the normalized Wilcoxon/Mann–Whitney $U$.
+- Explain *mechanically* why ROC is invariant to prevalence but precision/PR is not, and quantify the imbalanced-precision collapse.
+- Resolve the c1.1 "95%-accuracy trap" precisely.
+- State Davis–Goadrich dominance and choose `average_precision_score` over `auc(recall, precision)`.
+- Separate *ranking* from *calibration* and predict what recalibration does to AUC.
+- Recognize non-monotone signal at AUC ≈ 0.5, flip at AUC < 0.5, and set a cost-optimal threshold.
+
+## Why metrics deserve their own lesson
+
+> **Goal — stop choosing metrics by habit; choose them from what the decision costs.** c1.1 gave you the vocabulary as a refresher; here the point is that the headline metric everyone quotes (AUC) measures only *ranking* — not the operating point you deploy, not whether the probabilities are real. Get this wrong and you ship a 0.95-AUC model that buries analysts in false positives.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **TPR/recall, FPR** — $\text{TP}/(\text{TP+FN})$, $\text{FP}/(\text{FP+TN})$; each normalized *within one true class* (column).
+> - **Precision** — $\text{TP}/(\text{TP+FP})$; *mixes* both classes (row), hence prevalence-dependent.
+> - **ROC / PR curve** — TPR-vs-FPR / precision-vs-recall as the threshold sweeps.
+> - **AUC** — area under the ROC; the concordance probability. **AP** — average precision, the recommended PR-AUC.
+> - **Calibration** — whether a predicted "0.9" happens 90% of the time (c1.3).
+
+## Part 1 — Confusion matrix and the column/row distinction
+
+> **Goal — see that the rate's *normalizer* is what makes it prevalence-(in)dependent.**
+
+| Quantity | Formula | Normalized over |
+|---|---|---|
+| Recall = TPR | $\text{TP}/(\text{TP+FN})$ | actual positives (**column**) |
+| FPR = 1 − Specificity | $\text{FP}/(\text{FP+TN})$ | actual negatives (**column**) |
+| Precision | $\text{TP}/(\text{TP+FP})$ | predicted positives (**row** — mixes classes) |
+| Accuracy | $(\text{TP+TN})/N$ | everything (prevalence-dependent) |
+
+**F1** $=\frac{2PR}{P+R}=\frac{2\text{TP}}{2\text{TP}+\text{FP}+\text{FN}}$ — the harmonic mean punishes the smaller of precision/recall, and **it ignores TN entirely**, which is exactly why it's the imbalanced-data default (TN is the huge, uninformative cell). **Fβ** $=(1+\beta^2)\frac{PR}{\beta^2P+R}$ weights recall $\beta$ times as much as precision. **The threshold should be read off a cost matrix:** with per-error costs $c_{\text{FP}},c_{\text{FN}}$, expected cost at threshold $t$ is $\pi(1-\text{TPR}(t))c_{\text{FN}}+(1-\pi)\text{FPR}(t)c_{\text{FP}}$, and you minimize it (Part 5).
+
+## Part 2 — AUC = concordance = Wilcoxon
+
+> **Goal — derive the one identity that everything else follows from.**
+
+Let positives have scores $X\sim F_+$, negatives $Y\sim F_-$. The ROC curve plots $\text{TPR}=1-F_+(t)$ against $\text{FPR}=1-F_-(t)$; parameterize by $u=\text{FPR}=1-F_-(t)$:
+
+$$\text{AUC}=\int_0^1\text{ROC}(u)\,du=\int_0^1\bigl[1-F_+(F_-^{-1}(1-u))\bigr]du$$
+
+Substitute $t=F_-^{-1}(1-u)$ (so $du=-f_-(t)\,dt$):
+
+$$\text{AUC}=\int_{-\infty}^{\infty}\bigl[1-F_+(t)\bigr]f_-(t)\,dt=\int \Pr(X>t)\,f_-(t)\,dt=\mathbb{E}_Y[\Pr(X>Y\mid Y)]=\Pr(X>Y)$$
+
+**So AUC is the probability that a random positive outscores a random negative** — the *concordance probability*. Its empirical estimator is the fraction of concordant pairs,
+
+$$\widehat{\text{AUC}}=\frac{1}{n_+n_-}\sum_{i,j}\Bigl[\mathbb{1}(x_i>y_j)+\tfrac12\mathbb{1}(x_i=y_j)\Bigr]=\frac{U}{n_+n_-}$$
+
+the normalized **Mann–Whitney $U$** (= Wilcoxon rank-sum; Hanley & McNeil 1982). Two consequences drive the rest of the lesson:
+1. AUC is a **rank statistic** → **distribution-free** and **invariant to any strictly increasing transform** of the scores (logit, ×10, sigmoid) → the calibration blind spot (Part 4).
+2. It has a **sampling distribution** (Hanley–McNeil standard error; **DeLong's test** compares two correlated AUCs) — so "0.91 vs 0.90" may be noise; report a CI.
+
+## Part 3 — ROC vs PR, and why balance breaks one of them
+
+> **Goal — know mechanically why ROC ignores prevalence and PR doesn't, and quantify the trap.**
+
+**Mechanism.** TPR uses only $\text{TP},\text{FN}$ (the positive column); FPR uses only $\text{FP},\text{TN}$ (the negative column). Neither references the other class's count, so multiplying the number of negatives by $k$ scales $\text{FP},\text{TN}$ together and leaves FPR (and TPR) unchanged — **the entire ROC curve, hence AUC, is invariant to prevalence.** Precision mixes columns; via Bayes it's exactly the posterior:
+
+$$P=\frac{\text{TPR}\cdot\pi}{\text{TPR}\cdot\pi+\text{FPR}\cdot(1-\pi)}$$
+
+Hold the scorer fixed (TPR, FPR fixed) and change only $\pi$ → precision and PR-AUC move, ROC-AUC doesn't.
+
+**Worked example.** Scorer with TPR $=0.9$, FPR $=0.1$:
+- **Balanced ($\pi=0.5$):** $P=\frac{0.9(0.5)}{0.9(0.5)+0.1(0.5)}=0.90$ — looks great.
+- **Imbalanced ($\pi=0.01$):** $P=\frac{0.9(0.01)}{0.9(0.01)+0.1(0.99)}=\frac{0.009}{0.108}\approx0.083$ — **8.3% precision**, same scorer, *same ROC-AUC*.
+
+**The imbalanced trap (the c1.1 "95%-accuracy trap," resolved).** At $\pi=1\%$ over 100k cases (1k positive, 99k negative), a TPR-0.9/FPR-0.1 model flags $0.9(1000)+0.1(99000)=900+9900=10{,}800$ cases — only 900 real. The tiny 0.1 FPR, multiplied by the 99× larger negative pool, **floods** the flagged set. ROC-AUC ≈ 0.9 and the system is still useless. **So for imbalanced problems, report PR-AUC** (Saito & Rehmsmeier 2015); the no-skill PR baseline is the prevalence $\pi$, not 0.5. (Davis & Goadrich 2006: a curve that *dominates* in ROC space dominates in PR space — but a larger ROC-*area* does **not** imply a larger PR-area, and crossing curves have no dominance.)
+
+> **Stop and think.** Your model has AUC = 0.5. Does it mean "no signal"? *Hint: no — it means no monotone-rank signal. If positives concentrate at both score extremes and negatives in the middle, AUC ≈ 0.5 while the feature is strongly (non-monotonically) predictive — visible as a non-monotone ROC or a U-shaped reliability diagram. And AUC < 0.5 means the score is anti-correlated → flip its sign to get $1-\text{AUC}>0.5$.*
+
+## Part 4 — Ranking is not calibration
+
+> **Goal — internalize that a perfect ranker can lie about probabilities, and what fixes it.**
+
+Because AUC depends only on score *order* (Part 2), apply any strictly increasing $g$ to all scores and AUC is unchanged — while the probabilities can become arbitrarily miscalibrated. Pass a perfectly-ranked model's scores through $p\mapsto p^{10}$: AUC stays at 0.99, but every probability is crushed toward 0 → useless for any threshold/expected-value decision. So **a model can have perfect AUC and be uncalibrated.** This is why you also need *proper scoring rules* — **log-loss** and **Brier** (derived in c1.3) — and **reliability diagrams**, which *do* penalize miscalibration (Brier = reliability − resolution + uncertainty, c1.3's Murphy decomposition). The recalibration maps — **Platt scaling** (fit a sigmoid) and **isotonic regression** (monotone step function) — are *monotone*, so they **improve log-loss/Brier while leaving AUC unchanged**: the cleanest proof that ranking and calibration are orthogonal.
+
+## Part 5 — Picking the threshold
+
+> **Goal — choose the operating point AUC can't give you.**
+
+- **Youden's J:** $J=\text{Sensitivity}+\text{Specificity}-1=\text{TPR}-\text{FPR}$ (the two are algebraically identical) — maximizing it = the ROC point of maximum vertical distance above the diagonal. Optimal only under an *implicit* equal-cost assumption.
+- **Cost-optimal threshold (the general answer):** predict positive iff the calibrated $p\ge t^\star=\dfrac{c_{\text{FP}}}{c_{\text{FP}}+c_{\text{FN}}}$ (derived by comparing expected costs of the two actions). Equivalently, the optimal ROC operating point is where the iso-cost line of slope $\frac{(1-\pi)c_{\text{FP}}}{\pi\,c_{\text{FN}}}$ is tangent to the curve. A **calibrated model + a cost matrix** beats picking F1's argmax.
+
+## The stats / quant-research lens
+
+- **AUC = concordance = normalized Wilcoxon/Mann–Whitney $U$** — a distribution-free rank statistic with a known sampling distribution (Hanley–McNeil SE; **DeLong** test for comparing two correlated AUCs). "Is ΔAUC significant?" is a real statistical question.
+- **Proper scoring rules:** log-loss and Brier are *strictly proper* (uniquely minimized by the true probabilities, c1.3); AUC and accuracy are **not** proper. Train/select on a proper rule; AUC measures discrimination only.
+- **Prevalence-dependence is a feature of precision** (it's the posterior $P(y{=}1\mid\hat y{=}1)$); choose ROC vs PR by whether the decision depends on the *prior* (PR) or only the *separability of the class-conditionals* (ROC).
+- **Threshold = expected-cost minimization** ($t^\star=c_{\text{FP}}/(c_{\text{FP}}+c_{\text{FN}})$ on the calibrated posterior); metric choice is decision theory.
+- **Calibration ⊥ ranking:** monotone recalibration (Platt/isotonic/temperature) changes log-loss/Brier but not AUC — the rigorous rebuttal to "high AUC = good model."
+
+## Decision matrix
+
+| Goal | Metric |
+|---|---|
+| Compare rankers, balanced-ish | ROC-AUC (+ DeLong CI) |
+| Compare rankers, imbalanced | **PR-AUC / average precision** (no-skill baseline = $\pi$) |
+| Need trustworthy probabilities | log-loss / Brier + reliability diagram (c1.3) |
+| Operating-point performance | precision/recall/Fβ **at your threshold**, or expected cost |
+| Only the top-$k$ matters | partial AUC (`max_fpr`) |
+
+## Edge cases & gotchas
+
+- **AUC < 0.5** → the score is anti-correlated; **flip the sign** ($1-\text{AUC}$).
+- **Partial AUC** (`max_fpr`) when only the low-FPR region matters (you can review only the top 1%); sklearn returns it McClish-standardized (a random model still scores 0.5 in that region).
+- **Ties in scores** → the correct AUC adds $\tfrac12$ per tie (the trapezoidal/strict-inequality forms disagree on ties).
+- **Multiclass AUC** → one-vs-rest (`'ovr'`, *sensitive* to imbalance) vs one-vs-one (`'ovo'` Hand–Till, *insensitive* under macro-averaging).
+
+## Worked decision walk-throughs
+
+**Scenario A: 1%-positive fraud model.** Report **PR-AUC via `average_precision_score`** (not ROC-AUC — it hides the precision collapse), calibrate the scores, then set the threshold from the cost matrix ($t^\star=c_{\text{FP}}/(c_{\text{FP}}+c_{\text{FN}})$).
+
+**Scenario B: probabilities feed an expected-value pipeline.** Optimize/monitor **log-loss or Brier** and check a **reliability diagram** — AUC alone is blind to the calibration you depend on.
+
+**Scenario C: you can only review the top 1% of flagged cases.** **Partial AUC** over the low-FPR region (`max_fpr=0.01`); the rest of the ROC curve is irrelevant to your operating budget.
+
+**Scenario D: "model B's AUC is 0.91 vs A's 0.90."** Don't celebrate yet — use **DeLong's test** on the (correlated) AUCs to check the difference is real, not sampling noise.
+
+## Production failure modes
+
+1. **Shipping a high-AUC model uncalibrated.** Offline AUC is great; the 0.9-bucket is right 70% of the time; every EV calculation is biased. Calibrate (c1.3) and monitor a reliability diagram.
+2. **`auc(recall, precision)` for PR-AUC.** Trapezoidal PR-area linearly interpolates (invalid in PR space — Davis–Goadrich) and **over-estimates**; use **`average_precision_score`** (a non-interpolated step sum).
+3. **ROC-AUC on heavily imbalanced data.** Visually deceptive — small FPR changes hide huge precision collapses; use PR-AUC.
+4. **Multiclass `'ovr'` AUC on imbalanced classes.** Sensitive to imbalance even with `average='macro'`; use `'ovo'` if you want imbalance-insensitivity.
+5. **`log_loss` API drift.** The 2nd positional arg moved to `y_proba` (`y_pred` deprecated, removal in 1.11); pass `labels=` when not all classes appear.
+
+## Interview gotchas
+
+- **"Derive AUC = concordance."** $P(\text{score}_+>\text{score}_-)$, = $U/(n_+n_-)$ = Wilcoxon; it's a rank statistic.
+- **"Why is ROC-AUC unaffected by class balance but precision isn't?"** Column- vs row-normalization; precision is the posterior, so it depends on the prior $\pi$.
+- **"Imbalanced data — ROC-AUC or PR-AUC?"** PR-AUC / average precision (Saito–Rehmsmeier); show the 0.90→0.083 collapse.
+- **"Can a model have great AUC and be useless?"** Yes — wrong operating point, or miscalibrated (AUC is monotone-invariant). Pair AUC with a proper scoring rule + cost-based threshold.
+- **"`average_precision_score` vs `auc(recall, precision)`?"** AP is the non-interpolated step sum; the trapezoidal version over-estimates.
+- **"How would you set the threshold?"** From the cost matrix: $t^\star=c_{\text{FP}}/(c_{\text{FP}}+c_{\text{FN}})$ on a calibrated $p$; or Youden's J under equal costs.
+
+## Take the quiz
+
+Twelve conceptually difficult questions — the AUC = concordance = Wilcoxon derivation, the balance-invariance mechanism, the imbalanced-precision collapse, ranking-vs-calibration, and cost-optimal thresholds. **[Take the quiz →](/c/c1/c1.10/quiz)**
+
+## Cited references
+
+- Ref 15 — *Cross-entropy* (Wikipedia) — `c1/references/15_cross_entropy.html` (the log-loss / proper-scoring-rule connection)
+
+External works (the real sources for the math):
+- Hanley, J. A., McNeil, B. J. 1982. "The Meaning and Use of the Area Under a ROC Curve." *Radiology* 143(1). AUC = concordance = Wilcoxon/Mann–Whitney; the SE formula.
+- Davis, J., Goadrich, M. 2006. "The Relationship Between Precision-Recall and ROC Curves." *ICML.* Dominance theorem; nonlinear PR interpolation.
+- Saito, T., Rehmsmeier, M. 2015. "The Precision-Recall Plot Is More Informative than the ROC Plot…on Imbalanced Datasets." *PLOS ONE* 10(3).
+- Brier, G. W. 1950. "Verification of Forecasts Expressed in Terms of Probability." *Monthly Weather Review.* (Brier score.)
+- Youden, W. J. 1950. "Index for Rating Diagnostic Tests." *Cancer* 3(1).
+- DeLong, E. et al. 1988 (comparing correlated AUCs); Hand & Till 2001 (multiclass `'ovo'` AUC).
+- Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., Ch. 7 & 9.
