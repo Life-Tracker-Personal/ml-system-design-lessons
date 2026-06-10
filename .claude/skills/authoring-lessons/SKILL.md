@@ -121,7 +121,9 @@ estimatedMinutes: 45
 **Rendering pipeline:** `next-mdx-remote/rsc` with `remark-gfm` (tables, strikethrough), `remark-math` + `rehype-katex` (math), `rehype-slug` (auto heading IDs → in-page anchor links like `#refresher-…` work).
 
 **MDX gotchas — these have caused real 500s in this repo:**
-- **Escape bare `<` and `>` in prose.** MDX parses them as JSX. Write inequalities as math (`$<10$ ms`, `$\le$`, `$\ge$`) or wrap in code (`` `<10 ms` ``). This is the #1 source of "lesson throws at request time." Grep new files for unescaped `<`/`>` before shipping.
+- **Escape bare `<` and `>` in prose.** MDX parses them as JSX. Write inequalities as math (`$<10$ ms`, `$\le$`, `$\ge$`) or wrap in code (`` `<10 ms` ``). A top source of "lesson throws at request time." Grep new files for unescaped `<`/`>` before shipping.
+- **Escape or avoid bare `{` / `}` in prose.** MDX parses `{...}` as a JSX expression and evaluates it as JavaScript — a literal set like `{a, b, c}` in prose throws a **request-time 500** (this exact bug 500'd c1.7's quiz: `{spherical, shared variance, equal weight}`). Keep braces inside `$...$` math or `` `code` ``, write `\{`/`\}`, or reword. The `<`/`>` and KaTeX scans do **not** catch this — also scan for bare `{`/`}` outside math/code.
+- **A clean build is not a clean render.** `next-mdx-remote/rsc` compiles MDX *per request*, so `npm run build` (and a green Vercel deploy) passes even when a page will 500 when served. **Always `curl` the live lesson *and* quiz pages for `200` after deploy** — it's the only check that exercises the real render path.
 - **Math:** `$inline$` and `$$block$$` via KaTeX. Use `\;`, `\!`, `\bigl…\bigr` for spacing as the reference lessons do.
 - **In-lesson links:** `/c/cX/cX.Y` for a lesson, `/c/cX/cX.Y/quiz` for its quiz, `#slug` for sections (slug = lowercased heading, non-word chars → `-`).
 - **Tables** are GFM; keep a header row + `|---|` separator.
