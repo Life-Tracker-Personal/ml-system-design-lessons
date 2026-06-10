@@ -73,7 +73,8 @@ export async function listLessons(chapter: string): Promise<LessonMeta[]> {
         return data as LessonMeta;
       }),
     );
-    return metas.sort((a, b) => a.id.localeCompare(b.id));
+    // numeric-aware sort so "c1.10"/"c1.11" order after "c1.9" (not after "c1.1")
+    return metas.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
   } catch {
     return [];
   }
