@@ -1,0 +1,141 @@
+---
+id: c1.11
+chapter: 1
+title: Class imbalance & resampling
+subtitle: Why "just SMOTE it" is usually wrong — calibrate and move the threshold
+refs: [8]
+estimatedMinutes: 60
+---
+
+## TL;DR
+
+Imbalance is **not a problem in itself** — it's only a problem when it degrades the metric you actually care about, and the cleanest fix is almost never to touch the data: **train normally, then move the decision threshold and recalibrate.** The key result: **every resampling/reweighting scheme is mathematically equivalent to an implicit shift of the decision threshold on the base rate** — so if you're going to set a threshold anyway (you are), the resampling was at best a detour and at worst it destroyed your calibration. This unifies the imbalance threads already in the course: c1.3's loss levers (focal/class-balanced, decoupling), c1.1's gradient-share and 95%-accuracy trap, and c1.10's PR-AUC-over-ROC-AUC.
+
+## What you'll be able to do after this lesson
+
+- Explain precisely when imbalance hurts (and when it doesn't) in terms of the target metric.
+- Write SMOTE's interpolation, state its convexity assumption, and say where it breaks (high-dim, categoricals).
+- Spot and fix the SMOTE-then-split leakage trap with a resampling-inside-CV pipeline.
+- Derive the cost-optimal threshold and show that resampling is an implicit, less-calibrated version of it.
+- Apply prior correction to recover true-prevalence probabilities after training on resampled data.
+- Decide between resampling, reweighting, threshold-moving, and anomaly-detection for a given imbalance ratio.
+
+## Why imbalance gets its own (consolidating) lesson
+
+> **Goal — turn the scattered imbalance folklore into one decision framework, and replace "always oversample" with "calibrate + threshold, and only resample if it provably helps your metric."** The high-value interview move here is contrarian and evidence-backed: the reflex to SMOTE is usually unnecessary, often harmful to calibration, and almost always reproducible by a threshold move you should make explicitly anyway.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **Imbalance ratio (IR)** — $N_{\text{maj}}/N_{\text{min}}$; "mild" ≤ 4:1, "extreme" ≥ 100:1; fraud/CTR routinely $1000{:}1$+.
+> - **Over/under-sampling** — duplicate minority (ROS) / drop majority (RUS) rows.
+> - **SMOTE** — synthesize minority points by interpolating between minority neighbors.
+> - **Class weight / cost-sensitive** — scale each class's loss; act on a cost matrix.
+> - **Threshold moving / prior correction** — adjust the decision cutoff / recalibrate predicted probabilities for the deployment base rate.
+
+## Part 1 — When is imbalance actually a problem?
+
+> **Goal — stop treating imbalance as automatically bad; locate the real harm in the metric.**
+
+Accuracy is *prevalence-weighted*, so "always predict negative" scores 95% at 5% positives (c1.1's 95%-accuracy trap) — useless. Under plain cross-entropy, the $q-y$ gradient (c1.3) is ~99% sourced from negatives at 1% prevalence, so the minority barely moves the weights. **But** — and this is the framing — **ROC-AUC is invariant to prevalence** (c1.10), so imbalance doesn't hurt *ranking*; it hurts the *operating point* (precision collapses) and the *gradient signal*. The honest statement: **imbalance is a problem only insofar as it degrades the metric you care about.** A well-calibrated model evaluated by PR-AUC and deployed at a cost-chosen threshold often needs **no** resampling at all.
+
+## Part 2 — Resampling (and its leakage trap)
+
+> **Goal — synthesize/drop rows to rebalance, and know the assumption and the leakage failure that come with it.**
+
+**Random oversampling** duplicates minority rows (adds no information → overfits the duplicates); **random undersampling** drops majority rows (discards data, especially hard negatives near the boundary). **SMOTE** (Chawla et al. 2002) synthesizes minority points by interpolating between a minority point and one of its $k$ minority neighbors:
+
+$$x_{\text{new}} = x_i + u\,(x_i^{(\text{nn})} - x_i),\qquad u\sim\text{Uniform}(0,1)$$
+
+so new points lie on segments of the minority $k$-NN graph — **assuming the minority class is locally convex/linear** in feature space. Variants concentrate synthesis on the boundary: **Borderline-SMOTE** (only "in-danger" points) and **ADASYN** (density-adaptive: more synthesis where the minority is harder). For mixed types, **SMOTENC** takes the neighborhood *mode* of categoricals (plain SMOTE on one-hots yields meaningless fractions).
+
+**The critical leakage trap.** Resampling is a *fit*-time transform that uses labels. Doing it **before** the split (or before CV folding) lets a synthetic/duplicated point derived from a row land in a *different* fold than that row → the validation label leaks into training (c1.1's information-availability rule), the exact structural bug as c1.5's non-OOF stacking. **Resample inside each fold, on the training partition only.** Use `imblearn.pipeline.Pipeline`, whose samplers run only on `fit`/`fit_resample` and are **bypassed on `transform`/`predict`** — so the held-out fold is scored at the true prevalence. (`sklearn.pipeline.Pipeline` can't host a resampler, which is *why* imbalanced-learn ships its own.)
+
+## Part 3 — Reweighting and cost-sensitive learning
+
+> **Goal — re-weight the loss instead of the data, and know when that differs from resampling.**
+
+Class weighting scales each class's loss by a constant; sklearn's `class_weight='balanced'` uses $w_c=\frac{N}{K\,n_c}$ (n_samples / (n_classes × class count)) — e.g. 100 pos / 900 neg gives $w_{\text{pos}}=1000/(2\cdot100)=5$, $w_{\text{neg}}\approx0.56$. **Reweighting ≡ resampling in expectation** over a full epoch (both rescale the minority's total gradient contribution), but they **diverge under minibatch SGD**: oversampling changes the *empirical distribution* (more steps on duplicated rows → overfitting), reweighting changes per-example gradient *magnitude* (noisier/larger steps, may need LR retuning). This is c1.3's Stop-and-think made precise — and neither is free, because both shift the base rate (Part 4).
+
+## Part 4 — Threshold moving and prior correction (the central insight)
+
+> **Goal — see that the right lever is a calibrated probability plus a cost-derived threshold, and that resampling is just an implicit, worse-calibrated version of it.**
+
+**Cost-optimal threshold.** With per-error costs, predict positive iff the calibrated $p\ge t^\star=\dfrac{c_{\text{FP}}}{c_{\text{FP}}+c_{\text{FN}}}$ (c1.10). Imbalance enters only through how it affects your ability to *estimate* $p$ — not through any need to rebalance.
+
+**Resampling = an implicit threshold shift.** Train on a balanced base rate $\bar y$ instead of the true $\tau$. By Bayes, balancing **multiplies the predicted odds** by $(1-\tau)/\tau$ relative to the truth:
+
+$$\frac{p_{\text{bal}}}{1-p_{\text{bal}}}=\frac{p_{\text{true}}}{1-p_{\text{true}}}\cdot\frac{1-\tau}{\tau}$$
+
+So (i) the predicted probabilities are now systematically **over-estimated** for the minority — *miscalibrated* (exactly what van den Goorbergh et al. 2022 measured: resampling leaves ROC-AUC ~unchanged but wrecks calibration); and (ii) the *decision* is identical to leaving probabilities alone and moving the threshold by the corresponding amount. **"Resampling improved my classifier" almost always means "resampling silently moved my threshold."** Correct the prior — **King & Zeng's** intercept correction $\beta_0^{\text{corr}}=\hat\beta_0-\ln\!\bigl[\frac{1-\tau}{\tau}\frac{\bar y}{1-\bar y}\bigr]$ — and you recover the original model. (The multiclass version is **logit adjustment**, $f_y+\log\pi_y$, Menon et al. 2021 — from c1.3; and Kang 2020's decoupling shows the *classifier head*, not the representation, is the bottleneck.)
+
+> **Stop and think.** A colleague reports a jump from 0.78 to 0.95 PR-AUC after applying SMOTE to the whole dataset and then doing 5-fold CV. Why is that number almost certainly fake? *Hint: SMOTE-before-split is leakage — synthetic minority points are interpolations of real points, so a validation point's near-duplicate (or its very neighbors) sit in the training folds; the model is scored on rows it effectively trained on (c1.1 / c1.5 OOF). Resample inside each fold via `imblearn.pipeline.Pipeline` and the inflated score collapses back toward 0.78.*
+
+## Part 5 — Extreme imbalance: reframe as anomaly detection
+
+> **Goal — recognize when the "positive class" is too sparse to model as classification.**
+
+At ~0.01% positives, there aren't enough positives to define a decision boundary; model the **majority (normal) distribution** and flag outliers. **One-Class SVM** (Schölkopf 2001) learns a boundary enclosing a $\nu$-fraction of normal data — best when training data is *clean* (novelty detection). **Isolation Forest** (Liu et al. 2008): anomalies are isolated in *fewer* random splits → shorter average path length; robust to contaminated/multimodal data, with `contamination` setting the flagged fraction. This is the same "is it really imbalance, or a different problem?" move as c1.1's click-data-is-causal-inference framing.
+
+**Evaluate under imbalance with PR-AUC, not ROC-AUC** (c1.10), use per-class metrics, and **stratify your splits** (c1.1) — at 1% positives a 1000-row test set has ~Binomial(1000, 0.01) positives (SD ≈ 3.15), so recall estimates are wildly noisy without stratification.
+
+## The stats / quant-research lens
+
+- **Prior correction is the headline result** — resampling changes the effective base rate, so predicted probabilities are biased by a known log-odds offset; the King–Zeng intercept correction recovers the true posterior. This is the same machinery as **case-control sampling** in epidemiology and **importance weighting** (c1.1: oversampling the minority = a proposal $q$; weights $p/q$ restore unbiased gradients).
+- **SMOTE's manifold assumption, as statistics** — interpolation assumes local convexity. In high dimensions it provably fails: Blagus & Lusa (2013) show SMOTE **leaves class means ~unchanged while shrinking within-class variance and inducing inter-sample correlation**, so it doesn't reduce majority bias for most classifiers; on categoricals it produces nonsense (→ SMOTENC).
+- **Calibration cost** — all corrections leave ROC-AUC ~unchanged (discrimination is a monotone-invariant rank statistic, c1.10) but RUS/ROS/SMOTE systematically **over-estimate minority probability** (van den Goorbergh 2022) — a reliability/Brier failure (c1.3's Murphy decomposition). The sensitivity "gain" is reproducible by threshold-shifting alone.
+- **Threshold-vs-resample as expected-cost minimization** — estimate calibrated $p$, set $t^\star=c_{\text{FP}}/(c_{\text{FP}}+c_{\text{FN}})$; resampling is then exposed as a prior shift that implicitly re-derives a threshold you should set explicitly.
+
+## Tradeoff matrix
+
+| Lever | What it does | Cost | Reach for it when |
+|---|---|---|---|
+| **Threshold move + calibrate** | sets the operating point on a calibrated $p$ | ~free, honest | **default** — almost always first |
+| Class weights / `pos_weight` | reweights the loss | cheap; shifts base rate | gradient signal too weak; recalibrate after |
+| Random over/under-sample | rebalances data | overfit (ROS) / data loss (RUS) | RUS to *scale* at extreme IR |
+| SMOTE / ADASYN | synthesizes minority | leakage risk; high-dim/categorical failure | low-dim, continuous, *and* it beats threshold on your metric |
+| Anomaly detection | models normal, flags outliers | different paradigm | extreme IR (~0.01%) |
+
+## Worked decision walk-throughs
+
+**Scenario A: 1:50 imbalance, you're using XGBoost.** **Don't SMOTE.** Train normally, **calibrate**, and **move the threshold** to the cost-optimal point (Elor 2022: for strong probabilistic learners with a tuned threshold, SMOTE gives no benefit). Evaluate with PR-AUC.
+
+**Scenario B: you've decided SMOTE genuinely helps (weak learner, low-dim, validated).** Put it **inside an `imblearn.pipeline.Pipeline`** so it resamples only the training fold; never SMOTE-then-split.
+
+**Scenario C: 1:10,000 fraud.** Reframe as **anomaly detection** (Isolation Forest / One-Class SVM) — too few positives to learn a boundary; or aggressively undersample negatives + ensemble.
+
+**Scenario D: you must report honest performance.** **PR-AUC** (not ROC-AUC), **stratified** splits, calibrated probabilities, and the operating point's precision/recall at the cost-chosen threshold.
+
+## Production failure modes
+
+1. **SMOTE before the split.** Leakage → inflated CV scores that collapse in production. Resample inside the pipeline/fold.
+2. **Resampling breaks calibration.** Predicted probabilities over-estimate the minority; apply prior correction or recalibrate before using $p$ for decisions.
+3. **SMOTE on categorical features.** Interpolating one-hots is meaningless; use SMOTENC.
+4. **SMOTE in high dimensions.** Doesn't move class means, shrinks variance (Blagus–Lusa); often no benefit.
+5. **ROC-AUC for imbalanced evaluation.** Hides the precision collapse; use PR-AUC (c1.10).
+6. **`class_weight` + the mean-reduction gotcha** (c1.3): weighted losses can change the effective learning rate; tune accordingly.
+
+## Interview gotchas
+
+- **"How do you handle class imbalance?"** First: does it actually hurt the *target metric*? If so, **calibrate + move the threshold** before resampling. Cite Elor 2022 (SMOTE's benefit vanishes for strong learners once you tune the threshold).
+- **"Is SMOTE-then-train fine?"** Only inside a fold — SMOTE-then-split is leakage.
+- **"Does resampling improve the model?"** It shifts the base rate → an implicit threshold move + worse calibration; correct the prior and you recover the original model.
+- **"ROC-AUC or PR-AUC for imbalanced data?"** PR-AUC (c1.10) — ROC-AUC is prevalence-invariant and hides the operating-point collapse.
+- **"Extreme imbalance (1:10⁴)?"** Reframe as anomaly detection; or undersample + ensemble.
+
+## Take the quiz
+
+Twelve conceptually difficult questions — prior correction, the cost-optimal threshold ≡ resampling equivalence, the SMOTE leakage trap, SMOTE's high-dim failure, and the end-to-end imbalance decision. **[Take the quiz →](/c/c1/c1.11/quiz)**
+
+## Cited references
+
+- Ref 8 — *Sampling methods* (Scribbr) — `c1/references/08_sampling_strategies.html`
+
+External works (the real sources for the math):
+- Chawla, N. et al. 2002. "SMOTE: Synthetic Minority Over-sampling Technique." *JAIR* 16.
+- He, H., Garcia, E. 2009. "Learning from Imbalanced Data." *IEEE TKDE* 21(9). (Survey.)
+- King, G., Zeng, L. 2001. "Logistic Regression in Rare Events Data." *Political Analysis* 9. (Prior correction.)
+- Blagus, R., Lusa, L. 2013. "SMOTE for high-dimensional class-imbalanced data." *BMC Bioinformatics* 14:106.
+- van den Goorbergh, R. et al. 2022. "The harm of class imbalance corrections for risk prediction models." *JAMIA* 29(9):1525–1534.
+- Elor, Y., Averbuch-Elor, H. 2022. "To SMOTE, or not to SMOTE?" *arXiv:2201.08528.*
+- Liu, F. T. et al. 2008. "Isolation Forest." *ICDM*; Schölkopf, B. et al. 2001 (One-Class SVM).
+- Kang, B. et al. 2020 (decoupling) and Menon, A. et al. 2021 (logit adjustment) — see c1.3.
