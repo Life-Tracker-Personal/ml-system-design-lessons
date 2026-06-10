@@ -34,12 +34,14 @@ written; the rest are planned placement, not yet authored.
 | c1.4 | Linear & logistic regression (OLS/MLE, regularization, VIF, PCA) | ✅ written |
 | c1.5 | Trees & ensembles (CART, bagging/RF, boosting/GBDT, stacking) | ✅ written |
 | c1.6 | Kernel methods & instance-based (SVM, kNN) | ✅ written |
-| c1.7–c1.9 | *not yet fixed* | ⬜ TBD |
-| c1.10 | Evaluation metrics | ⬜ planned — see spec below |
+| c1.7 | Unsupervised learning (clustering + nonlinear embeddings) | ✅ written |
+| c1.8 | Naive Bayes & probabilistic (generative vs. discriminative) | ✅ written |
+| c1.9 | Model selection & validation (bias-variance, CV, tuning) | ✅ written |
+| c1.10 | Evaluation metrics (AUC=concordance, ROC vs PR, calibration) | ✅ written — built to the spec below |
+| c1.11 | Class imbalance & resampling (threshold-moving, prior correction) | ✅ written |
 
-> **Sort-order gotcha (from authoring skill §9):** `listLessons` sorts by `id.localeCompare`
-> (string order), so `c1.10` sorts *before* `c1.2`. Before adding `c1.10`, either zero-pad
-> ids (`c1.02`, `c1.10`) or make the sort numeric-aware.
+> **Sort-order gotcha (resolved):** `listLessons` now sorts with `localeCompare(..., { numeric: true })`,
+> so `c1.10`/`c1.11` order after `c1.9` (not after `c1.1`). No id zero-padding needed.
 
 ---
 
