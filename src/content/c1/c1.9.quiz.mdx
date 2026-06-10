@@ -1,0 +1,314 @@
+---
+lessonId: c1.9
+chapter: 1
+title: Quiz — Model selection & validation
+description: 12 conceptually difficult questions on bias-variance, cross-validation as an estimator, hyperparameter search, and double descent.
+estimatedMinutes: 45
+---
+
+These 12 questions test whether you treat model selection as estimating an estimator — its bias, variance, and the selection bias you induce — not as calling `GridSearchCV`. Try to answer before revealing.
+
+If you can derive Q1, Q3, and Q5 from scratch and explain Q7 cold, you're calibrated for the model-selection portion of any top-tier or quant interview.
+
+<Quiz id="1">
+
+**Q1.** Derive the bias-variance decomposition from $y=f(x)+\varepsilon$ over the randomness of both the training set $\mathcal D$ and the noise $\varepsilon$. State exactly which assumption kills each of the two cross terms, and why the identity fails for 0-1 loss.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+Let $\hat f=\hat f_{\mathcal D}$, $\bar f(x)=\mathbb{E}_{\mathcal D}[\hat f(x)]$, with $\mathbb{E}[\varepsilon]=0$, $\text{Var}(\varepsilon)=\sigma^2$, $\varepsilon\perp\mathcal D$.
+
+$$\mathbb{E}_{\mathcal D,\varepsilon}[(y-\hat f)^2]=\mathbb{E}[(\varepsilon+(f-\hat f))^2]=\mathbb{E}[\varepsilon^2]+2\mathbb{E}[\varepsilon]\,\mathbb{E}[f-\hat f]+\mathbb{E}_{\mathcal D}[(f-\hat f)^2]$$
+
+**First cross term** $2\mathbb{E}[\varepsilon]\mathbb{E}[f-\hat f]=0$ because $\mathbb{E}[\varepsilon]=0$ and $\varepsilon\perp\mathcal D$ (so the expectation factorizes). That leaves $\sigma^2+\mathbb{E}_{\mathcal D}[(f-\hat f)^2]$. Split the last term with $\pm\bar f$:
+
+$$\mathbb{E}_{\mathcal D}[(f-\hat f)^2]=\underbrace{(f-\bar f)^2}_{\text{Bias}^2}+\underbrace{\mathbb{E}_{\mathcal D}[(\hat f-\bar f)^2]}_{\text{Var}}+2(f-\bar f)\underbrace{\mathbb{E}_{\mathcal D}[\bar f-\hat f]}_{=0}$$
+
+**Second cross term** vanishes because $\mathbb{E}_{\mathcal D}[\hat f]=\bar f$ by definition. Result:
+
+$$\mathbb{E}[(y-\hat f)^2]=\sigma^2_{\text{noise}}+\text{Bias}^2+\text{Var}$$
+
+**0-1 loss.** The derivation relies on the algebra of squares (the cross terms). For 0-1 loss there's no such additive identity; the "variance" can be *good or bad* depending on whether it pushes you across the decision boundary (Domingos 2000 gives a unified but loss-dependent, non-additive version). So the clean $\sigma^2+\text{Bias}^2+\text{Var}$ split is a squared-loss fact.
+
+**Rubric:**
+- Expand $(\varepsilon+(f-\hat f))^2$; first cross term killed by $\mathbb{E}[\varepsilon]=0,\varepsilon\perp\mathcal D$
+- Split with $\pm\bar f$; second cross term killed by $\mathbb{E}_{\mathcal D}[\hat f]=\bar f$
+- Land on $\sigma^2+\text{Bias}^2+\text{Var}$
+- Squared-loss only; 0-1 loss non-additive (Domingos 2000)
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** Sketch the learning curves (train and validation error vs training-set size) for a high-bias model and a high-variance model. From the shapes alone, decide for each whether (a) more data, (b) more capacity, (c) more regularization will help.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**High-bias (underfit).** Train and validation errors **converge to each other at a high floor** — both are high, the gap is small, and adding data flattens them quickly at that floor. The dominant term is $\text{Bias}^2$, a property of the model class. Fixes: **(b) more capacity** (a richer model / more features / less regularization). **(a) More data does NOT help** — the floor is fixed by the model, not the sample size. (c) More regularization would *hurt* (raises bias further).
+
+**High-variance (overfit).** Train error is **low**, validation error is **much higher** — a persistent **gap** that *narrows* as data grows. The dominant term is $\text{Var}$. Fixes: **(a) more data** (shrinks the gap), and **(c) more regularization** (reduces variance). (b) More capacity would *worsen* it.
+
+**Decision rule:** *converged-and-high* → bias → add capacity; *low-train, high-val gap* → variance → more data or regularization. (This is exactly the c1.9 §5 diagnosis.)
+
+**Rubric:**
+- High-bias: curves converge at a high floor (small gap)
+- High-variance: low train, high val, persistent narrowing gap
+- Bias → more capacity (not more data); variance → more data / regularization
+- Map each of (a)/(b)/(c) correctly to each regime
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** Prove that choosing the hyperparameter minimizing CV error gives an optimistically biased estimate of that model's true risk. Quantify the optimism for $m$ independent candidates each with fold-noise $\tau$, and explain precisely what nested CV is unbiased *for*.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+Write $\widehat{\text{CV}}(\lambda)=R(\lambda)+Z_\lambda$ with $\mathbb{E}[Z_\lambda]\approx0$, $\text{Var}(Z_\lambda)=\tau^2$. For a *single fixed* $\lambda$, $\widehat{\text{CV}}$ is ~unbiased. But you report the minimum over candidates. By Jensen (the min of random variables is $\le$ the min of their means):
+
+$$\mathbb{E}\bigl[\min_\lambda\widehat{\text{CV}}(\lambda)\bigr]\le\min_\lambda\mathbb{E}[\widehat{\text{CV}}(\lambda)]=\min_\lambda R(\lambda)$$
+
+So the reported minimum **systematically under-estimates** the true risk of the selected model — the "winner's curse." With $m$ roughly-independent candidates whose noise is $\approx\mathcal{N}(0,\tau^2)$, the expected minimum sits about $\tau\sqrt{2\ln m}$ below the true best — so the optimism **grows with the number of configurations tried**. (This is the same statistical effect as tuning on the test set, c1.1 data-snooping; the more you search, the more you overfit the validation set.)
+
+**Nested CV.** The *inner* CV loop selects $\lambda$; the *outer* loop's folds are never seen during selection, so the outer estimate is unbiased — but **for the risk of the entire *procedure that includes tuning***, not for one fixed model. That's the right quantity to report: "how well does my model-plus-tuning pipeline generalize."
+
+**Rubric:**
+- Single fixed $\lambda$ ~unbiased; min-over-candidates biased by Jensen
+- $\mathbb{E}[\min\widehat{\text{CV}}]\le\min R$ → optimistic; optimism $\approx\tau\sqrt{2\ln m}$
+- Same phenomenon as data-snooping; grows with #configs
+- Nested CV unbiased for the *tuned procedure's* risk, not a fixed model
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** Explain the bias-variance tradeoff *of the CV estimator itself*: why is LOO nearly unbiased yet high-variance? Reconcile with Kohavi's finding that 10-fold beats LOO for selection. For least-squares linear regression, show LOO is computable from a single fit.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Bias.** $\widehat{\text{CV}}_K$ trains each surrogate on $n(1-1/K)$ points — weaker than the final $n$-point model — so it **over-estimates** error (pessimistic bias), and the bias **grows as $K$ shrinks**. LOO trains on $n-1$ points ⇒ almost the full model ⇒ **nearly unbiased**.
+
+**Variance.** LOO's $n$ training sets pairwise overlap in $n-2$ points, so the $n$ fold-errors are **highly positively correlated**. The variance of an average of correlated terms doesn't shrink toward 0 (it's floored by the average covariance), so $\widehat{\text{CV}}_{\text{LOO}}$ has **high variance**. Smaller $K$ → less overlap → less-correlated, lower-variance estimate.
+
+**Reconciliation (Kohavi 1995).** For model *selection* you care about ranking candidates reliably, which favors a lower-variance estimator; LOO's near-zero bias doesn't compensate for its high variance (and its $n$ refits). 10-fold stratified CV hit the better bias-variance-of-the-estimator balance empirically — hence the $K=5$–$10$ default.
+
+**OLS shortcut (PRESS).** For least-squares, the $i$-th LOO residual equals $e_i/(1-h_{ii})$ where $e_i$ is the full-fit residual and $h_{ii}$ the hat-matrix diagonal (leverage). So $\text{LOO-MSE}=\frac1n\sum_i\bigl(\frac{e_i}{1-h_{ii}}\bigr)^2$ — **computable from one fit**, no $n$ refits. So "LOO is expensive" is false *specifically* for linear models.
+
+**Rubric:**
+- Smaller $K$ → more pessimistic bias (smaller surrogate training sets); LOO ~unbiased
+- LOO high variance because folds overlap $n-2$ → correlated errors → average doesn't concentrate
+- Kohavi: 10-fold better for selection (variance + compute beat LOO's low bias)
+- PRESS: LOO from one OLS fit via $e_i/(1-h_{ii})$
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** Derive the "rule of 59": how many random hyperparameter configurations you need to land in the top-5% region with 95% probability. Explain why this bound is independent of the number of hyperparameters while grid coverage is not.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Derivation.** Suppose the top-$\beta$ fraction of configurations is "good enough." A single random draw misses the good region with probability $1-\beta$; $n$ i.i.d. draws all miss with probability $(1-\beta)^n$. To hit it with probability $\ge1-\gamma$:
+
+$$(1-\beta)^n\le\gamma\;\Longrightarrow\;n\ge\frac{\log\gamma}{\log(1-\beta)}$$
+
+For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{\log0.95}=\frac{-3.00}{-0.0513}\approx58.4\Rightarrow \boxed{n=59}$ (often quoted as "60 trials").
+
+**Dimension independence.** The bound only involves $\beta$ and $\gamma$ — **not $d$**. Random search samples *every* hyperparameter at $n$ distinct values, so its coverage of the "good region" (defined by whatever few hyperparameters matter) doesn't degrade as you add irrelevant dimensions. Grid search, by contrast, probes only $v$ distinct values *per axis* at cost $v^d$; adding a dimension multiplies the cost by $v$ while still resolving each important axis at only $v$ points. So grid's coverage of the important axes is fixed at $v$ regardless of budget spent on irrelevant ones — random search adapts to the *effective* dimensionality for free (Bergstra & Bengio 2012).
+
+**Rubric:**
+- $(1-\beta)^n\le\gamma\Rightarrow n\ge\log\gamma/\log(1-\beta)$
+- Plug in $\beta=\gamma=0.05\Rightarrow n\approx59$
+- Bound has no $d$ → dimension-free
+- Grid resolves only $v$ values/axis at cost $v^d$; random gives $n$ distinct values/axis → adapts to $d_{\text{eff}}$
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** Construct a hyperparameter landscape where grid search with a generous $v^d$ budget systematically *misses* the optimum that random search finds. Quantify.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Construction.** Two hyperparameters, but only one matters: the response is $g(\theta_1,\theta_2)=h(\theta_1)$ with a sharp optimum at, say, $\theta_1^\star=0.37$, and $\theta_2$ irrelevant. Use a $5\times5$ grid ($v=5$, 25 trials) on $[0,1]^2$ with grid lines at $\{0.1,0.3,0.5,0.7,0.9\}$. The grid probes $\theta_1$ at only **5 distinct values**, none near 0.37 — so all 25 trials evaluate $h$ at the same 5 wrong $\theta_1$ values (each repeated 5× across the irrelevant $\theta_2$), and the optimum is missed regardless of budget.
+
+**Random search**, with the *same* 25 trials, draws 25 distinct $\theta_1$ values uniformly — the chance that none lands within $\pm0.05$ of $0.37$ (a 0.1-wide good region, $\beta=0.1$) is $(1-0.1)^{25}\approx0.072$, so random finds the good region with ~93% probability. The grid's 25 trials gave 5 distinct $\theta_1$ values; random's gave 25 — a 5× resolution gain on the axis that matters, *for the same budget*.
+
+**The general point:** grid wastes its budget resolving the irrelevant axis ($\theta_2$) at full resolution while under-resolving the important one. Whenever $d_{\text{eff}}<d$, this happens.
+
+**Rubric:**
+- Landscape with one relevant + one (or more) irrelevant hyperparameter, optimum off the grid lines
+- Grid probes only $v$ distinct values on the relevant axis (repeated across irrelevant) → misses
+- Random gives $n$ distinct values on every axis → finds it (quantify the hit probability)
+- Generalize: $d_{\text{eff}}<d$ ⇒ grid wastes budget on irrelevant axes
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** State the double-descent curve precisely. Explain the mechanism in the over-parameterized regime — why does effective variance *fall* as capacity grows past the interpolation threshold? Why does this not contradict the bias-variance decomposition?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The curve** (Belkin et al. 2019). As model capacity increases: test risk follows the classical U **up to the interpolation threshold** (the capacity at which the model first fits the training data exactly, roughly #params $=n$), where it **spikes**; then, as capacity grows *beyond* the threshold, test risk **descends a second time**, often below the classical U's minimum.
+
+**Mechanism.** Past the threshold there are infinitely many parameter settings that interpolate (zero training error). The training procedure's **inductive bias selects the minimum-norm interpolant** (e.g. gradient descent / the pseudoinverse picks the smallest-norm solution). As capacity grows, the *norm* of that minimum-norm interpolant **keeps decreasing** (more directions to spread the fit over, less weight per direction), which is an **implicit ridge** — so the effective variance of the estimator *falls* even though training error is pinned at zero. At the threshold itself the variance spikes because $X^\top X$ is barely invertible (smallest singular value → 0).
+
+**No contradiction.** The bias-variance decomposition $\sigma^2+\text{Bias}^2+\text{Var}$ is an *exact identity* — always true. Double descent is a statement about how the **variance term** behaves as a function of capacity: it isn't monotone increasing (as the classical story assumes); it rises to the interpolation threshold and then comes *back down* under the min-norm inductive bias. The decomposition holds; the assumed *shape* of its variance term was incomplete.
+
+**Rubric:**
+- Define interpolation threshold; U up to it, spike at it, second descent beyond
+- Min-norm interpolant + its norm decreasing with capacity = implicit ridge → variance falls
+- Variance spike at threshold ($X^\top X$ ill-conditioned)
+- Decomposition still exact; it's the variance term's *shape* (non-monotone) that classical story got wrong
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** Distinguish model-wise, epoch-wise, and sample-wise double descent (Nakkiran 2021). Define Effective Model Complexity (EMC), and construct a scenario where adding training data *increases* test error.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Effective Model Complexity (EMC).** The maximum number of training samples on which the training procedure achieves ≈ zero training error. It's a property of the *procedure* (architecture + optimizer + epochs), not just parameter count, so it unifies the three axes below.
+
+**Three flavors** — test error peaks when EMC ≈ $n$ (the interpolation threshold), and descends on either side:
+- **Model-wise:** hold data/epochs fixed, grow the model — error peaks at the size where it just interpolates, then descends.
+- **Epoch-wise:** hold model/data fixed, train longer — more epochs raise EMC, so test error can rise then fall as training proceeds (a model that's "too small to interpolate early, large enough late").
+- **Sample-wise:** hold model/epochs fixed, vary $n$ — error peaks when $n\approx$ EMC.
+
+**More data hurts (sample-wise).** Take a model whose EMC is, say, 5000. With $n=3000$ it's comfortably over-parameterized (second-descent side, low error). **Increase $n$ to 5000** — now $n\approx$ EMC, the interpolation threshold, where variance spikes → **test error increases** even though you added data. Pushing further to $n=8000$ moves it back into the under-parameterized regime and error falls again. So near the threshold, more data can transiently *raise* test error — a direct violation of "more data always helps."
+
+**Rubric:**
+- EMC = max #samples the procedure can fit to ~0 train error; property of the whole procedure
+- Model/epoch/sample-wise: all peak when EMC ≈ $n$
+- Construct: model with EMC ≈ N; raising $n$ to ≈ EMC spikes error (then falls again)
+- Conclude: more data can transiently hurt near the threshold
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9.** For successive halving with budget $B$, $n$ initial configs, and elimination factor $\eta$, describe the rungs and the $n$-vs-$r$ tradeoff. Construct a case where successive halving eliminates the eventual winner early, and say what Hyperband does about it.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Successive halving.** Start $n$ configs at a small per-config budget $r$ (e.g. few epochs / small data). Evaluate, keep the top $1/\eta$, **multiply each survivor's budget by $\eta$**, repeat. After $\log_\eta(n)$ rungs you're left with one config that has run at the full budget. The total budget is spread so each rung costs roughly the same; $\eta\in\{3,4\}$ is typical.
+
+**The $n$-vs-$r$ tradeoff.** With a fixed total budget $B$, you choose between **many configs at a small starting budget** (explore widely, but early performance is a noisy proxy for final performance) and **few configs at a large starting budget** (reliable early signal, but you explore less). There's no universally right choice — it depends on how predictive low-budget performance is of high-budget performance.
+
+**SH eliminates the winner (construction).** Take a config whose learning curve is **non-monotone / slow-starting** — e.g. a high-capacity model with a low warm-up learning rate that looks worst at 1 epoch but is best at 50. At the first rung (1 epoch) it ranks in the bottom $1-1/\eta$ and is **cut**, even though it would have won at full budget. SH assumes low-budget rank ≈ high-budget rank, which this curve violates.
+
+**Hyperband's fix.** Hyperband runs SH as an inner loop over a **grid of brackets** with different $(n,r)$ starting points — some brackets start with few configs at large budgets (which would *not* prematurely cut the slow-starter), others with many configs at small budgets. By hedging across the $n$-vs-$r$ tradeoff, Hyperband bounds the worst-case from any single SH bracket's wrong bet.
+
+**Rubric:**
+- SH: $n$ configs at budget $r$, keep top $1/\eta$, multiply survivors' budget by $\eta$, ~$\log_\eta n$ rungs
+- $n$-vs-$r$ tradeoff: explore-many-cheap vs few-reliable; depends on low-budget predictiveness
+- Construct a slow-starting / non-monotone curve that SH cuts early
+- Hyperband runs SH over multiple $(n,r)$ brackets to hedge
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10.** Write the AIC and BIC penalties. For which $n$ do they diverge? Explain the qualitative claim that AIC is asymptotically efficient but not consistent, while BIC is consistent. Which would you use to (a) pick a forecasting model, (b) recover the true sparse model?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Penalties.** $\text{AIC}=-2\hat\ell+2k$, $\text{BIC}=-2\hat\ell+k\ln n$ ($\hat\ell$ = maximized log-likelihood, $k$ = #parameters, $n$ = #observations). They penalize the *same* fit term differently: AIC's per-parameter penalty is the constant $2$; BIC's is $\ln n$. They **diverge once $\ln n>2$, i.e. $n>e^2\approx7.4$** — so for any realistic dataset BIC penalizes complexity harder, and increasingly so as $n$ grows.
+
+**Consistency vs efficiency.**
+- **BIC is consistent:** as $n\to\infty$, if the true model is among the candidates, BIC selects it with probability → 1. Its $k\ln n$ penalty grows fast enough to reject spurious extra parameters asymptotically.
+- **AIC is efficient but not consistent:** it's derived to minimize predictive risk (KL divergence to the truth) and asymptotically achieves the best prediction error *as if the true model were unknown/infinite-dimensional*, but its constant $2k$ penalty leaves a positive probability of **over-selecting** (keeping junk parameters) even as $n\to\infty$.
+
+**Which to use.** (a) **Forecasting / prediction → AIC** (it targets predictive risk; you don't care about identifying the "true" model, just predicting well). (b) **Recover the true sparse model → BIC** (consistency: it'll converge on the true parsimonious set). (In small samples, AICc — AIC with a finite-sample correction — is often preferred.)
+
+**Rubric:**
+- $\text{AIC}=-2\hat\ell+2k$, $\text{BIC}=-2\hat\ell+k\ln n$; diverge at $\ln n>2$ ($n>7.4$)
+- BIC consistent (selects true model as $n\to\infty$); AIC efficient (min prediction risk) but over-selects
+- (a) forecasting → AIC; (b) true sparse model → BIC
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11.** Design a validation protocol for a model with leakage-prone, grouped, time-ordered data that *also* needs hyperparameter tuning. State what each loop does and what the final number estimates. What's the failure if you used plain shuffled k-fold?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Protocol — nested CV with group + temporal constraints.**
+- **Outer loop (temporal):** forward-chaining splits — train on $[\,\text{start},t)$, test on $[t,t+\Delta)$, advancing $t$; never train on data later than the test window. Each outer test fold gives one honest performance number.
+- **Inner loop (also temporal + grouped), on each outer training block:** forward-chaining CV to select hyperparameters, with **all rows of any entity (user/session) kept on one side** of every split (`GroupKFold`-style) so no entity straddles train/validation.
+- After the inner loop picks $\lambda$, refit on the full outer-train block and score the untouched outer-test fold. **Report the mean ± std over outer folds** — this estimates the generalization of *the entire tune-and-fit procedure* on future, unseen entities (honoring both leakage constraints).
+
+**Failure of plain shuffled k-fold.** Two leaks at once: (1) **look-ahead** — shuffling mixes future rows into training, so the model "sees the future" and the metric is optimistic (c1.1's churn-AUC example); (2) **group leakage** — the same entity's rows land in both train and validation, so the model memorizes entity identity and the metric reflects memorization, not generalization. Plus the tuning would be selection-biased without the outer loop. The reported number would be far above live performance.
+
+**Rubric:**
+- Nested CV: outer = honest estimate, inner = tuning
+- Outer & inner both forward-chaining (temporal, no look-ahead) AND grouped (entity on one side)
+- Final number = risk of the tuned procedure on future unseen entities
+- Shuffled k-fold → look-ahead + group leakage + selection bias → optimistic metric
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12.** A candidate (scikit-learn 1.9) hits three problems: (a) `from sklearn.model_selection import HalvingRandomSearchCV` raises `ImportError`; (b) they tune with `scoring='neg_log_loss'` and are confused that `best_score_` is negative; (c) they run the search on the *whole* dataset and report `best_score_` as the generalization estimate. Identify and fix all three.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Halving import.** `HalvingGridSearchCV`/`HalvingRandomSearchCV` are **experimental**, so they aren't importable until you enable the feature flag:
+
+```python
+from sklearn.experimental import enable_halving_search_cv  # noqa: F401
+from sklearn.model_selection import HalvingRandomSearchCV
+```
+
+(The `enable_*` import must come first; this is the same pattern as other experimental sklearn estimators.)
+
+**(b) Negative score.** scikit-learn follows a **higher-is-better** convention for all scorers, so loss functions are *negated*: `neg_log_loss` returns $-\log\text{loss}$. A `best_score_` of $-0.31$ just means a log-loss of $0.31$; pick the model with the **least negative** (largest) value. Nothing is wrong.
+
+**(c) Generalization estimate.** `best_score_` is the **cross-validation score of the selected model on the data used to select it** — it's optimistically biased (selection bias / winner's curse, Q3). It is *not* an unbiased generalization estimate. Fix: hold out a separate test set that the search never touches and evaluate `best_estimator_` on it, **or** use **nested CV** (outer loop estimates the tuned procedure). Report *that* number, not `best_score_`.
+
+**Rubric:**
+- (a) `from sklearn.experimental import enable_halving_search_cv` before importing the halving estimator
+- (b) sklearn negates losses (higher-is-better); negative `neg_log_loss` is expected; pick the largest
+- (c) `best_score_` is selection-biased (not generalization); use a held-out test set or nested CV
+
+</details>
+
+</Quiz>
