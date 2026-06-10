@@ -1,0 +1,151 @@
+---
+id: c1.8
+chapter: 1
+title: Naive Bayes & probabilistic classifiers
+subtitle: Generative vs. discriminative — the same line, fit two ways
+refs: [7]
+estimatedMinutes: 60
+---
+
+## TL;DR
+
+Naive Bayes is the **generative** member of a generative–discriminative *pair* whose discriminative twin is logistic regression (c1.4). Both produce the **same log-linear decision rule** $\log\frac{p(y{=}1\mid x)}{p(y{=}0\mid x)} = w^\top x + b$ — but NB estimates it by **counting** (maximum likelihood on the joint $p(x,y)$), while logistic regression estimates it by **conditional optimization** of $p(y\mid x)$. That single difference explains everything: why NB is a linear classifier, why it trains in one pass, why it **wins on tiny data but loses asymptotically** (Ng–Jordan), and why it **classifies well yet outputs garbage probabilities** (Domingos–Pazzani) — the calibration thread from c1.3/c1.5, in its purest form.
+
+## What you'll be able to do after this lesson
+
+- Derive the Naive Bayes rule from Bayes' theorem + the conditional-independence assumption (the $O(2^d)\to O(d)$ parameter collapse), and prove its decision boundary is linear.
+- Prove that NB's decision boundary is **linear** (a hyperplane in log-space).
+- Show that equal-variance Gaussian NB *is* logistic regression in functional form — and say exactly how the two differ in *fitting*.
+- State the Ng–Jordan result: NB's $O(\log n)$ vs logistic's $O(n)$ sample complexity, and the two-regime consequence.
+- Explain why NB classifies well but its probabilities are overconfident (Domingos–Pazzani) — and fix it with calibration.
+- Derive that Laplace smoothing is MAP estimation under a Dirichlet prior (the c1.4 prior thread).
+- Pick the right NB variant (Gaussian / Multinomial / Bernoulli / Complement) and avoid the zero-count and `force_alpha` traps.
+
+## Why a "weak baseline" deserves a full lesson
+
+> **Goal — use the simplest generative classifier to nail two ideas that recur everywhere: the generative-vs-discriminative tradeoff, and the gap between classifying and estimating probabilities.** Naive Bayes is dismissed as a toy, but it's the cleanest case study in the course: it's MLE of a joint model (c1.2's "loss = −log p"), it's the generative twin of logistic regression (c1.4), and it's the canonical example of "great AUC, terrible calibration" (c1.3/c1.5). Interviewers love it precisely because the obvious criticism — "the independence assumption is false" — is a *trap*.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **Prior / likelihood / posterior** — $p(y)$ / $p(x\mid y)$ / $p(y\mid x)$; Bayes' rule ties them: posterior $\propto$ likelihood $\times$ prior.
+> - **Generative model** — models the full joint $p(x,y)$ (can score how likely $x$ itself is). **Discriminative model** — models only $p(y\mid x)$ (the boundary).
+> - **Conditional independence** — features are independent *given the class*: $p(x\mid y)=\prod_j p(x_j\mid y)$. (Not marginal independence.)
+> - **MLE / MAP** — maximum likelihood (counts) vs maximum a posteriori (counts + a prior = smoothing).
+> - **Calibration** — whether a predicted "0.9" actually happens 90% of the time (c1.3).
+
+## Part 1 — Bayes' rule and the "naive" assumption
+
+> **Goal — turn classification into counting by assuming features are independent within each class.**
+
+The Bayes-optimal classifier picks $\hat y(x)=\arg\max_y p(y\mid x)=\arg\max_y \underbrace{p(x\mid y)}_{\text{likelihood}}\,\underbrace{p(y)}_{\text{prior}}$ (the evidence $p(x)$ is constant in $y$). Its error is the irreducible **Bayes error** $R^\star=\mathbb{E}_x[1-\max_y p(y\mid x)]$ — the floor no classifier beats.
+
+The catch: $p(x\mid y)$ over $d$ features is a joint distribution with $O(2^d)$ parameters (binary case) — unestimable. **The naive assumption** is conditional independence *given the class*:
+
+$$p(x\mid y)=\prod_{j=1}^d p(x_j\mid y)\quad\Longrightarrow\quad \hat y=\arg\max_y\;p(y)\prod_{j=1}^d p(x_j\mid y)$$
+
+This collapses the parameter count to $O(d)$ per class — each $p(x_j\mid y)$ is a one-dimensional estimate. Work in **log-space** (a product of thousands of small probabilities underflows to 0; the log-sum is a manageable negative number), recovering normalized posteriors via log-sum-exp (c1.3's numerical-stability point, again):
+
+$$\log p(y\mid x)=\log p(y)+\sum_{j=1}^d \log p(x_j\mid y)-\log p(x)$$
+
+## Part 2 — Why the boundary is linear
+
+> **Goal — show that "counting" produces exactly a logistic-regression-shaped hyperplane.**
+
+Take binary features $x_j\in\{0,1\}$ with $\theta_{cj}=p(x_j{=}1\mid y{=}c)$, so $\log p(x_j\mid c)=x_j\log\theta_{cj}+(1-x_j)\log(1-\theta_{cj})$ — **affine in $x_j$**. Summing over $j$ and subtracting the $y{=}0$ case gives the log-odds:
+
+$$\log\frac{p(1\mid x)}{p(0\mid x)}=\underbrace{\Bigl[\log\tfrac{p(1)}{p(0)}+\sum_j\log\tfrac{1-\theta_{1j}}{1-\theta_{0j}}\Bigr]}_{b}+\sum_j x_j\underbrace{\log\frac{\theta_{1j}(1-\theta_{0j})}{\theta_{0j}(1-\theta_{1j})}}_{w_j}=w^\top x+b$$
+
+A hyperplane — **NB is a linear classifier**, of the same log-linear family as logistic regression. The variants differ only in the per-feature likelihood $p(x_j\mid y)$:
+
+- **Gaussian NB** — continuous $x_j\sim\mathcal{N}(\mu_{cj},\sigma_{cj}^2)$.
+- **Multinomial NB** — word counts; score $\log p(c)+\sum_j x_j\log\theta_{cj}$ (text).
+- **Bernoulli NB** — word *presence*; uniquely **penalizes non-occurrence** via the $(1-\theta_{cj})(1-x_j)$ term.
+- **Complement NB** (Rennie 2003) — estimates from each class's *complement*; fixes Multinomial NB's bias on **imbalanced** text.
+
+## Part 3 — Smoothing is a prior, not a hack
+
+> **Goal — stop a single unseen feature from vetoing an entire class, and recognize the fix as Bayesian shrinkage.**
+
+If a word never appears in class $c$ in training, the MLE $\hat\theta_{cj}=0$, so the whole product $\prod_j p(x_j\mid c)=0$ — one unseen feature sets the class probability to **zero regardless of overwhelming evidence elsewhere** ($\log 0=-\infty$, an absorbing state). **Additive smoothing** adds a pseudo-count: Multinomial NB uses $\hat\theta_{cj}=\frac{N_{cj}+\alpha}{N_c+\alpha d}$ ($\alpha=1$ = Laplace, $0<\alpha<1$ = Lidstone).
+
+This isn't arbitrary. For a multinomial with a symmetric **Dirichlet$(\beta)$** prior, the posterior is Dirichlet$(N_j+\beta)$, whose mode is $\frac{N_j+\beta-1}{N+d(\beta-1)}$ — set $\alpha=\beta-1$ and you recover Laplace smoothing exactly. So **MLE = raw counts; MAP under a Dirichlet prior = smoothed counts** — the identical move to c1.4 (ridge/lasso = Gaussian/Laplace priors *on coefficients*; here a Dirichlet prior *on probabilities*). The penalty is always a negative-log-prior, and smoothing shrinks rare-event frequencies toward uniform — the same **James–Stein** logic from c1.4.
+
+## Part 4 — Generative vs. discriminative: the Ng–Jordan pair
+
+> **Goal — see NB and logistic regression as the same model fit two ways, and know which wins when.**
+
+**They share a functional form.** Assume Gaussian NB with variance *shared across classes*, $p(x_j\mid c)=\mathcal{N}(\mu_{cj},\sigma_j^2)$. In the log-odds the quadratic $x_j^2$ terms **cancel** (shared $\sigma_j^2$), leaving
+
+$$\log\frac{p(1\mid x)}{p(0\mid x)}=b+\sum_j\frac{\mu_{1j}-\mu_{0j}}{\sigma_j^2}\,x_j=w^\top x+b\;\Rightarrow\;p(1\mid x)=\sigma(w^\top x+b)$$
+
+— the **logistic form**. (Drop the shared-variance assumption and the $x_j^2$ terms survive → a quadratic boundary = QDA.) So GNB and logistic regression assume the same $p(y\mid x)$ family; they differ only in *how they fit it*: **NB maximizes $\sum_i\log p(x_i,y_i)$** (generative, by counting moments), **logistic maximizes $\sum_i\log p(y_i\mid x_i)$** (discriminative, by gradient descent).
+
+**Which wins (Ng & Jordan 2002).** Logistic has **lower asymptotic error** (it fits $p(y\mid x)$ directly, so it isn't biased by NB's false independence assumption). But NB **converges far faster**: its $O(d)$ parameters are independent univariate estimates each converging at $O(1/\sqrt m)$, so $m=O(\log d)$ examples suffice to approach its (worse) plateau, versus logistic's $m=O(d)$. **Two regimes:** with *few* examples NB reaches its plateau fast and wins; with *many*, logistic overtakes. "Generative is obsolete" is wrong — it's the right tool when labels are scarce relative to dimension.
+
+## Part 5 — Great classifier, terrible probabilities
+
+> **Goal — internalize the course's sharpest calibration lesson: a model can rank perfectly and still lie about probabilities.**
+
+Why does a model built on a *false* assumption work at all? **Domingos & Pazzani (1997):** the assumption damages the *probabilities*, not the *argmax*. Correlated features make NB **double-count evidence** — if $x_2\approx x_1$, NB multiplies their likelihood ratios as if independent, squaring the true evidence and pushing the posterior toward 0 or 1. But the decision only needs the (biased) posterior to stay on the correct side of $\tfrac12$. Their exact result: the region where NB is *classification*-optimal is vastly larger than where it's *probability*-optimal.
+
+So NB's `predict_proba` outputs are **systematically overconfident** — the canonical "high AUC, bad ECE/Brier" case (c1.3, c1.5), and unlike the deep-net overconfidence of Guo 2017 this comes from the model structure itself. **Treat NB scores as rankings, not probabilities**; if you threshold on a probability or feed it into expected-value math, **calibrate first** (Platt/sigmoid or isotonic via `CalibratedClassifierCV`).
+
+> **Stop and think.** You duplicate a feature ($x_2 := x_1$). What happens to NB's log-odds, the true evidence, and the predicted probability — and does the classification change? *Hint: the feature's $w_j x_j$ contribution is counted twice, doubling its log-odds while the true information is unchanged → the posterior is pushed toward 0/1 (overconfident). The argmax usually survives (still on the same side of ½), so accuracy/AUC are fine while calibration degrades — exactly Domingos–Pazzani.*
+
+## The stats / quant-research lens
+
+- **Generative vs discriminative, precisely:** NB models the full joint $p(x,y)$ — so it can sample $x$, flag novelty via $p(x)$, and **handle missing features by marginalizing them out** (a real advantage); logistic spends no capacity on $p(x)$ (which you don't need to classify). Same hypothesis class, different objective.
+- **Ng–Jordan is bias-variance at the estimator-class level:** the generative model imposes strong structure → higher bias (worse asymptote) but lower variance (fast convergence); discriminative imposes less → lower bias, higher variance. The quant framing: with a *short backtest / few labeled events*, the high-bias generative estimator can dominate.
+- **Smoothing = shrinkage = MAP** (the c1.4/James–Stein thread): smoothed counts dominate raw frequencies when many parameters are estimated from sparse data.
+
+## Tradeoff matrix
+
+| Variant | Feature model | Use for | Note |
+|---|---|---|---|
+| Gaussian NB | continuous, per-class $\mathcal{N}$ | numeric features | `var_smoothing`, not Laplace |
+| Multinomial NB | counts | text (bag-of-words) | the text default; needs $\ge 0$ features |
+| Bernoulli NB | binary presence | short text / presence features | penalizes word *absence* |
+| Complement NB | counts | **imbalanced** text | fixes majority-class weight bias |
+| Logistic (c1.4) | — (discriminative) | lots of data; want calibration | the discriminative twin |
+
+## Worked decision walk-throughs
+
+**Scenario A: spam filter, a few hundred labeled emails.** **Multinomial NB.** Tiny data, high-dimensional bag-of-words — exactly the regime where NB's fast convergence beats logistic (Ng–Jordan), and it trains in one pass.
+
+**Scenario B: same task, 10M labeled emails.** **Logistic regression** (or a linear model) — with abundant data its lower asymptotic error wins; NB's independence bias now costs you.
+
+**Scenario C: you need the fraud probability for an expected-loss threshold ($p \times \$$).** Don't trust NB's `predict_proba`. **Calibrate** (`CalibratedClassifierCV`, isotonic if you have data, sigmoid if not), then threshold — or use a discriminative model. Verify with a reliability diagram (c1.3).
+
+**Scenario D: imbalanced topic classification.** **Complement NB** — it corrects the majority-class weight bias that skews standard Multinomial NB.
+
+## Production failure modes
+
+1. **Zero counts with no smoothing.** One unseen feature → class probability 0. Keep $\alpha>0$.
+2. **Trusting NB probabilities.** Overconfident by construction; calibrate before any probability-thresholded or EV decision.
+3. **Correlated features.** Duplicated/collinear features double-count evidence → worse calibration (and can eventually flip the argmax). De-duplicate or use a discriminative model.
+4. **Negative features into Multinomial/Complement NB.** They require non-negative inputs (counts/TF-IDF) and raise otherwise.
+5. **The `force_alpha` trap.** In scikit-learn ≥1.4 `force_alpha=True` is the default; to get *unsmoothed* MLE you must set `alpha=0` **and** `force_alpha=True` — and you'll then hit the zero-count problem. (Older versions silently floored tiny `alpha` to `1e-10`.)
+
+## Interview gotchas
+
+- **"The independence assumption is false, so NB is bad."** Misaimed — Domingos–Pazzani: it hurts *probabilities*, not the *argmax*. NB is a strong classifier and a bad probability estimator.
+- **"Discriminative always beats generative."** No — Ng–Jordan: NB wins in the low-data regime ($O(\log d)$ vs $O(d)$); logistic wins asymptotically.
+- **"NB gives probabilities."** Technically yes, practically overconfident — calibrate.
+- **"Derive NB's decision boundary."** Linear in log-space; be ready to show the Bernoulli $w_j, b$.
+- **"Why does Gaussian NB relate to logistic regression?"** Equal-variance GNB *is* logistic in form; they differ in objective (joint vs conditional likelihood). Unequal variance → QDA.
+- **"What is Laplace smoothing, really?"** MAP under a Dirichlet prior — shrinkage, the c1.4 prior thread.
+
+## Take the quiz
+
+Twelve conceptually difficult questions — the linearity proof, the GNB↔logistic derivation, Ng–Jordan sample complexity, the double-counting calibration mechanism, and smoothing-as-MAP. **[Take the quiz →](/c/c1/c1.8/quiz)**
+
+## Cited references
+
+- Ref 7 — *A Tour of Machine Learning Algorithms* (Machine Learning Mastery) — `c1/references/07_traditional_ml_algos.html` (taxonomy only)
+
+External works (the real sources for the math):
+- Ng, A. Y., Jordan, M. I. 2002. "On Discriminative vs. Generative Classifiers: A comparison of logistic regression and naive Bayes." *NeurIPS.* The generative–discriminative pair; $O(\log n)$ vs $O(n)$ sample complexity; the two regimes.
+- Domingos, P., Pazzani, M. 1997. "On the Optimality of the Simple Bayesian Classifier under Zero-One Loss." *Machine Learning* 29. Classifies well despite violated independence; probabilities don't.
+- Rennie, J. et al. 2003. "Tackling the Poor Assumptions of Naive Bayes Text Classifiers." *ICML.* Complement NB.
+- Mitchell, T. *Generative and Discriminative Classifiers: Naive Bayes and Logistic Regression* — the cleanest GNB→logistic derivation.
+- Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., §6.6 and §4.4.
