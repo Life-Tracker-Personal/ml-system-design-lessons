@@ -17,7 +17,7 @@ Clustering looks like a grab-bag of algorithms, but they're all **a probabilisti
 - Derive the GMM E/M steps and prove EM never decreases the likelihood (the ELBO/Jensen argument).
 - Show **k-means is the zero-variance hard-EM limit of a GMM**, and read off all three k-means assumptions from it.
 - Explain why $J(k)$ is monotone in $k$ — so you must pick $k$ with silhouette / the gap statistic / BIC, not inertia.
-- Say when DBSCAN/HDBSCAN beats k-means, and what each linkage does.
+- Say when DBSCAN/HDBSCAN beats k-means, and what density-based clustering buys over centroid-based.
 - Explain *mechanistically* why t-SNE/UMAP axes, cluster sizes, and distances are meaningless — and how low perplexity manufactures fake clusters.
 
 ## Why unsupervised structure is its own skill
@@ -73,12 +73,12 @@ A GMM models density as $p(x)=\sum_{j=1}^k \pi_j\,\mathcal{N}(x\mid\mu_j,\Sigma_
 
 > **Goal — visualize high-dimensional structure by preserving *neighborhoods* — and learn exactly which features of the picture are real.**
 
-**t-SNE** (van der Maaten & Hinton 2008) converts pairwise distances into neighbor probabilities $p_{ij}$ (Gaussian, with a per-point bandwidth set by **perplexity** = effective neighbor count, typically 5–50), builds low-dim affinities $q_{ij}$ from a **Student-t (Cauchy)** kernel, and minimizes $\text{KL}(P\,\|\,Q)$. The heavy t-tail fixes the **crowding problem** (in 2-D there isn't room to honor all moderate high-dim distances), but it also means *a given affinity maps to no fixed display distance.* **UMAP** (McInnes et al. 2018) builds a fuzzy-neighbor graph and minimizes a binary cross-entropy with both attractive *and repulsive* terms — the repulsion (which t-SNE's KL lacks) is why UMAP is faster and preserves more global structure.
+**t-SNE** (van der Maaten & Hinton 2008) converts pairwise distances into neighbor probabilities $p_{ij}$ (Gaussian, with a per-point bandwidth set by **perplexity** = effective neighbor count, typically 5–50), builds low-dim affinities $q_{ij}$ from a **Student-t (Cauchy)** kernel, and minimizes $\text{KL}(P\,\|\,Q)$. The heavy t-tail fixes the **crowding problem** (in 2-D there isn't room to honor all moderate high-dim distances), but it also means *a given affinity maps to no fixed display distance.* **UMAP** (McInnes et al. 2018) builds a fuzzy-neighbor graph and minimizes a fuzzy-set binary cross-entropy, optimized with **negative sampling** (the real source of its speed). A common myth says t-SNE "lacks repulsion" and that UMAP's repulsion buys it global structure — but *both* objectives' gradients have attractive *and* repulsive terms (Böhm et al. 2022), and UMAP's apparent global-structure edge is largely an **initialization** artifact: with matched PCA/spectral init the two are comparable (Kobak & Linderman 2021). That's exactly why PCA-init is now the t-SNE default.
 
 **What you must NOT read off these plots** (Wattenberg et al., *Distill* 2016):
 - **Axes are meaningless** — the objective is invariant to rotation/reflection/translation/scale of the output.
 - **Cluster sizes are meaningless** — the per-point bandwidth normalizes local density away, so a dense and a sparse true cluster can render the same size.
-- **Inter-cluster distances are meaningless** — the t-tail / BCE repulsion mean gaps aren't metric.
+- **Inter-cluster distances are meaningless** — the heavy-tailed (Cauchy) low-dim kernel and the neighbor-only objective mean gaps aren't metric.
 - **Low perplexity manufactures clusters** — t-SNE on pure Gaussian noise shows "clumps" at small perplexity.
 
 So treat t-SNE/UMAP as **hypothesis-generating local-neighborhood views**: sweep perplexity/`n_neighbors`, set a seed, and verify any "cluster" or "gap" against the original-space data or a metric method. This is the opposite of **PCA** (c1.4), whose axes are interpretable eigenvectors, whose distances are a faithful variance-preserving approximation, and which is deterministic and invertible.
@@ -141,6 +141,8 @@ External works (the real sources for the math):
 - Ester, M. et al. 1996. "A Density-Based Algorithm for Discovering Clusters…" *KDD.* (DBSCAN.)
 - van der Maaten, L., Hinton, G. 2008. "Visualizing Data using t-SNE." *JMLR.*
 - McInnes, L., Healy, J., Melville, J. 2018. "UMAP." *arXiv:1802.03426.*
+- Kobak, D., Linderman, G. 2021. "Initialization is critical for preserving global data structure in both t-SNE and UMAP." *Nature Biotechnology.* — UMAP's global-structure edge is an initialization artifact.
+- Böhm, J., Berens, P., Kobak, D. 2022. "Attraction-Repulsion Spectrum in Neighbor Embeddings." *JMLR.* — both t-SNE and UMAP have attraction *and* repulsion.
 - Wattenberg, M., Viégas, F., Johnson, I. 2016. "How to Use t-SNE Effectively." *Distill.*
 - Rousseeuw 1987 (silhouette); Tibshirani, Walther, Hastie 2001 (gap statistic); Hubert & Arabie 1985 (ARI).
 - Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., Ch. 14.

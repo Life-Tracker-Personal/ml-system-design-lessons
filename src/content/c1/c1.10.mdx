@@ -18,7 +18,7 @@ estimatedMinutes: 60
 - Resolve the c1.1 "95%-accuracy trap" precisely.
 - State Davis–Goadrich dominance and choose `average_precision_score` over `auc(recall, precision)`.
 - Separate *ranking* from *calibration* and predict what recalibration does to AUC.
-- Recognize non-monotone signal at AUC ≈ 0.5, flip at AUC < 0.5, and set a cost-optimal threshold.
+- Recognize non-monotone signal at AUC ≈ 0.5, flip at AUC below 0.5, and set a cost-optimal threshold.
 
 ## Why metrics deserve their own lesson
 
@@ -81,7 +81,7 @@ Hold the scorer fixed (TPR, FPR fixed) and change only $\pi$ → precision and P
 
 **The imbalanced trap (the c1.1 "95%-accuracy trap," resolved).** At $\pi=1\%$ over 100k cases (1k positive, 99k negative), a TPR-0.9/FPR-0.1 model flags $0.9(1000)+0.1(99000)=900+9900=10{,}800$ cases — only 900 real. The tiny 0.1 FPR, multiplied by the 99× larger negative pool, **floods** the flagged set. ROC-AUC ≈ 0.9 and the system is still useless. **So for imbalanced problems, report PR-AUC** (Saito & Rehmsmeier 2015); the no-skill PR baseline is the prevalence $\pi$, not 0.5. (Davis & Goadrich 2006: a curve that *dominates* in ROC space dominates in PR space — but a larger ROC-*area* does **not** imply a larger PR-area, and crossing curves have no dominance.)
 
-> **Stop and think.** Your model has AUC = 0.5. Does it mean "no signal"? *Hint: no — it means no monotone-rank signal. If positives concentrate at both score extremes and negatives in the middle, AUC ≈ 0.5 while the feature is strongly (non-monotonically) predictive — visible as a non-monotone ROC or a U-shaped reliability diagram. And AUC < 0.5 means the score is anti-correlated → flip its sign to get $1-\text{AUC}>0.5$.*
+> **Stop and think.** Your model has AUC = 0.5. Does it mean "no signal"? *Hint: no — it means no monotone-rank signal. If positives concentrate at both score extremes and negatives in the middle, AUC ≈ 0.5 while the feature is strongly (non-monotonically) predictive — visible as a non-monotone ROC or a U-shaped reliability diagram. And AUC below 0.5 means the score is anti-correlated → flip its sign to get $1-\text{AUC}>0.5$.*
 
 ## Part 4 — Ranking is not calibration
 
@@ -116,7 +116,7 @@ Because AUC depends only on score *order* (Part 2), apply any strictly increasin
 
 ## Edge cases & gotchas
 
-- **AUC < 0.5** → the score is anti-correlated; **flip the sign** ($1-\text{AUC}$).
+- **AUC below 0.5** → the score is anti-correlated; **flip the sign** ($1-\text{AUC}$).
 - **Partial AUC** (`max_fpr`) when only the low-FPR region matters (you can review only the top 1%); sklearn returns it McClish-standardized (a random model still scores 0.5 in that region).
 - **Ties in scores** → the correct AUC adds $\tfrac12$ per tie (the trapezoidal/strict-inequality forms disagree on ties).
 - **Multiclass AUC** → one-vs-rest (`'ovr'`, *sensitive* to imbalance) vs one-vs-one (`'ovo'` Hand–Till, *insensitive* under macro-averaging).

@@ -19,6 +19,7 @@ Model selection is **an estimation problem about an estimator.** Test error is a
 - Prove that selecting the hyperparameter that minimizes CV gives an optimistic estimate — and that nested CV fixes it.
 - Explain why random search beats grid search in high dimensions (the "rule of 59" / effective dimensionality).
 - Read a learning curve to decide whether more data, more capacity, or more regularization will help.
+- Contrast AIC vs BIC (efficiency vs consistency) and pick one for forecasting vs recovering the true model.
 
 ## Why "how do I validate?" is the deepest question in the chapter
 
@@ -38,7 +39,7 @@ Model selection is **an estimation problem about an estimator.** Test error is a
 
 Data model: $y=f(x)+\varepsilon$, $\mathbb{E}[\varepsilon]=0$, $\text{Var}(\varepsilon)=\sigma^2$, $\varepsilon\perp x$. The estimator $\hat f=\hat f_{\mathcal D}$ depends on a random training set $\mathcal D$; write $\bar f(x)=\mathbb{E}_{\mathcal D}[\hat f(x)]$. At a fixed test point $x$:
 
-$$\mathbb{E}_{\mathcal D,\varepsilon}\bigl[(y-\hat f(x))^2\bigr]=\mathbb{E}\bigl[(\varepsilon+(f(x)-\hat f(x)))^2\bigr]=\underbrace{\mathbb{E}[\varepsilon^2]}_{\sigma^2}+2\underbrace{\mathbb{E}[\varepsilon]}_{0}\,\mathbb{E}[\cdots]+\mathbb{E}_{\mathcal D}[(f(x)-\hat f(x))^2]$$
+$$\mathbb{E}_{\mathcal D,\varepsilon}\bigl[(y-\hat f(x))^2\bigr]=\mathbb{E}\bigl[(\varepsilon+(f(x)-\hat f(x)))^2\bigr]=\underbrace{\mathbb{E}[\varepsilon^2]}_{\sigma^2}+2\underbrace{\mathbb{E}[\varepsilon]}_{0}\,\mathbb{E}[f(x)-\hat f(x)]+\mathbb{E}_{\mathcal D}[(f(x)-\hat f(x))^2]$$
 
 The cross term dies because $\varepsilon\perp\mathcal D$ and $\mathbb{E}[\varepsilon]=0$ — *that's* where zero-mean independent noise earns its keep. Now split the last term with $\pm\bar f(x)$:
 
@@ -84,7 +85,7 @@ Beyond random: **Bayesian optimization** (fit a surrogate over tried configs, pr
 
 > **Goal — diagnose *which* term dominates, and select without a held-out set when you must.**
 
-A **learning curve** (error vs training-set size) diagnoses the regime: **high bias** = train and val errors converge to a *high* floor (more data won't help → add capacity); **high variance** = a persistent train-val *gap* (more data or regularization helps). **Information criteria** select without held-out data via penalized likelihood: $\text{AIC}=-2\hat\ell+2k$ and $\text{BIC}=-2\hat\ell+k\ln n$. BIC's heavier penalty ($\ln n>2$ for $n>7$) makes it **consistent** (recovers the true model as $n\to\infty$ if it's in the candidate set); AIC is **efficient** (minimizes prediction risk) but can over-select.
+A **learning curve** (error vs training-set size) diagnoses the regime: **high bias** = train and val errors converge to a *high* floor (more data won't help → add capacity); **high variance** = a persistent train-val *gap* (more data or regularization helps). **Information criteria** select without held-out data via penalized likelihood: $\text{AIC}=-2\hat\ell+2k$ and $\text{BIC}=-2\hat\ell+k\ln n$. BIC's heavier penalty ($\ln n>2$ for $n>7$) makes it **consistent** (recovers the true model as $n\to\infty$ if it's in the candidate set; the AIC/BIC crossover is at $\ln n>2$, i.e. $n>e^2\approx7.4$); AIC is **efficient** (minimizes prediction risk) but can over-select.
 
 ## The stats / quant-research lens
 
@@ -146,8 +147,8 @@ Twelve conceptually difficult questions — the bias-variance derivation, the CV
 
 External works (the real sources for the math):
 - Stone, M. 1974. "Cross-Validatory Choice and Assessment of Statistical Predictions." *JRSS B.*
-- Kohavi, R. 1995. "A Study of Cross-Validation and Bootstrap…" *IJCAI.* (10-fold stratified > LOO for selection.)
-- Bergstra, J., Bengio, Y. 2012. "Random Search for Hyper-Parameter Optimization." *JMLR.* (Random > grid; rule of 59.)
+- Kohavi, R. 1995. "A Study of Cross-Validation and Bootstrap…" *IJCAI.* (10-fold stratified beats LOO for selection.)
+- Bergstra, J., Bengio, Y. 2012. "Random Search for Hyper-Parameter Optimization." *JMLR.* (Random beats grid; rule of 59.)
 - Li, L. et al. 2017. "Hyperband." *JMLR* (successive halving from Jamieson & Talwalkar 2016).
 - Belkin, M. et al. 2019. "Reconciling modern ML practice and the classical bias–variance trade-off." *PNAS.* (Double descent.)
 - Nakkiran, P. et al. 2021. "Deep Double Descent." *J. Stat. Mech.*
