@@ -1,0 +1,146 @@
+---
+id: c1.7
+chapter: 1
+title: Unsupervised learning
+subtitle: Clustering and nonlinear embeddings — every method is a generative model
+refs: [7]
+estimatedMinutes: 70
+---
+
+## TL;DR
+
+Clustering looks like a grab-bag of algorithms, but they're all **a probabilistic generative model plus a hardening choice** — and the keystone fact is that **k-means is the hard-EM, infinite-precision, isotropic-shared-covariance limit of a Gaussian mixture**. Take that model seriously and every assumption, failure mode, and "how do I pick $k$?" falls out. For visualization, the dual reframe: **t-SNE and UMAP optimize a divergence between neighbor-*probability* distributions, not a metric** — so their axes, cluster sizes, and inter-cluster distances are optimization artifacts, not data. (Linear, variance-preserving PCA — with interpretable axes and faithful distances — is in c1.4; this lesson is clustering + the nonlinear embeddings.)
+
+## What you'll be able to do after this lesson
+
+- Write the k-means objective, prove Lloyd's algorithm converges (to a *local* min), and explain why k-means++ and `n_init` exist.
+- Derive the GMM E/M steps and prove EM never decreases the likelihood (the ELBO/Jensen argument).
+- Show **k-means is the zero-variance hard-EM limit of a GMM**, and read off all three k-means assumptions from it.
+- Explain why $J(k)$ is monotone in $k$ — so you must pick $k$ with silhouette / the gap statistic / BIC, not inertia.
+- Say when DBSCAN/HDBSCAN beats k-means, and what each linkage does.
+- Explain *mechanistically* why t-SNE/UMAP axes, cluster sizes, and distances are meaningless — and how low perplexity manufactures fake clusters.
+
+## Why unsupervised structure is its own skill
+
+> **Goal — find structure without labels, and (the interview point) understand the *assumptions* each method smuggles in.** Clustering and embeddings are where you reason about data with no ground truth, so the danger is reading structure that isn't there. The high-value insight is that k-means isn't assumption-free — it's a specific GMM in disguise — and that a t-SNE plot's most eye-catching features (cluster sizes, gaps) are exactly the ones you must *not* trust.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **WCSS / inertia** — within-cluster sum of squared distances to centroids; k-means minimizes it.
+> - **Latent variable** — an unobserved label (which cluster a point came from); EM infers a distribution over it.
+> - **Responsibility** $\gamma_{ij}$ — the posterior probability that point $i$ belongs to component $j$ (a soft assignment).
+> - **Perplexity** — t-SNE's "effective number of neighbors" per point ($2^{H}$ of its neighbor distribution).
+> - **Embedding** — a low-dimensional representation that aims to preserve *neighborhoods* (t-SNE/UMAP), as opposed to *variance* (PCA, c1.4).
+
+## Part 1 — k-means
+
+> **Goal — minimize within-cluster variance by alternating assign/update, and know exactly what that buys and assumes.**
+
+k-means minimizes the **within-cluster sum of squares** over a partition $\{C_1,\dots,C_k\}$ with centroids $\mu_j$:
+
+$$J=\sum_{j=1}^{k}\sum_{x_i\in C_j}\lVert x_i-\mu_j\rVert_2^2$$
+
+**Lloyd's algorithm** alternates: **assign** each point to its nearest centroid (a Voronoi partition), then **update** each centroid to its cluster's mean. Each step weakly decreases $J$ (assign minimizes over labels with $\mu$ fixed; update minimizes over $\mu$ with labels fixed, and $\partial_{\mu_j}\sum\lVert x-\mu_j\rVert^2=0\Rightarrow\mu_j=\overline{C_j}$), $J\ge0$, and there are finitely many partitions — so it terminates. **But at a *local* minimum:** it's coordinate descent, and different seeds give different answers. (Under $L_1$ the optimal center would be the *median* — k-medians — the same loss⇒statistic point as c1.2.)
+
+**k-means++** (Arthur & Vassilvitskii 2007) seeds centers with probability $\propto D(x)^2$ (distance to the nearest chosen center), guaranteeing $\mathbb{E}[J]\le 8(\ln k+2)\,J_{\text{OPT}}$ — $O(\log k)$-competitive *before* a single Lloyd step. That's why you also run multiple restarts (`n_init`).
+
+**Picking $k$ is not optimization.** $J(k)$ is **monotonically non-increasing** ($J(n)=0$) — a finer partition can always replicate a coarser one and split — so minimizing inertia trivially returns $k=n$ (the exact analogue of $R^2$ rising with features, c1.4). You need a complexity-aware selector: the **elbow** (heuristic kink), the **silhouette** $s(i)=\frac{b(i)-a(i)}{\max(a(i),b(i))}\in[-1,1]$ (peak of the mean), or the **gap statistic** (Tibshirani 2001 — the only one with a principled null: compare $\log W_k$ to its expectation under uniform reference data).
+
+## Part 2 — Gaussian mixtures and EM
+
+> **Goal — replace hard assignments with soft, probabilistic ones, and reveal k-means as a special case.**
+
+A GMM models density as $p(x)=\sum_{j=1}^k \pi_j\,\mathcal{N}(x\mid\mu_j,\Sigma_j)$. **EM** (Dempster, Laird & Rubin 1977) alternates:
+
+- **E-step (responsibilities):** $\gamma_{ij}=\dfrac{\pi_j\,\mathcal{N}(x_i\mid\mu_j,\Sigma_j)}{\sum_\ell \pi_\ell\,\mathcal{N}(x_i\mid\mu_\ell,\Sigma_\ell)}$.
+- **M-step (weighted MLE):** $N_j=\sum_i\gamma_{ij}$; $\pi_j=N_j/n$; $\mu_j=\frac1{N_j}\sum_i\gamma_{ij}x_i$; $\Sigma_j=\frac1{N_j}\sum_i\gamma_{ij}(x_i-\mu_j)(x_i-\mu_j)^\top$.
+
+**EM never decreases the likelihood.** For any $q_i$, Jensen gives $\log p(x_i)\ge\sum_z q_i(z)\log\frac{p(x_i,z)}{q_i(z)}=:\text{ELBO}$, with gap exactly $\text{KL}(q_i\,\|\,p(z\mid x_i))$. The E-step sets $q_i=p(z\mid x_i)$ (KL $=0$, ELBO touches $\log p$); the M-step raises the ELBO. So $\log$-likelihood is monotone non-decreasing — converging to a *local* max (the likelihood is non-concave, and is even **unbounded**: a component collapsing onto one point sends $\sigma\to0$, likelihood $\to\infty$ — hence `reg_covar`).
+
+**k-means is hard-EM of a GMM.** Fix $\Sigma_j=\varepsilon I$, equal $\pi_j$. The responsibility $\gamma_{ij}=\frac{\exp(-\lVert x_i-\mu_j\rVert^2/2\varepsilon)}{\sum_\ell\exp(-\lVert x_i-\mu_\ell\rVert^2/2\varepsilon)}$ is a softmax with temperature $\varepsilon$; as $\varepsilon\to0^+$ it collapses to a **hard indicator** of the nearest centroid. The E-step becomes the assign step, the M-step becomes the centroid mean, and $-2\varepsilon\log p\to$ WCSS. **This single fact names all three k-means assumptions:** $\Sigma_j=\varepsilon I$ ⇒ *isotropic (spherical)* clusters; *shared* $\varepsilon$ ⇒ *equal spread*; equal $\pi_j$ + squared distance ⇒ biased toward *equal-size* clusters. A full-covariance GMM relaxes all three (elliptical, unequal, soft) — and, being a likelihood model, it can pick $k$ by **BIC/AIC**, which bare k-means cannot.
+
+> **Stop and think.** Run k-means with the *correct* $k=2$ on two concentric rings. Why does it fail even with perfect initialization, and which methods succeed? *Hint: k-means partitions space by straight-line perpendicular bisectors (a Voronoi tessellation), so it can only carve convex regions — it will slice each ring in half rather than separate inner from outer. It's the spherical-cluster assumption (from the GMM limit) breaking. DBSCAN (density-connected) or spectral clustering (which clusters in a graph/affinity space) recover the rings.*
+
+## Part 3 — Density-based and hierarchical clustering
+
+> **Goal — cluster by connectivity and density when "nearest centroid" is the wrong model.**
+
+**DBSCAN** (Ester et al. 1996) grows clusters from *core* points (≥ `minPts` neighbors within $\varepsilon$) via density-reachability, finds **arbitrary shapes**, needs **no preset $k$**, and labels low-density points as **noise** (`-1`). Its weakness is a single global $\varepsilon$: clusters of very different density can't both be captured. **HDBSCAN** (in sklearn since 1.3) varies $\varepsilon$ and extracts the most *stable* clusters — prefer it over hand-tuning DBSCAN's `eps`.
+
+**Agglomerative (hierarchical)** clustering merges the closest clusters bottom-up, producing a dendrogram you can cut at any height. Linkage choice matters: **single** (min distance — chains, bridges noise), **complete** (max — compact, outlier-sensitive), **average**, and **Ward** (merge that minimizes the increase in WCSS — the agglomerative analogue of k-means, requires Euclidean; sklearn's default).
+
+## Part 4 — Nonlinear embeddings: t-SNE and UMAP
+
+> **Goal — visualize high-dimensional structure by preserving *neighborhoods* — and learn exactly which features of the picture are real.**
+
+**t-SNE** (van der Maaten & Hinton 2008) converts pairwise distances into neighbor probabilities $p_{ij}$ (Gaussian, with a per-point bandwidth set by **perplexity** = effective neighbor count, typically 5–50), builds low-dim affinities $q_{ij}$ from a **Student-t (Cauchy)** kernel, and minimizes $\text{KL}(P\,\|\,Q)$. The heavy t-tail fixes the **crowding problem** (in 2-D there isn't room to honor all moderate high-dim distances), but it also means *a given affinity maps to no fixed display distance.* **UMAP** (McInnes et al. 2018) builds a fuzzy-neighbor graph and minimizes a binary cross-entropy with both attractive *and repulsive* terms — the repulsion (which t-SNE's KL lacks) is why UMAP is faster and preserves more global structure.
+
+**What you must NOT read off these plots** (Wattenberg et al., *Distill* 2016):
+- **Axes are meaningless** — the objective is invariant to rotation/reflection/translation/scale of the output.
+- **Cluster sizes are meaningless** — the per-point bandwidth normalizes local density away, so a dense and a sparse true cluster can render the same size.
+- **Inter-cluster distances are meaningless** — the t-tail / BCE repulsion mean gaps aren't metric.
+- **Low perplexity manufactures clusters** — t-SNE on pure Gaussian noise shows "clumps" at small perplexity.
+
+So treat t-SNE/UMAP as **hypothesis-generating local-neighborhood views**: sweep perplexity/`n_neighbors`, set a seed, and verify any "cluster" or "gap" against the original-space data or a metric method. This is the opposite of **PCA** (c1.4), whose axes are interpretable eigenvectors, whose distances are a faithful variance-preserving approximation, and which is deterministic and invertible.
+
+## The stats / quant-research lens
+
+- **EM is MLE with latent variables, made tractable by the ELBO** — the same minorize-maximize skeleton behind variational inference, VAEs, and HMM training. GMM responsibilities are posterior state probabilities (e.g. soft risk-on/risk-off regime weights).
+- **GMM admits BIC/AIC** for choosing $k$ (penalized likelihood) — a *statistical* model-selection answer where k-means has only the geometric elbow/silhouette.
+- **The curse of dimensionality kills distance-based clustering** (c1.6): pairwise distances concentrate ($\text{CoV}\sim1/\sqrt d$, Beyer 1999), so k-means/DBSCAN/silhouette all degrade — reduce dimension (PCA from c1.4, or a learned embedding) *before* clustering.
+- **Why embeddings can't be trusted metrically:** both t-SNE and UMAP minimize a divergence between *neighbor-probability* distributions, invariant to global isometries/scaling of the output — so axes carry no units, the adaptive per-point bandwidth erases density, and the heavy tail erases distance. PCA is the interpretable, metric contrast.
+
+## Tradeoff matrix
+
+| Method | Finds | Needs $k$? | Cluster shape | Soft? | Picks $k$ how |
+|---|---|---|---|---|---|
+| k-means | spherical, equal-size | yes | convex/Voronoi | no | elbow/silhouette/gap |
+| GMM (EM) | elliptical, unequal | yes | ellipsoidal | yes | **BIC/AIC** |
+| Agglomerative | nested hierarchy | cut height | linkage-dependent | no | dendrogram |
+| DBSCAN / HDBSCAN | arbitrary + noise | **no** | any density-connected | no | — (density) |
+| t-SNE / UMAP | (visualization only) | n/a | — | — | — |
+
+## Worked decision walk-throughs
+
+**Scenario A: well-separated, roughly spherical clusters; you know $k$.** **k-means** (with k-means++ and `n_init`). Fast, scales, and its assumptions are met. **Standardize features first** (distance-based).
+
+**Scenario B: overlapping, elliptical clusters; you want soft membership or a density model.** **GMM** with full covariance — and use **BIC** to pick $k$. (You also get per-point responsibilities for downstream uncertainty.)
+
+**Scenario C: arbitrary shapes, noise, unknown $k$ (e.g. spatial data).** **DBSCAN / HDBSCAN** — no $k$, handles non-convex clusters, isolates noise. Prefer HDBSCAN if densities vary.
+
+**Scenario D: visualize a high-dim embedding (e.g. 768-d sentence vectors).** **UMAP** (or t-SNE) — but reduce with **PCA first**, sweep `n_neighbors`/perplexity, seed it, and never report cluster sizes or gaps as findings.
+
+## Production failure modes
+
+1. **`KMeans(init='k-means++')` got noisier after a scikit-learn upgrade.** `n_init='auto'` (default since 1.4) means **`n_init=1`** with k-means++ — down from the old 10. Set `n_init=10` if you relied on the restarts.
+2. **k-means on unscaled or non-spherical data.** It silently mis-clusters (the spherical/equal-variance assumption); standardize, or use GMM/DBSCAN.
+3. **Reading t-SNE cluster sizes/distances as real.** They're artifacts; verify against the data.
+4. **GMM singular-covariance collapse.** A component latches onto one point → likelihood → ∞. Keep `reg_covar > 0`; use multiple inits.
+5. **Clustering in raw high dimensions.** Distance concentration makes "nearest" arbitrary; reduce dimension first.
+
+## Interview gotchas
+
+- **"How does k-means relate to GMMs?"** It's the hard-EM, $\varepsilon\to0$, isotropic-shared-covariance, equal-weight limit — which is why it assumes spherical, equal-size clusters.
+- **"How do you choose $k$?"** Not by inertia (monotone in $k$) — silhouette, gap statistic, or BIC for a GMM.
+- **"Does EM find the MLE?"** A *local* max (likelihood non-concave, and unbounded via component collapse); it's monotone via the ELBO.
+- **"What's wrong with reading a t-SNE plot?"** Axes, cluster sizes, and inter-cluster distances are meaningless; low perplexity fabricates clusters. Sweep perplexity, verify on data.
+- **"DBSCAN vs k-means?"** DBSCAN: no $k$, arbitrary shapes, noise — but a single global $\varepsilon$ fails on varying density (use HDBSCAN).
+
+## Take the quiz
+
+Twelve conceptually difficult questions — the Lloyd convergence proof, the EM/ELBO ascent, the k-means-as-hard-EM derivation, the t-SNE invariance argument, and the DBSCAN-density trap. **[Take the quiz →](/c/c1/c1.7/quiz)**
+
+## Cited references
+
+- Ref 7 — *A Tour of Machine Learning Algorithms* (Machine Learning Mastery) — `c1/references/07_traditional_ml_algos.html` (taxonomy only)
+
+External works (the real sources for the math):
+- Lloyd, S. 1982. "Least squares quantization in PCM." *IEEE Trans. Information Theory.* (Lloyd's algorithm.)
+- Arthur, D., Vassilvitskii, S. 2007. "k-means++: The Advantages of Careful Seeding." *SODA.*
+- Dempster, A., Laird, N., Rubin, D. 1977. "Maximum Likelihood from Incomplete Data via the EM Algorithm." *JRSS B.*
+- Ester, M. et al. 1996. "A Density-Based Algorithm for Discovering Clusters…" *KDD.* (DBSCAN.)
+- van der Maaten, L., Hinton, G. 2008. "Visualizing Data using t-SNE." *JMLR.*
+- McInnes, L., Healy, J., Melville, J. 2018. "UMAP." *arXiv:1802.03426.*
+- Wattenberg, M., Viégas, F., Johnson, I. 2016. "How to Use t-SNE Effectively." *Distill.*
+- Rousseeuw 1987 (silhouette); Tibshirani, Walther, Hastie 2001 (gap statistic); Hubert & Arabie 1985 (ARI).
+- Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., Ch. 14.
