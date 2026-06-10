@@ -1,0 +1,328 @@
+---
+lessonId: c1.11
+chapter: 1
+title: Quiz — Class imbalance & resampling
+description: 12 conceptually difficult questions on resampling, SMOTE, prior correction, threshold-moving, and the leakage trap.
+estimatedMinutes: 45
+---
+
+These 12 questions test whether you can defend an imbalance decision from first principles — prior correction, the threshold-equivalence of resampling, the leakage trap — rather than reflexively reaching for SMOTE. Try to answer before revealing.
+
+If you can derive Q1, Q2, Q4, and Q6 from scratch, you can defend any imbalance decision in a staff or quant interview; all 12 means you can teach why "just SMOTE it" is usually wrong.
+
+<Quiz id="1">
+
+**Q1.** You train on a balanced sample ($\bar y=0.5$) but deploy at true prevalence $\tau=0.01$. Derive the additive log-odds correction, and show the corrected model is the *same ranking* as the original — i.e. resampling changed nothing a recalibration couldn't.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The shift.** By Bayes, the posterior odds factor into prior odds × likelihood ratio. Training at $\bar y$ instead of $\tau$ changes only the *prior* term, multiplying the predicted odds by the ratio of prior-odds:
+
+$$\frac{p_{\text{bal}}}{1-p_{\text{bal}}}=\frac{p_{\text{true}}}{1-p_{\text{true}}}\cdot\frac{\bar y/(1-\bar y)}{\tau/(1-\tau)}$$
+
+Taking logs, the balanced model's log-odds is the true log-odds **plus a constant**:
+
+$$\text{logit}(p_{\text{bal}})=\text{logit}(p_{\text{true}})+\ln\!\Bigl[\frac{\bar y/(1-\bar y)}{\tau/(1-\tau)}\Bigr]$$
+
+So to recover true-prevalence probabilities, **subtract** that constant (King & Zeng's intercept correction): $\text{logit}(p_{\text{corr}})=\text{logit}(p_{\text{bal}})-\ln\bigl[\frac{1-\tau}{\tau}\frac{\bar y}{1-\bar y}\bigr]$. With $\bar y=0.5$, $\tau=0.01$: the shift is $\ln\frac{0.99}{0.01}\approx4.6$ — the balanced model's log-odds are inflated by ~4.6 everywhere.
+
+**Same ranking.** The correction is a *constant added to every score's log-odds*, i.e. a strictly monotone transform of the scores. So it preserves their **order** — the AUC and any ranking are identical to the uncorrected balanced model (c1.10: AUC is monotone-invariant), and the corrected probabilities are just a recalibration. Conclusion: **balancing only shifted the probabilities (and hence the implicit threshold); it didn't change what the model knows.** A recalibration step recovers everything.
+
+**Rubric:**
+- Bayes: balancing scales odds by the prior-odds ratio → log-odds shifted by a constant
+- King–Zeng correction; compute $\ln(0.99/0.01)\approx4.6$ for $\bar y=0.5,\tau=0.01$
+- Constant log-odds shift = monotone → ranking/AUC unchanged
+- Conclude: resampling = a probability shift recalibration could undo
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** Derive the cost-optimal threshold $t^\star=C_{\text{FP}}/(C_{\text{FP}}+C_{\text{FN}})$ from expected-cost minimization. Then show that oversampling the minority to a ratio $\rho$ is equivalent to a *specific* threshold on the un-resampled model.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Threshold derivation.** With calibrated $p=P(y{=}1\mid x)$ and correct predictions costing 0:
+- predict **positive** → pay $C_{\text{FP}}$ iff negative → expected $(1-p)C_{\text{FP}}$;
+- predict **negative** → pay $C_{\text{FN}}$ iff positive → expected $p\,C_{\text{FN}}$.
+
+Predict positive iff $(1-p)C_{\text{FP}}<p\,C_{\text{FN}} \iff p>\dfrac{C_{\text{FP}}}{C_{\text{FP}}+C_{\text{FN}}}=t^\star$.
+
+**Oversampling ≡ a threshold.** Oversampling the minority by a factor $k$ (until the training odds are $k\times$ the true odds) makes the model learn shifted log-odds: $\text{logit}(p_{\text{re}})=\text{logit}(p_{\text{true}})+\ln k$ (Q1, with $\ln k$ the log of the prior-odds change). The resampled model then uses the *naive* threshold $p_{\text{re}}\ge0.5$, i.e. $\text{logit}(p_{\text{re}})\ge0$, which in terms of the true probability is $\text{logit}(p_{\text{true}})\ge-\ln k$, i.e.
+
+$$p_{\text{true}}\ge\sigma(-\ln k)=\frac{1}{1+k}$$
+
+So oversampling by $k$ and thresholding at 0.5 is **identical** to leaving the model un-resampled and thresholding the true probability at $t=\frac{1}{1+k}$. (Balancing to 50/50 from prevalence $\tau$ corresponds to $k=(1-\tau)/\tau$, giving $t=\tau$ — you've implicitly set the threshold to the prevalence.) The resampling bought you a threshold move you could have made directly — with the bonus downside of degraded calibration (Q7).
+
+**Rubric:**
+- Compare expected action costs → $t^\star=C_{\text{FP}}/(C_{\text{FP}}+C_{\text{FN}})$
+- Oversampling by $k$ → log-odds $+\ln k$ (prior shift)
+- Naive 0.5 threshold on resampled = threshold $1/(1+k)$ on true $p$
+- Conclude: resampling ≡ an implicit (uncalibrated) threshold move
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** Construct a dataset where SMOTE *strictly hurts*, and explain the mechanism in terms of SMOTE's interpolation assumption.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Construction.** Put the minority class in **two separated sub-clusters** with the majority class occupying the region *between* them (an XOR-like / multi-modal layout): minority blobs at $(0,0)$ and $(10,10)$, majority filling the band around $(5,5)$. SMOTE picks a minority point and one of its $k$ minority nearest neighbors and interpolates on the segment between them. When a point in the $(0,0)$ blob has a neighbor in the $(10,10)$ blob (which happens once the blobs are each other's nearest minority neighbors), the synthetic point $x_{\text{new}}=x_i+u(x_i^{(\text{nn})}-x_i)$ lands **in the majority band** around $(5,5)$ — a synthetic "positive" sitting squarely in negative territory.
+
+**Mechanism.** SMOTE assumes the minority class is **locally convex/linear** — that the segment between two minority points stays inside the minority region. When the minority is concave or multi-modal, segments cross into the majority, **injecting synthetic label noise** right on the decision boundary, which drags the boundary into the majority region and *raises* false positives. So SMOTE strictly hurts here versus doing nothing.
+
+(Other valid constructions: high-dimensional data — Blagus & Lusa 2013 show SMOTE leaves class means unchanged and just shrinks variance, so it doesn't help; or categorical features, where interpolating one-hots is meaningless.) The fixes that target this: Borderline-SMOTE/ADASYN (synthesize only near genuine boundaries) or, better, don't SMOTE — threshold + calibrate.
+
+**Rubric:**
+- Multi-modal/XOR minority with majority in between
+- Interpolation between distant minority blobs → synthetic positive in majority region
+- Mechanism: SMOTE's local-convexity assumption violated → injected label noise → boundary dragged
+- Note high-dim (Blagus–Lusa) / categorical failure modes as alternatives
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** An engineer SMOTEs the full dataset, then runs 5-fold CV and reports 0.97 PR-AUC; an honest pipeline gives 0.78. Explain the exact leakage mechanism, write the correct ordering, and say why `sklearn.pipeline.Pipeline` can't express it.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The leak.** SMOTE-before-split synthesizes minority points as **interpolations of real minority points**. After the global SMOTE, the CV splitter divides *all* points (real + synthetic) into folds — so a synthetic point in the *validation* fold is a convex combination of real points that are in the *training* fold (and conversely, a validation real point's near-duplicates/neighbors are in training). The model is therefore scored on points it effectively saw in training → train/test leakage (c1.1's information-availability rule). It's the same structural bug as c1.5's non-OOF stacking: information from the held-out set bled into training. Hence the wildly optimistic 0.97; the honest 0.78 is the truth.
+
+**Correct ordering.** Resample **inside each fold, on the training partition only**, after the split:
+
+```python
+from imblearn.pipeline import Pipeline
+from imblearn.over_sampling import SMOTE
+pipe = Pipeline([("smote", SMOTE()), ("clf", model)])
+cross_val_score(pipe, X, y, cv=5, scoring="average_precision")
+```
+
+`imblearn`'s `Pipeline` runs the sampler **only on `fit`/`fit_resample`** and **bypasses it on `transform`/`predict`** — so each fold SMOTEs its own training split and the held-out fold is scored at the true prevalence.
+
+**Why `sklearn.pipeline.Pipeline` can't.** sklearn's pipeline only knows `fit`/`transform`/`predict` steps — it has **no notion of a resampling step** that changes the *number of rows* and must act on `fit` but not on `predict`. So you literally cannot place a resampler in it; imbalanced-learn ships its own `Pipeline` precisely to add that `fit_resample` semantics.
+
+**Rubric:**
+- Synthetic validation points are interpolations of training points (and vice versa) → leakage
+- Same as c1.1 information-availability / c1.5 OOF
+- Fix: SMOTE inside `imblearn.pipeline.Pipeline` (sampler on fit only, bypassed on predict)
+- sklearn Pipeline has no resample step (can't change row count on fit-only) → imblearn's exists for this
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** Prove that reweighting and oversampling share the same expected full-batch gradient, then construct the minibatch-SGD regime where they diverge. When does each need learning-rate retuning?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Same expected gradient.** Let the minority have per-example loss gradient $g_+$ and there be $n_+$ minority, $n_-$ majority examples. **Oversampling** the minority $k\times$ makes the (summed) training gradient $\sum_{\text{maj}}g + k\sum_{\text{min}}g_+$. **Reweighting** the minority loss by $k$ gives the same summed gradient $\sum_{\text{maj}}g + k\sum_{\text{min}}g_+$. So over a full pass they produce identical (expected) parameter updates — they're equivalent in expectation.
+
+**Divergence under minibatch SGD.** They differ in *variance and dynamics*:
+- **Oversampling** changes the *empirical distribution*: the duplicated minority rows appear in many minibatches, so the model takes *many gradient steps on the exact same points* → it can **memorize/overfit** those duplicates (especially with exact ROS). The per-step gradient has normal magnitude but the *data* is repeated.
+- **Reweighting** keeps each row once but multiplies its gradient by $k$: a minibatch that happens to contain minority examples produces a **much larger, higher-variance** update (a $k\times$ spike), which can destabilize training.
+
+**LR retuning.** Reweighting inflates effective gradient magnitudes by up to $k\times$, so it typically needs a **smaller / retuned learning rate** (and the `'mean'`-reduction gotcha from c1.3 changes the effective scale). Oversampling keeps gradient magnitudes normal but changes the effective epoch size and overfitting dynamics, so it interacts with **early stopping / regularization** more than with the LR.
+
+**Rubric:**
+- Both give summed gradient $\sum_{\text{maj}}g+k\sum_{\text{min}}g_+$ → equal in expectation
+- Oversampling: repeated rows → memorization/overfit (data repeated)
+- Reweighting: $k\times$ per-example gradient → high-variance/spiky updates
+- Reweighting needs LR retuning (magnitude); oversampling interacts with early-stop/regularization
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** Prove ROC-AUC is invariant to prevalence but PR-AUC is not. For a fixed scorer, compute how precision changes going from 50% to 1% positive while ROC-AUC stays fixed.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**ROC invariance.** TPR $=\text{TP}/(\text{TP+FN})$ and FPR $=\text{FP}/(\text{FP+TN})$ are each computed *within a single true class* (column-normalized). Changing prevalence multiplies the count of one class but cancels in its own rate: 10× the negatives sends $\text{FP}\to10\text{FP}$, $\text{TN}\to10\text{TN}$, so $\text{FPR}=\frac{10\text{FP}}{10\text{FP}+10\text{TN}}$ is unchanged; TPR doesn't involve negatives. So every ROC point — and AUC — depends only on the class-conditional score distributions, **not** the prior. ROC-AUC is prevalence-invariant.
+
+**PR moves.** Precision $=\frac{\text{TP}}{\text{TP+FP}}$ mixes both classes; via Bayes $P=\frac{\text{TPR}\,\pi}{\text{TPR}\,\pi+\text{FPR}(1-\pi)}$, which depends on the prior $\pi$. So PR-AUC (and the no-skill PR baseline = $\pi$) moves with prevalence.
+
+**Compute** (scorer fixed at TPR $=0.9$, FPR $=0.1$):
+- $\pi=0.5$: $P=\frac{0.9(0.5)}{0.9(0.5)+0.1(0.5)}=0.90$.
+- $\pi=0.01$: $P=\frac{0.9(0.01)}{0.9(0.01)+0.1(0.99)}=\frac{0.009}{0.108}\approx0.083$.
+
+So precision falls from **0.90 to ~0.083** (and the PR baseline from 0.5 to 0.01) while **ROC-AUC is identical**. That's why imbalanced evaluation must use PR-AUC (c1.10), not ROC-AUC.
+
+**Rubric:**
+- TPR/FPR column-normalized → prevalence cancels → ROC invariant
+- Precision via Bayes depends on $\pi$
+- Compute 0.90 → 0.083 for fixed TPR/FPR
+- Conclude: use PR-AUC for imbalanced evaluation
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** A model is perfectly calibrated at $\tau=0.02$. After balancing to 50/50, what happens to its reliability diagram, and what single step undoes the distortion?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The distortion.** Balancing from $\tau=0.02$ to $\bar y=0.5$ multiplies the predicted odds by $\frac{\bar y/(1-\bar y)}{\tau/(1-\tau)}=\frac{1}{0.02/0.98}=49$ (Q1). So the balanced model's predicted probabilities are **systematically inflated** for the positive class — a case it truly thinks is $p_{\text{true}}=0.1$ now reports $\sigma(\text{logit}(0.1)+\ln 49)\approx\sigma(-2.197+3.892)=\sigma(1.695)\approx0.845$. On a reliability diagram (predicted prob on x, empirical rate on y), the curve falls **well below the diagonal**: at a predicted 0.845 the empirical positive rate is only ~0.1. The model is now badly over-confident in the positive direction — exactly the van den Goorbergh et al. (2022) finding that resampling preserves ROC-AUC (monotone, c1.10) but wrecks calibration.
+
+**The fix (one step).** **Prior correction:** subtract the constant log-odds shift, $\text{logit}(p_{\text{corr}})=\text{logit}(p_{\text{bal}})-\ln\frac{\bar y/(1-\bar y)}{\tau/(1-\tau)}=\text{logit}(p_{\text{bal}})-\ln 49$. This maps the inflated probabilities back onto the diagonal and recovers the original calibrated model (equivalently, refit the intercept, or run `CalibratedClassifierCV` on a held-out set at the true prevalence). Since it's a monotone transform, AUC is unchanged — only the probabilities are repaired.
+
+**Rubric:**
+- Balancing inflates odds by $\frac{1}{\tau/(1-\tau)}=49$ → probabilities over-estimated
+- Reliability curve sits below the diagonal (over-confident positive); cite van den Goorbergh 2022
+- Fix: subtract the $\ln 49$ log-odds shift (prior correction) / recalibrate
+- Monotone → AUC unchanged, calibration restored
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** Compute `class_weight='balanced'` for 30 positives / 970 negatives. Then explain the interaction with a loss that uses `'mean'` reduction over weighted examples.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Weights.** sklearn's formula is $w_c=\frac{N}{K\,n_c}$ (n_samples / (n_classes × class count)). With $N=1000$, $K=2$:
+- $w_{\text{pos}}=\frac{1000}{2\cdot30}=\frac{1000}{60}\approx16.67$.
+- $w_{\text{neg}}=\frac{1000}{2\cdot970}=\frac{1000}{1940}\approx0.515$.
+
+(Ratio $\approx 32.3$, i.e. the minority's IR — each positive counts ~32× a negative, equalizing the two classes' total weight: $30\times16.67\approx970\times0.515\approx500$ each.)
+
+**`'mean'`-reduction interaction.** A weighted loss reduced by `'mean'` typically divides the weighted sum by the **sum of weights present in the batch**, not by the batch size $N$ (the c1.3 `pos_weight` gotcha). So the *effective* per-batch normalizer changes batch-to-batch depending on how many minority examples it contains — a minority-heavy batch has a larger weight sum, shrinking each example's contribution. The practical consequence: the **effective learning rate fluctuates** with batch composition, and a batch with *zero* positives still contributes a full majority gradient with no minority counterweight. Mitigations: use stratified/`WeightedRandomSampler` batches so each minibatch contains minority examples, and retune the LR after adding class weights (or use sum-reduction with an explicit normalizer you control).
+
+**Rubric:**
+- $w_{\text{pos}}=1000/60\approx16.7$, $w_{\text{neg}}=1000/1940\approx0.515$ (ratio ≈ IR)
+- Equalizes total class weight (~500 each)
+- `'mean'` divides by sum-of-weights-present → effective LR varies with batch composition (c1.3 gotcha)
+- Fix: stratified batches + LR retune; zero-positive batches are a hazard
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9.** Given a labeled neighborhood, classify a minority point as safe / danger / noise (Borderline-SMOTE), and compute ADASYN's synthesis allocation. Construct a configuration where ADASYN over-concentrates synthesis on a mislabeled outlier.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Borderline-SMOTE labels.** For a minority point, look at its $m$ nearest neighbors (any class) and let $m'$ = number that are *majority*:
+- **safe:** $0\le m'<m/2$ (mostly minority neighbors);
+- **danger (borderline):** $m/2\le m'<m$ (mostly majority — near the boundary);
+- **noise:** $m'=m$ (all majority — an isolated minority point).
+
+Borderline-SMOTE synthesizes only from the **danger** set (concentrate effort on the boundary). E.g. with $m=10$: $m'=2$ → safe, $m'=7$ → danger, $m'=10$ → noise.
+
+**ADASYN allocation.** For each minority point $i$, $r_i=(\text{# majority among its }k\text{-NN})/k$; normalize $\hat r_i=r_i/\sum_j r_j$; generate $g_i=\hat r_i\cdot G$ synthetic points (G = total to create). So *harder* minority points (more majority neighbors) get *more* synthesis — a continuous version of Borderline's hard threshold.
+
+**The failure (mislabeled outlier).** Consider a single minority point mislabeled deep inside majority territory: all $k$ of its neighbors are majority, so $r_i=1$ (the maximum), and if other minority points are "safe" ($r_j$ small), this outlier's normalized $\hat r_i$ dominates → ADASYN pours a large share of $G$ synthetic positives **around a mislabeled point in the majority region**, manufacturing a cluster of bogus positives that wrecks the boundary. (Borderline-SMOTE would tag it *noise* ($m'=m$) and skip it — which is exactly why the noise category exists.) Lesson: density-adaptive synthesis is sensitive to label noise; clean labels or prefer threshold+calibrate.
+
+**Rubric:**
+- safe/danger/noise via $m'$ relative to $m/2$ and $m$; Borderline uses danger only
+- ADASYN: $r_i$ = majority fraction in $k$-NN, $g_i=\hat r_i G$ (more for harder points)
+- Construct mislabeled outlier with $r_i=1$ dominating $\hat r_i$ → synthesis concentrates on it
+- Borderline tags it noise and skips; ADASYN's adaptivity is noise-sensitive
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10.** At 1:10,000 imbalance, argue from estimation variance why an anomaly-detection framing can beat balanced binary classification. Which method for a *contaminated* training set, and how do you set $\nu$ / `contamination`?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Why reframe.** At 1:10,000 with, say, 100k rows, you have ~10 positives. You cannot estimate a decision boundary or per-class densities from 10 points — the variance of any minority-class parameter estimate is enormous, and any resampling just duplicates/interpolates those 10 points (manufacturing fake confidence, not information). **Anomaly detection** instead models the *majority/normal* distribution (which you have abundant data for) and flags points that don't fit — turning "learn a boundary from 10 positives" into "learn normality from 100k negatives," a far lower-variance problem.
+
+**Clean vs contaminated.**
+- **One-Class SVM** (Schölkopf 2001) learns a boundary around a $\nu$-fraction of the training data — it assumes the training set is essentially **clean** (pure normal); it's a *novelty* detector. Use it when your "normal" training data has (almost) no anomalies.
+- **Isolation Forest** (Liu 2008) isolates points via random splits (anomalies need fewer splits → shorter path length); it's robust to **contaminated, multimodal** data — use it when the training set itself contains some anomalies (outlier detection).
+
+So for a **contaminated** training set → **Isolation Forest**.
+
+**Setting the knob.** Both expose a fraction parameter tied to the expected anomaly rate: One-Class SVM's $\nu$ is an upper bound on the fraction of outliers (and a lower bound on the support-vector fraction); Isolation Forest's `contamination` is the expected proportion of anomalies (sets the score threshold). Set it to your **prior anomaly rate** ($\approx10^{-4}$ here), or tune it on a labeled validation subset against the cost-weighted metric.
+
+**Rubric:**
+- ~10 positives → huge estimation variance; resampling adds no information
+- Reframe: model normal (abundant) + flag outliers → lower-variance problem
+- One-Class SVM = clean/novelty; Isolation Forest = contaminated/outlier → pick IForest for contaminated
+- $\nu$ / `contamination` ≈ prior anomaly rate (or tune on labeled validation)
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11.** At 1000:1, compare the compute and statistical costs of oversampling-to-balance vs undersampling-to-balance. Show undersampling discards mostly *easy* negatives, and design an ensemble that recovers the hard ones without the memory blowup.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Compute.** Oversampling to balance multiplies the *minority* up to match the majority — at 1000:1 that's ~1000× the minority, roughly **doubling** the dataset to ~2× the majority count (huge if the majority is already large), and training on mostly synthetic/duplicated rows. Undersampling to balance **drops ~99.9% of the majority**, leaving a tiny dataset (2× the minority) that trains in a fraction of the time and memory. So at extreme IR, **undersampling is the only thing that scales**.
+
+**Statistical cost of undersampling.** A *random* undersample keeps a uniform sample of negatives — but the decision-relevant negatives are the **hard ones near the boundary** (easy negatives far from the boundary carry little gradient signal, c1.1's hard-negative point). Random undersampling discards them in proportion, so you throw away most of the *informative* negatives along with the easy ones, raising variance and hurting the boundary.
+
+**Ensemble fix (EasyEnsemble / BalancedRandomForest).** Instead of one undersample, draw **many** independent balanced subsets (each = all minority + a fresh random undersample of the majority), train a classifier on each, and **aggregate** (vote/average). Across the ensemble, *most* of the majority — including the hard negatives — gets seen by *some* member, so collectively you use the full negative set, while each member stays small (memory ≈ one balanced subset at a time). This recovers the hard negatives undersampling would otherwise discard, without the oversampling memory blowup. (Informed undersampling — Tomek links / NearMiss — is the alternative: drop *easy* negatives preferentially.)
+
+**Rubric:**
+- Oversample → ~2× majority (compute/memory blowup); undersample → tiny (scales) at extreme IR
+- Random undersampling discards informative hard negatives (c1.1)
+- EasyEnsemble/BalancedRF: many balanced subsets + aggregate → covers all negatives, small per-member memory
+- (or informed undersampling: Tomek/NearMiss drop easy negatives)
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12.** You're handed a 1000:1 fraud dataset. Specify the full protocol — split, whether/where to resample, metric, and final operating point — and defend *not* using SMOTE.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Split.** **Stratified** (preserve the 1000:1 ratio in each fold so the rare class appears — c1.1), and if the data is time-ordered and entity-grouped, **temporal forward-chaining + grouped** (no future leakage, no entity straddling — c1.1). At 1000:1, ensure each validation fold has enough positives to estimate recall (or use repeated stratified CV).
+
+**Resample? Where?** Default: **don't resample.** Train a strong probabilistic model (e.g. gradient-boosted trees) with optionally `class_weight`/`scale_pos_weight` for gradient signal. If you do resample (validated to help), put it **strictly inside the CV pipeline** (`imblearn.pipeline.Pipeline`) so only training folds are resampled — never SMOTE-then-split (Q4).
+
+**Metric.** **PR-AUC / average precision** (ROC-AUC hides the precision collapse at 1000:1 — c1.10), plus precision/recall at the chosen operating point; pick the threshold from the **cost matrix**.
+
+**Operating point.** **Calibrate** the model (Platt/isotonic, or prior-correct), then set the threshold $t^\star=C_{\text{FP}}/(C_{\text{FP}}+C_{\text{FN}})$ on the calibrated probability. (At 1000:1 you may also reframe as **anomaly detection** — Q10.)
+
+**Why not SMOTE.** (1) **Elor & Averbuch-Elor 2022:** for strong probabilistic learners with a *tuned threshold*, SMOTE gives **no benefit** — its apparent gains are an artifact of leaving the threshold at 0.5. (2) **Resampling = an implicit threshold shift** (Q1–Q2) that also **breaks calibration** (van den Goorbergh 2022) — so it does nothing a calibrated threshold can't, with worse probabilities. (3) At 1000:1 in any real feature dimension, SMOTE's interpolation assumption is shaky (Blagus–Lusa). So: calibrate + threshold (+ maybe anomaly framing), and reach for SMOTE only if it provably beats that on PR-AUC inside a leakage-safe pipeline.
+
+**Rubric:**
+- Stratified (+ temporal/grouped if applicable) split; enough positives per fold
+- Default no resample; if any, inside `imblearn.pipeline.Pipeline` (never SMOTE-then-split)
+- PR-AUC / AP + cost-based threshold (not ROC-AUC)
+- Calibrate + $t^\star=C_{\text{FP}}/(C_{\text{FP}}+C_{\text{FN}})$; consider anomaly framing
+- Defend no-SMOTE: Elor 2022 (no benefit with tuned threshold) + resampling=threshold-shift+miscalibration (van den Goorbergh) + Blagus–Lusa
+
+</details>
+
+</Quiz>
