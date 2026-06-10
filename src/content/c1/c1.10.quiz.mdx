@@ -153,7 +153,7 @@ $$\text{AP}=\sum_n (R_n-R_{n-1})\,P_n$$
 
 **Detect/exploit.** AUC assumes a *monotone* score-to-label relationship; here it's non-monotone (U-shaped). Detect it via a **non-monotone ROC curve** or a **U-shaped reliability/score-vs-rate plot**. Exploit it by transforming the score to restore monotonicity — e.g. use $|s-0.5|$ (distance from the middle) as the new score, on which AUC will be high.
 
-**AUC = 0.3.** The score is *anti-correlated* with the label (negatives outscore positives). **Flip the sign** (use $-s$, or equivalently report $1-\text{AUC}=0.7$). AUC < 0.5 is a labeling/sign bug, not a useless model.
+**AUC = 0.3.** The score is *anti-correlated* with the label (negatives outscore positives). **Flip the sign** (use $-s$, or equivalently report $1-\text{AUC}=0.7$). AUC below 0.5 is a labeling/sign bug, not a useless model.
 
 **Rubric:**
 - Construct positives-at-both-extremes / negatives-in-middle → $P(X>Y)\approx0.5$ but separable
