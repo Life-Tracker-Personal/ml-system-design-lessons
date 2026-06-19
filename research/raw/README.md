@@ -1,8 +1,7 @@
 # Raw research captures
 
 Landing folder for verbatim page captures exported by
-`scripts/collect-interview-questions.js` (Hello Interview, Educative, Blind,
-1point3acres).
+`scripts/collect-interview-questions.js` (the site-agnostic browser collector).
 
 **These are research inputs, not course content.** They inform the frameworks,
 question shapes, and expected-answer rubrics in
