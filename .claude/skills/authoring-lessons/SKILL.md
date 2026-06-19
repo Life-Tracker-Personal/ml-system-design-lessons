@@ -159,6 +159,13 @@ This course is read by people who will repeat its claims in interviews, so a wro
 - **References:** lessons cite `c1/references/NN_*.html` snapshots. That directory doesn't exist yet — create/snapshot referenced sources, or note unreachable ones inline (as c1.1 does for ref 2).
 - **Cross-links are forward-declared:** c1.1 already points at **`c1.10 — Evaluation metrics`**. Honor existing forward references when you fill the gaps so links resolve.
 
+> **Companion skill — `interview-questions`.** For the **system-design-rehearsal** gap below (and for
+> writing accurate "Interview gotchas" sections), use the `interview-questions` skill: it holds the
+> canonical answer frameworks (Hello Interview, Educative), per-archetype expected-answer rubrics
+> (recommendation/ranking, search, ad CTR, ETA, fraud, harmful-content, RAG/LLM…), and a
+> company-by-company question bank with strong-vs-weak signals. Build design-rehearsal lessons by
+> instantiating one archetype on one company's surface.
+
 **Roadmap status (as of this writing):** only c1.1 and c1.2 exist; there is **no written curriculum doc**. The implied spine is Chapter 1 = data & ML foundations, lessons 1→~10 ending at `c1.10 Evaluation metrics`; lessons c1.3–c1.9 are **not yet fixed**. Known coverage gaps for a *complete* top-tier loop (beyond more breadth lessons): **system-design rehearsal** (open-ended "design X" walk-throughs) and an **ML-coding** dimension — neither exists yet. Maintain the actual lesson list in a `PLAN.md` / `_outline.md` once it's decided, and update this section's status when it is.
 
 ---

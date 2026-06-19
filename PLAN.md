@@ -2,6 +2,8 @@
 
 The lesson list for this ML-interview-prep course. Authoring standard lives in
 `.claude/skills/authoring-lessons/`. Reference lessons that set the bar: `c1.1`, `c1.2`.
+Real interview questions + expected-answer rubrics by company (for the system-design-rehearsal
+track and "Interview gotchas" sections) live in `.claude/skills/interview-questions/`.
 
 ## Chapter roadmap (planned)
 
