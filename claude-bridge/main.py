@@ -1,23 +1,24 @@
 """
-claude-bridge — a local LLM bridge that routes requests to any provider
-(OpenRouter, OpenAI, Anthropic, Google, local Claude CLI, or any
-OpenAI-compatible endpoint).
+claude-bridge — a local service that routes LLM requests to the user's
+own Claude Code CLI (`claude -p`), with NO tools.
 
 Run on your machine — do NOT deploy to the cloud.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import os
-from contextlib import asynccontextmanager
+import shutil
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from providers import create_provider
-from providers.base import Provider
-
+CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "claude"
+MODEL = os.environ.get("BRIDGE_MODEL", "sonnet")
 BRIDGE_TOKEN = os.environ.get("BRIDGE_TOKEN", "")
+TIMEOUT_S = float(os.environ.get("BRIDGE_TIMEOUT_S", "120"))
 MAX_QUERY_CHARS = int(os.environ.get("BRIDGE_MAX_QUERY_CHARS", "8000"))
 SYSTEM_PROMPT = os.environ.get(
     "BRIDGE_SYSTEM_PROMPT",
@@ -34,18 +35,7 @@ ALLOWED_ORIGINS = [
     if o.strip()
 ]
 
-_provider: Provider | None = None
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global _provider
-    _provider = create_provider()
-    yield
-    await _provider.close()
-
-
-app = FastAPI(title="claude-bridge", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="claude-bridge", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -75,8 +65,7 @@ def _check_auth(authorization: str | None) -> None:
 
 @app.get("/health")
 async def health() -> dict:
-    assert _provider is not None
-    return {"ok": True, **_provider.health_info()}
+    return {"ok": True, "provider": "local-cli", "claude_bin": CLAUDE_BIN, "model": MODEL}
 
 
 @app.post("/ask", response_model=AskResponse)
@@ -87,17 +76,51 @@ async def ask(
     if len(req.query) > MAX_QUERY_CHARS:
         raise HTTPException(status_code=413, detail="query too long")
 
-    assert _provider is not None
+    args = [
+        CLAUDE_BIN, "-p",
+        "--output-format", "json",
+        "--allowedTools", "",
+        "--model", MODEL,
+        "--append-system-prompt", SYSTEM_PROMPT,
+    ]
+    if req.session_id:
+        args += ["--resume", req.session_id]
+
     try:
-        result = await _provider.ask(req.query, req.session_id, SYSTEM_PROMPT)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)[:500])
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail=f"claude binary not found at {CLAUDE_BIN!r}")
+
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=req.query.encode()), timeout=TIMEOUT_S
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise HTTPException(status_code=504, detail="claude timed out")
+
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"claude exited {proc.returncode}: {stderr.decode(errors='replace')[:500]}",
+        )
+
+    try:
+        data = json.loads(stdout.decode())
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="could not parse claude JSON output")
 
     return AskResponse(
-        text=result.text,
-        session_id=result.session_id,
-        is_error=result.is_error,
-        model=result.model,
+        text=data.get("result", ""),
+        session_id=data.get("session_id", req.session_id or ""),
+        is_error=bool(data.get("is_error", False)),
+        model=MODEL,
     )
 
 
