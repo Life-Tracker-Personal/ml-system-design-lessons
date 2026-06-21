@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ThemeToggle } from "./theme-toggle";
+import { LLMSettingsButton } from "./llm-settings";
 
 export function SiteHeader({ children }: { children?: React.ReactNode }) {
   return (
@@ -28,7 +29,10 @@ export function SiteHeader({ children }: { children?: React.ReactNode }) {
             </>
           )}
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-1">
+          <LLMSettingsButton />
+          <ThemeToggle />
+        </div>
       </div>
     </header>
   );
