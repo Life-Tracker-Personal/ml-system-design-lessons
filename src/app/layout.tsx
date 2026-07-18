@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { TutorWidget } from "@/components/site/tutor";
 
 const geistSans = Geist({
   variable: "--font-sans",
@@ -40,6 +41,7 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col">
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         {children}
+        <TutorWidget />
       </body>
     </html>
   );
