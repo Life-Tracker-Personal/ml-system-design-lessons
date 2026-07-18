@@ -304,3 +304,42 @@
     @apply my-7 overflow-x-auto overflow-y-hidden py-1;
   }
 }
+
+@layer components {
+  /* ---- Tutor chat markdown --------------------------------------------- */
+  .tutor-answer > * + * {
+    @apply mt-2;
+  }
+  .tutor-answer p {
+    @apply leading-relaxed;
+  }
+  .tutor-answer ul,
+  .tutor-answer ol {
+    @apply space-y-1 pl-5;
+  }
+  .tutor-answer ul {
+    @apply list-disc;
+  }
+  .tutor-answer ol {
+    @apply list-decimal;
+  }
+  .tutor-answer code {
+    @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .tutor-answer pre {
+    @apply overflow-x-auto rounded-lg bg-muted p-3;
+  }
+  .tutor-answer pre code {
+    @apply bg-transparent p-0;
+  }
+  .tutor-answer .katex-display {
+    @apply my-3 overflow-x-auto overflow-y-hidden py-1;
+  }
+  .tutor-answer table {
+    @apply w-full border-collapse text-xs;
+  }
+  .tutor-answer th,
+  .tutor-answer td {
+    @apply border-b border-border px-2 py-1 text-left;
+  }
+}
