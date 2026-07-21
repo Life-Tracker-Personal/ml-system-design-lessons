@@ -6,13 +6,13 @@ description: 12 conceptually difficult questions on OLS, MLE, Gauss-Markov, regu
 estimatedMinutes: 45
 ---
 
-These 12 questions test whether you understand regression as *estimation* — sampling distributions, optimality, the Bayesian view — the way a quant-research interview does, not whether you can call `.fit()`. Try to answer before revealing.
+These 12 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
 
 If you can derive Q1, Q2, Q5, and Q8 from scratch, and explain Q9 and Q10 cold, you're calibrated for the regression portion of any top-tier or quant interview.
 
 <Quiz id="1">
 
-**Q1.** Derive the OLS normal equations two ways — by calculus and by orthogonal projection. Then state which of these hat-matrix properties hold and why: symmetric, idempotent, invertible, $\text{trace}=p$, eigenvalues in $\{0,1\}$. When does the closed-form $\hat\beta$ exist?
+**Q1. From “closest line” to the OLS formula.** OLS chooses the prediction vector $X\hat\beta$ closest to $y$. Show that statement algebraically in two ways: minimize RSS with calculus, then view $X\hat\beta$ as the orthogonal projection of $y$ onto the space spanned by $X$. Use the projection picture to decide whether the hat matrix is symmetric, idempotent, invertible, has trace $p$, and has eigenvalues in $\{0,1\}$. Finally, explain what must be true of the feature columns for the usual closed form to exist.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -41,7 +41,7 @@ If you can derive Q1, Q2, Q5, and Q8 from scratch, and explain Q9 and Q10 cold, 
 
 <Quiz id="2">
 
-**Q2.** Show that OLS is the maximum-likelihood estimator under Gaussian noise. Under what noise distribution would MLE instead give you least-absolute-deviations? State the general principle (the c1.2 thesis) and what the unbiased estimate of $\sigma^2$ is.
+**Q2. Why does squared error appear?** Begin with the assumption that outcomes equal a linear signal plus independent Gaussian noise. Write the likelihood and show why maximizing it chooses the same $\hat\beta$ as minimizing RSS. Then replace Gaussian noise with Laplace noise and show why absolute error appears instead. Finish by explaining, in words, how a noise model determines a loss and why the unbiased estimate of $\sigma^2$ divides RSS by $n-p$ rather than $n$.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -70,7 +70,7 @@ Only the second term depends on $\beta$, and the positive constant $1/(2\sigma^2
 
 <Quiz id="3">
 
-**Q3.** You add a column of pure random noise (independent of $y$) to an OLS regression. What happens to each of: (a) training RSS, (b) $R^2$, (c) adjusted $R^2$, (d) the $t$-statistic / $p$-value for that new coefficient? Explain the asymmetry between $R^2$ and adjusted $R^2$.
+**Q3. Why can a useless feature improve $R^2$?** Add a pure-noise column, independent of $y$, to an OLS model. Reason from the enlarged set of possible fits—not from memorized rules—to determine what happens to training RSS and $R^2$. Then explain how adjusted $R^2$ charges for the added flexibility and what the new coefficient's $t$-statistic and $p$-value should look like across repeated samples.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -94,7 +94,7 @@ Only the second term depends on $\beta$, and the positive constant $1/(2\sigma^2
 
 <Quiz id="4">
 
-**Q4.** True or false, with justification: *"OLS is the minimum-variance unbiased estimator, and this guarantee requires the errors to be Gaussian."* Be precise about both clauses.
+**Q4. What does “best” in BLUE actually promise?** Evaluate this claim: *“OLS is the minimum-variance unbiased estimator, and this guarantee requires Gaussian errors.”* Unpack every qualifier in BLUE, identify the restricted class within which OLS is best, list the assumptions that buy the result, and separate the role of Gaussianity in estimation from its role in exact small-sample inference.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -119,20 +119,38 @@ Only the second term depends on $\beta$, and the positive constant $1/(2\sigma^2
 
 <Quiz id="5">
 
-**Q5.** Ridge regression is $\hat\beta=(X^\top X+\lambda I)^{-1}X^\top y$. (a) Why is $X^\top X+\lambda I$ invertible even when $p>n$ or $X$ is collinear? (b) Ridge is a *biased* estimator — give the bias–variance argument for why it can still have lower mean squared error than OLS, and name the classical result behind it.
+**Q5.** Ridge regression is $\hat\beta=(X^\top X+\lambda I)^{-1}X^\top y$. (a) Why is $X^\top X+\lambda I$ invertible even when $p>n$ or $X$ is collinear? (b) Ridge is a *biased* estimator. State the bias–variance decomposition first for one coefficient and then for the full coefficient vector. Use the vector decomposition to explain why ridge can have lower total mean squared error than OLS, and name the classical result behind the argument.
 
 <details>
 <summary>Model answer + rubric</summary>
 
 **(a) Invertibility.** $X^\top X$ is symmetric positive-*semi*definite (eigenvalues $\ge 0$); adding $\lambda I$ with $\lambda>0$ shifts every eigenvalue up by $\lambda$, making them all $\ge\lambda>0$, so $X^\top X+\lambda I$ is positive-*definite* and hence invertible — **regardless of rank**, even when $p>n$ (where $X^\top X$ is singular) or columns are collinear (near-zero eigenvalues). This is ridge's structural advantage: it always has a unique solution.
 
-**(b) Bias–variance.** $\text{MSE}(\hat\beta)=\text{Bias}(\hat\beta)^2+\text{Var}(\hat\beta)$. OLS is unbiased (bias 0) but, when $X^\top X$ has small eigenvalues (collinearity), $\text{Var}(\hat\beta_{\text{OLS}})=\sigma^2(X^\top X)^{-1}$ has huge entries. Ridge introduces a small bias (it shrinks $\hat\beta$ toward 0) but cuts variance substantially — and for an appropriate $\lambda>0$ the squared-bias increase is outweighed by the variance reduction, so total MSE drops below OLS's. OLS minimizes variance *subject to zero bias*, which is an unnecessarily restrictive constraint.
+**(b) Bias–variance.** For a single coefficient, MSE is a scalar and decomposes as
+
+$$
+\mathbb E\left[(\hat\beta_j-\beta_j)^2\right]
+=\left(\mathbb E[\hat\beta_j]-\beta_j\right)^2
++\operatorname{Var}(\hat\beta_j).
+$$
+
+For the full coefficient vector, $\operatorname{Cov}(\hat\beta)$ is a matrix, so it cannot be added directly to a scalar squared bias. Under squared Euclidean error, the correct total-MSE decomposition is
+
+$$
+\mathbb E\left[\lVert\hat\beta-\beta\rVert_2^2\right]
+=\left\lVert\mathbb E[\hat\beta]-\beta\right\rVert_2^2
++\operatorname{tr}\!\left(\operatorname{Cov}(\hat\beta)\right).
+$$
+
+The trace sums the component variances. OLS is unbiased, but when $X^\top X$ has small eigenvalues, $\operatorname{Cov}(\hat\beta_{\text{OLS}})=\sigma^2(X^\top X)^{-1}$ can have a very large trace. Ridge shrinks coefficients toward zero, creating bias, while sharply reducing variance along those poorly identified directions. For an appropriate $\lambda>0$, the reduction in $\operatorname{tr}(\operatorname{Cov}(\hat\beta))$ can exceed the increase in squared bias, giving ridge lower total coefficient MSE. OLS minimizes variance only within the class of linear unbiased estimators.
 
 **Classical result.** **James–Stein (1961):** the ordinary sample mean is *inadmissible* for estimating a multivariate Gaussian mean in dimension $\ge 3$ — a shrinkage estimator strictly dominates it in total MSE, even when the coordinates are independent. Ridge is the regression analogue: shrinkage is provably better, not a hack.
 
 **Rubric:**
 - $X^\top X$ PSD; $+\lambda I$ shifts eigenvalues to $\ge\lambda>0$ → positive-definite → always invertible (even $p>n$)
-- MSE = bias² + variance; ridge accepts bias to cut variance
+- Scalar decomposition: coefficient MSE = squared bias + variance
+- Vector decomposition: total MSE = squared bias norm + $\operatorname{tr}(\operatorname{Cov}(\hat\beta))$
+- Explain why covariance itself cannot be added to scalar squared bias; ridge accepts bias to cut total variance
 - Collinearity → huge OLS variance, so ridge wins for some $\lambda$
 - Cite James–Stein / inadmissibility for dim ≥ 3
 
@@ -142,31 +160,85 @@ Only the second term depends on $\beta$, and the positive constant $1/(2\sigma^2
 
 <Quiz id="6">
 
-**Q6.** On an orthonormal design ($X^\top X = I$), write the closed forms for the ridge and lasso solutions in terms of the OLS solution $\hat\beta^{\text{OLS}}$. Use them to explain precisely why lasso produces exact zeros while ridge never does.
+**Q6.** A coefficient equal to zero means the fitted model does not use that feature: its contribution $x_j\hat\beta_j$ is identically zero. Lasso can set some estimated coefficients **exactly equal to $0$**; ridge usually makes coefficients smaller without making them equal to $0$.
+
+To see why, assume the feature columns are orthonormal, $X^\top X=I$, and compare these precisely scaled objectives:
+
+$$
+\text{ridge: }\frac12\lVert y-X\beta\rVert_2^2+\frac\lambda2\lVert\beta\rVert_2^2,
+\qquad
+\text{lasso: }\frac12\lVert y-X\beta\rVert_2^2+\lambda\lVert\beta\rVert_1.
+$$
+
+Derive each solution from $\hat\beta^{\text{OLS}}=X^\top y$. Which OLS coefficient values does lasso map to exactly zero? Then explain whether lasso's ability to produce zeros depends on orthonormality, giving the general KKT/subgradient condition. Contrast this with the precise—not absolute—claim we should make about ridge and feature selection.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-With $X^\top X=I$, the OLS solution is $\hat\beta^{\text{OLS}}=X^\top y$, and the two penalized problems decouple coordinate-wise.
+With $X^\top X=I$, the OLS solution is $\hat\beta^{\text{OLS}}=X^\top y$. Completing the square gives
 
-**Ridge:** minimize $(\beta_j-\hat\beta_j^{\text{OLS}})^2+\lambda\beta_j^2$ per coordinate ⇒
+$$
+\frac12\lVert y-X\beta\rVert_2^2
+=\frac12\lVert\beta-\hat\beta^{\text{OLS}}\rVert_2^2+C,
+$$
+
+where $C$ does not depend on $\beta$. This is not a different definition of ridge or lasso. It is the original RSS term rewritten under the special condition $X^\top X=I$. Because the squared norm is a sum over $j$, each coefficient can now be minimized separately.
+
+**Ridge.** For coordinate $j$, minimize
+
+$$
+\frac12(\beta_j-\hat\beta_j^{\text{OLS}})^2+\frac\lambda2\beta_j^2.
+$$
+
+Differentiate and set the derivative to zero:
+
+$$
+(\beta_j-\hat\beta_j^{\text{OLS}})+\lambda\beta_j=0.
+$$
+
+Therefore
 
 $$\hat\beta_j^{\text{ridge}}=\frac{\hat\beta_j^{\text{OLS}}}{1+\lambda}.$$
 
-Pure proportional **shrinkage** by $1/(1+\lambda)$ — for finite $\lambda$ this is never exactly 0 unless the OLS coefficient was already 0.
+Ridge multiplies every OLS coefficient by the positive number $1/(1+\lambda)$. For example, if $\hat\beta_j^{\text{OLS}}=0.02$, ridge might turn it into $0.01$ or $0.002$, but not exactly $0$. In this orthonormal case and for finite $\lambda$, the ridge estimate equals zero only if the OLS estimate was already zero.
 
-**Lasso:** minimize $(\beta_j-\hat\beta_j^{\text{OLS}})^2+\lambda|\beta_j|$ per coordinate ⇒ **soft-thresholding**
+**Lasso.** For coordinate $j$, minimize
+
+$$
+\frac12(\beta_j-\hat\beta_j^{\text{OLS}})^2+\lambda|\beta_j|.
+$$
+
+Consider three cases. If $\beta_j>0$, the derivative gives $\beta_j=\hat\beta_j^{\text{OLS}}-\lambda$, which is valid only when $\hat\beta_j^{\text{OLS}}>\lambda$. If $\beta_j<0$, it gives $\beta_j=\hat\beta_j^{\text{OLS}}+\lambda$, valid only when $\hat\beta_j^{\text{OLS}}<-\lambda$. If $|\hat\beta_j^{\text{OLS}}|\le\lambda$, neither nonzero candidate has the required sign, and the minimum is at the kink $\beta_j=0$.
+
+Combining the cases gives **soft-thresholding**:
 
 $$\hat\beta_j^{\text{lasso}}=\text{sign}(\hat\beta_j^{\text{OLS}})\max\!\bigl(|\hat\beta_j^{\text{OLS}}|-\lambda,\ 0\bigr).$$
 
-Any coefficient with $|\hat\beta_j^{\text{OLS}}|\le\lambda$ is set **exactly to 0**.
+Thus every OLS coefficient in the interval $[-\lambda,\lambda]$ is mapped to the number $0$—not merely to a small number. For example, with $\lambda=0.1$, OLS coefficients $0.06$ and $-0.08$ both become exactly $0$, while $0.35$ becomes $0.25$. A zero coefficient removes that feature from the fitted linear predictor, which is why lasso is described as performing feature selection.
 
-**Why the difference.** The L1 penalty has a constant-magnitude (sub)gradient $\pm\lambda$ that doesn't vanish as $\beta_j\to 0$, so it can overpower the data term and pin the coefficient at exactly 0 — the optimum sits at the non-differentiable kink. The L2 penalty's gradient $2\lambda\beta_j$ *vanishes* as $\beta_j\to0$, so the penalty's pull weakens near zero and never forces an exact zero. Geometrically: the L1 ball has corners on the axes (sparse vertices) where the contours touch; the L2 ball is round (no preferred sparse directions).
+**The zero-producing mechanism is general.** Orthonormality gives the simple soft-threshold formula; it is not required for sparsity. For a general $X$, let $r=y-X\hat\beta$ at the lasso solution. The KKT/subgradient condition is
+
+$$
+x_j^\top r=
+\begin{cases}
+\lambda, & \hat\beta_j>0,\\
+-\lambda, & \hat\beta_j<0,\\
+\text{some value in }[-\lambda,\lambda], & \hat\beta_j=0.
+\end{cases}
+$$
+
+So if feature $j$'s remaining correlation with the residual is not strong enough to overcome the penalty, $|x_j^\top r|\le\lambda$, zero satisfies the optimality condition. With correlated columns the coefficients are coupled through $r$, so we cannot threshold each OLS coefficient independently; lasso may choose one correlated feature and zero another.
+
+**Why ridge is different.** The L1 penalty has a constant-magnitude subgradient away from zero and a kink at zero, allowing an interval of data signals to share the same optimum $\hat\beta_j=0$. With the scaling used here, the L2 penalty's gradient is $\lambda\beta_j$ and vanishes smoothly as $\beta_j\to0$. Ridge therefore has no built-in sparsity or feature-selection mechanism and its solution is generally dense. A ridge coefficient can still be zero accidentally through symmetry or cancellation, so “ridge never produces zeros” is only true for a nonzero OLS coefficient in this orthonormal derivation—not as a universal statement.
 
 **Rubric:**
-- Ridge: $\hat\beta_j^{\text{OLS}}/(1+\lambda)$ (shrinkage, never 0)
-- Lasso: soft-threshold $\text{sign}\cdot\max(|\cdot|-\lambda,0)$ (exact zeros)
-- Reason: L1 (sub)gradient is constant $\pm\lambda$ (doesn't vanish at 0) vs L2 gradient $2\lambda\beta_j\to0$
+- Explain “exact zero”: $\hat\beta_j=0$, so feature $j$ contributes nothing to predictions
+- Show why RSS rewrites as distance from OLS only under $X^\top X=I$
+- Ridge: $\hat\beta_j^{\text{OLS}}/(1+\lambda)$ (proportional shrinkage; nonzero input stays nonzero)
+- Lasso: soft-threshold $\text{sign}\cdot\max(|\cdot|-\lambda,0)$; the entire interval $[-\lambda,\lambda]$ maps to 0
+- Orthonormality gives the closed form but is not required for lasso sparsity
+- General KKT condition: zero is optimal when $|x_j^\top r|\le\lambda$, jointly with the other coefficients
+- Precise ridge claim: smooth L2 has no sparsity mechanism and is generally dense, though accidental zeros are possible
 - Bonus: L1-ball corners vs round L2-ball geometry
 
 </details>
@@ -175,7 +247,7 @@ Any coefficient with $|\hat\beta_j^{\text{OLS}}|\le\lambda$ is set **exactly to 
 
 <Quiz id="7">
 
-**Q7.** Identify the prior that makes ridge and lasso MAP estimates, respectively. Explain — via the shape of the prior — why the Laplace prior induces sparsity but the Gaussian prior does not. Connect this to the c1.2 "every loss is a noise model" framing.
+**Q7. How does a penalty encode prior skepticism?** Starting from MAP estimation, show how a Gaussian prior on coefficients creates ridge and a Laplace prior creates lasso. Explain why the L1 kink—not positive probability mass at exactly zero—allows a MAP estimate to land at zero. Connect this to the broader rule: the data loss is a negative log-likelihood, while the regularization penalty is a negative log-prior.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -185,14 +257,14 @@ Any coefficient with $|\hat\beta_j^{\text{OLS}}|\le\lambda$ is set **exactly to 
 - **Gaussian prior** $\beta_j\sim\mathcal{N}(0,\tau^2)$: $-\log p(\beta)\propto\sum_j\beta_j^2$ → **ridge** (L2), with $\lambda=\sigma^2/\tau^2$.
 - **Laplace prior** $\beta_j\sim\text{Laplace}(0,b)$: $-\log p(\beta)\propto\sum_j|\beta_j|$ → **lasso** (L1).
 
-**Why Laplace → sparsity.** The Laplace density $\propto e^{-|\beta|/b}$ has a **sharp, non-differentiable peak at 0** and heavier tails than the Gaussian. The peak puts a lot of prior mass *exactly* at 0, so the posterior mode is frequently pinned at 0 (sparsity), while the heavy tails let genuinely large coefficients escape shrinkage. The Gaussian $\propto e^{-\beta^2/2\tau^2}$ is **smooth and flat at 0** (zero derivative there), so it never concentrates mass at exactly 0 — it shrinks everything proportionally but zeros nothing.
+**Why Laplace → sparsity.** The Laplace density $\propto e^{-|\beta|/b}$ has a **sharp, non-differentiable peak at 0** and heavier tails than the Gaussian. Because it is continuous, it does *not* place positive probability mass at the single point 0. The exact-zero MAP estimates instead come from the kink in its negative log-density, $|\beta|$: its nonzero slope persists all the way to zero, so a whole interval of weak data signals is optimized at the kink. The Gaussian negative log-density $\beta^2/(2\tau^2)$ is smooth with derivative 0 at the origin, so its pull fades continuously near zero and ordinarily shrinks without producing exact-zero modes.
 
 **c1.2 tie-in.** This is the same lens, moved from the *data* to the *parameters*: in c1.2, the negative-log of the *noise* distribution was the data loss (Gaussian→squared, Laplace→absolute); here the negative-log of the *prior* on $\beta$ is the penalty (Gaussian→L2, Laplace→L1). Loss and penalty are both negative-log-densities; the whole objective is a negative-log-posterior.
 
 **Rubric:**
 - Ridge ↔ Gaussian prior; lasso ↔ Laplace prior
 - Negative log-prior = penalty (MAP)
-- Laplace: sharp peak at 0 → mass at 0 → sparsity; Gaussian smooth/flat at 0 → no exact zeros
+- Laplace: sharp peak / L1 kink at 0 → exact-zero MAP estimates (but no point mass at 0); Gaussian penalty is smooth → no exact zeros
 - Connect to c1.2: loss = −log(noise), penalty = −log(prior)
 
 </details>
@@ -201,7 +273,7 @@ Any coefficient with $|\hat\beta_j^{\text{OLS}}|\le\lambda$ is set **exactly to 
 
 <Quiz id="8">
 
-**Q8.** Show the logistic-regression negative log-likelihood is convex in $\beta$ by computing its Hessian. Why is fitting a sigmoid with squared error *not* convex, and which loss should you use? Why is there no closed-form solution?
+**Q8. Why is logistic regression easy to optimize but impossible to solve in one algebraic step?** Derive the gradient and Hessian of the Bernoulli negative log-likelihood. Use the Hessian to show the objective is convex, then explain why the score equation is nevertheless nonlinear in $\beta$ and has no closed form. Contrast this with putting squared error around a sigmoid: what happens to convexity and saturated gradients, and why is cross-entropy the principled loss?
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -228,7 +300,7 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 
 <Quiz id="9">
 
-**Q9.** A logistic-regression model achieves perfect separation on the training data. Describe what happens to the MLE coefficients, the likelihood, and the standard errors — and explain *why*. Name two fixes.
+**Q9. Why can perfectly classified data break logistic regression?** Suppose one hyperplane separates every training example correctly. Scale that separating coefficient vector larger and larger, and track the predicted probabilities and likelihood. Use this thought experiment to explain why the unregularized MLE is not finite, why coefficients and standard errors explode, and why an optimizer may never converge. Give two fixes and explain what each changes.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -255,7 +327,7 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 
 <Quiz id="10">
 
-**Q10.** Two predictors in a linear model have $\text{VIF}=50$. Define VIF precisely, then explain the effect on (a) the coefficients' standard errors, (b) the stability and sign of the coefficients, and (c) the model's *predictive* accuracy. Why can prediction be fine while inference is wrecked?
+**Q10. The model can predict, but it cannot assign credit.** Two predictors each have $\operatorname{VIF}=50$. Translate that number into the fraction of each feature explained by the others and the corresponding standard-error multiplier. Then explain why individual coefficients may swing or flip sign while the combined prediction $X\hat\beta$ remains stable. End with the deployment condition under which collinearity can begin to hurt prediction too.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -283,7 +355,7 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 
 <Quiz id="11">
 
-**Q11.** Using the SVD form $\hat y_{\text{ridge}}=\sum_j u_j\,\frac{d_j^2}{d_j^2+\lambda}\,u_j^\top y$ (with $X=UDV^\top$), explain which directions ridge shrinks most. How does principal-component regression (PCR) differ, and in what sense is ridge "soft PCR"? When does this shrinkage help?
+**Q11. Ridge through the geometry of the data cloud.** In the SVD $X=UDV^\top$, a small singular value marks a direction in feature space with little observed variation and therefore unstable estimation. Read the factor $d_j^2/(d_j^2+\lambda)$ in that light: which directions does ridge trust, and which does it suppress? Compare this smooth weighting with PCR's keep-or-drop rule, then give one case where suppressing a low-variance direction helps and one where it destroys predictive signal.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -309,7 +381,7 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 
 <Quiz id="12">
 
-**Q12.** You fit `LogisticRegression()` in scikit-learn and `Logit().fit()` in statsmodels on the same data and get *different coefficients*, and sklearn gives you no $p$-values. Explain both discrepancies. In scikit-learn 1.8, how do you reproduce *unregularized* logistic regression, and what replaced `penalty='l1'`?
+**Q12. Same model name, different statistical job.** You fit scikit-learn's `LogisticRegression()` and statsmodels' `Logit().fit()` on the same matrix and get different coefficients; only statsmodels reports standard errors and $p$-values. Explain the different defaults and goals behind the two libraries, including intercept handling and regularization. Then state the scikit-learn 1.8 API for an unregularized fit and for requesting L1 behavior.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -331,32 +403,57 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 
 </Quiz>
 
-## Rapid-fire: OLS, Gauss–Markov & inference
+## Rapid-fire: OLS, inference & the quant gauntlet
 
-Additional interview-calibrated questions — the ones that tend to separate candidates at top-tier ML interviews (Anthropic, Meta, frontier startups, quant funds). No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
+These are **deep interview drills**, despite the traditional “rapid-fire” label. Many contain a two-minute core question followed by harder extensions. Do not try to say every equation at once. Give a layered answer:
 
-1. **Which assumption buys what.** Gauss–Markov lists four assumptions: linearity, strict exogeneity, homoskedasticity, no perfect collinearity. Map each to precisely which conclusion dies when it — and only it — fails: unbiasedness, the BLUE property, valid standard errors, or the existence of $\hat\beta$ at all. Which single failure makes $\hat\beta$ biased *and* inconsistent, and which merely wrecks inference while leaving $\hat\beta$ unbiased?
-2. **The distribution behind the regression table.** Starting from $y = X\beta + \varepsilon$, derive $\hat\beta - \beta = (X^\top X)^{-1}X^\top\varepsilon$ and hence $\text{Var}(\hat\beta)$. Then justify the $t_{n-p}$ (not Normal) reference distribution: show $\text{RSS}/\sigma^2 \sim \chi^2_{n-p}$ via the idempotent $I-H$, and argue $\hat\beta$ and $\hat\sigma^2$ are independent under Gaussian errors. Where exactly does each fact enter the $t$-statistic?
-3. **Frisch–Waugh–Lovell.** Prove that the multiple-regression coefficient $\hat\beta_j$ equals the slope from regressing the *residualized* $y$ on the *residualized* $x_j$ (both residualized on the other predictors). Then use FWL to *derive* the VIF: show $\text{Var}(\hat\beta_j) = \sigma^2 / \|\tilde x_j\|^2$ where $\tilde x_j$ is that residual, and extract the $1/(1-R_j^2)$ factor.
-4. **Omitted-variable bias, exactly.** You omit $x_2$ from $y = \beta_1 x_1 + \beta_2 x_2 + \varepsilon$. Derive the bias of $\hat\beta_1$ in terms of $\beta_2$ and the auxiliary regression of $x_2$ on $x_1$. State the two conditions under which omission is harmless — and reconcile with the quant experience "my alpha vanished when I added an industry factor."
-5. **Noise in $y$ vs noise in $x$.** Add classical mean-zero measurement noise to $y$: what happens to $\hat\beta$? Now add it to $x$ instead: derive the attenuation $\text{plim}\,\hat\beta = \beta \cdot \sigma_x^2/(\sigma_x^2 + \sigma_u^2)$. Why does one preserve exogeneity and the other destroy it — and what does this predict for a regression of returns on a noisily-measured signal?
-6. **Robust SEs are not a free lunch.** Under heteroskedasticity, what survives (unbiasedness of $\hat\beta$) and what breaks? Write White's sandwich estimator and say what each slice estimates. When does (feasible) GLS/WLS strictly beat OLS-with-robust-SEs? And what do HC errors do about serial correlation — nothing — so what does Newey–West add, and what's the bandwidth trade-off?
-7. **Leverage vs residual vs influence.** Define leverage $h_{ii}$, its bounds, and its average $p/n$. Construct (a) a point with an enormous residual but negligible influence on $\hat\beta$, and (b) a high-leverage point whose residual is tiny precisely *because* it has dragged the fit to itself — and explain why residual-based outlier screening misses (b). How does Cook's distance $\propto r_i^2\, h_{ii}/(1-h_{ii})^2$ combine the two?
-8. **Does big $n$ cure collinearity?** Argue from $\text{Var}(\hat\beta_j) \approx \frac{\sigma^2}{n\,\widehat{\text{Var}}(x_j)}\cdot\text{VIF}_j$ that multicollinearity is "just" a sample-size problem for inference: at fixed VIF, SEs still shrink at the $1/\sqrt n$ rate. So when is $\text{VIF}=50$ fatal, when is it irrelevant, and what does that say about rules of thumb like "VIF above 10 is serious"?
-9. **When collinearity *does* hurt prediction.** The lesson says collinearity is "often harmless for prediction." Construct the counter-example: $x_1 \approx x_2$ in training, decoupled at deployment (a regime change). Explain via the low-variance principal directions why the fitted model extrapolates wildly off the training subspace — and why ridge's shrinkage of exactly those directions is an implicit bet about deployment data.
-10. **Unbiased, consistent — pick one.** Construct an estimator that is unbiased but inconsistent, and one that is biased but consistent. Then state what OLS consistency actually requires ($\text{plim}\,X^\top X/n$ invertible plus $\mathbb{E}[x_i\varepsilon_i]=0$), and give a realistic time-series case — a lagged dependent variable — where OLS is biased in finite samples yet consistent.
-11. **$R^2$ folklore.** Prove or refute: (a) out-of-sample $R^2$ can be negative; (b) $R^2$ is invariant to affine rescaling of $y$; (c) for a regression forced through the origin, the centered-TSS formula can produce $R^2$ outside $[0,1]$; (d) comparing $R^2$ between a model of $y$ and a model of $\log y$ is meaningful. Then: why is there no canonical $R^2$ for logistic regression, and what do pseudo-$R^2$s actually measure?
-12. **Three tests, one hypothesis.** Define the Wald, likelihood-ratio, and score (LM) tests of $H_0\!:\beta_j = 0$. Show why they are asymptotically equivalent (quadratic expansion of the log-likelihood), state which models each requires you to fit (restricted, unrestricted, or both), and give a finite-sample situation where they materially disagree — which one do you report?
+1. State the phenomenon in one plain-English sentence.
+2. Name the assumption or identity that controls it.
+3. Derive the smallest equation that proves the claim.
+4. Add the production or quant implication only after the core answer is clear.
 
-## Rapid-fire: regularization, logistic regression & PCA
+For example, on “duplicate every row,” begin with “the fitted line is unchanged, but naive inference mistakes copies for new information.” Then prove each part. The bold phrase at the start of every prompt names the central tension; treat later clauses as follow-ups an interviewer may ask, not one breathless response.
 
-Same format — no answers, ~2 minutes each.
+1. **Regress both ways.** You regress $y$ on $x$, then $x$ on $y$. Derive both slopes in terms of $\rho$, $\sigma_x$, $\sigma_y$. Show their product is $\rho^2$, state when the two slopes are equal, and explain why the second slope is *not* the reciprocal of the first even though the algebra of the fitted line suggests it should be.
+2. **Duplicate every row.** You copy the entire dataset once, so every observation appears twice, and rerun OLS. Derive what happens to $\hat\beta$, $R^2$, the residual variance estimate, the standard errors, and the $t$-statistics — and explain why the quantities that *change* are exactly the ones that were pretending you had new information.
+3. **Which assumption buys what.** Gauss–Markov lists four assumptions: linearity, strict exogeneity, homoskedasticity, no perfect collinearity. Map each to precisely which conclusion dies when it — and only it — fails: unbiasedness, the BLUE property, valid standard errors, or the existence of $\hat\beta$ at all. Which single failure makes $\hat\beta$ biased *and* inconsistent, and which merely wrecks inference while leaving $\hat\beta$ unbiased?
+4. **Behind the regression table.** Starting from $y = X\beta + \varepsilon$, derive $\hat\beta - \beta = (X^\top X)^{-1}X^\top\varepsilon$ and hence $\text{Var}(\hat\beta)$. Then justify the $t_{n-p}$ (not Normal) reference distribution: show $\text{RSS}/\sigma^2 \sim \chi^2_{n-p}$ via the idempotent $I-H$, and argue $\hat\beta$ and $\hat\sigma^2$ are independent under Gaussian errors. Where exactly does each fact enter the $t$-statistic?
+5. **Frisch–Waugh–Lovell.** Prove that the multiple-regression coefficient $\hat\beta_j$ equals the slope from regressing the *residualized* $y$ on the *residualized* $x_j$ (both residualized on the other predictors). Then use FWL to *derive* the VIF: show $\text{Var}(\hat\beta_j) = \sigma^2 / \|\tilde x_j\|^2$ where $\tilde x_j$ is that residual, and extract the $1/(1-R_j^2)$ factor.
+6. **Omitted-variable bias, exactly.** You omit $x_2$ from $y = \beta_1 x_1 + \beta_2 x_2 + \varepsilon$. Derive the bias of $\hat\beta_1$ in terms of $\beta_2$ and the auxiliary regression of $x_2$ on $x_1$, and use the formula to predict the *direction* of the bias in a concrete case. State the two conditions under which omission is harmless — and reconcile with the quant experience "my alpha vanished when I added an industry factor."
+7. **The sign flips on you.** Adding a control variable flips the sign of your main coefficient. Construct a small concrete example where this happens, and then defend an answer to the harder question: which sign should you believe, and what extra knowledge does the answer depend on?
+8. **Measurement-error asymmetry.** Classical mean-zero noise in the *response* leaves the slope unbiased; the same noise in the *predictor* does not: derive the attenuation $\text{plim}\,\hat\beta = \beta \cdot \sigma_x^2/(\sigma_x^2 + \sigma_u^2)$. Why does one preserve exogeneity and the other destroy it — and what does the asymmetry predict for a regression of returns on a noisily-measured signal, when both your signal and your target are estimated quantities?
+9. **Leverage vs residual vs influence.** Define leverage $h_{ii}$, its bounds, and its average $p/n$. Construct (a) a point with an enormous residual but negligible influence on $\hat\beta$, and (b) a high-leverage point whose residual is tiny precisely *because* it has dragged the fit to itself — and explain why residual-based outlier screening misses (b). How does Cook's distance $\propto r_i^2\, h_{ii}/(1-h_{ii})^2$ combine the two?
+10. **The dummy-variable trap.** One-hot encode all $k$ levels of a categorical *and* keep the intercept: the design matrix is exactly rank-deficient. Explain the mechanism, then say what a pseudoinverse-based solver returns in that case, and what adding a ridge penalty changes about the answer.
+11. **Does big $n$ cure collinearity?** Argue from $\text{Var}(\hat\beta_j) \approx \frac{\sigma^2}{n\,\widehat{\text{Var}}(x_j)}\cdot\text{VIF}_j$ that multicollinearity is "just" a sample-size problem for inference: at fixed VIF, SEs still shrink at the $1/\sqrt n$ rate. So when is $\text{VIF}=50$ fatal, when is it irrelevant, and what does that say about rules of thumb like "VIF above 10 is serious"?
+12. **Regression through the origin.** You drop the intercept. What breaks? Cover: residuals no longer summing to zero, the failure of the $\text{TSS}=\text{ESS}+\text{RSS}$ decomposition, and why software silently switches to an uncentered $R^2$ that can look spectacular for a terrible fit.
+13. **$R^2$ folklore.** Prove or refute: (a) out-of-sample $R^2$ can be negative — and state what baseline $R^2 = 0$ corresponds to out of sample; (b) $R^2$ is invariant to affine rescaling of $y$; (c) comparing $R^2$ between a model of $y$ and a model of $\log y$ is meaningful. Explain why quant researchers treat a *positive* OOS $R^2$ of a few percent as a strong result — then: why is there no canonical $R^2$ for logistic regression, and what do pseudo-$R^2$s actually measure?
+14. **Unbiased, consistent — pick one.** Construct an estimator that is unbiased but inconsistent, and one that is biased but consistent — which of the two is the MLE of $\sigma^2$? State what OLS consistency actually requires ($\text{plim}\,X^\top X/n$ invertible plus $\mathbb{E}[x_i\varepsilon_i]=0$), give a realistic time-series case — a lagged dependent variable — where OLS is biased in finite samples yet consistent, and say which of the two properties you'd rather sacrifice in a large-sample trading context.
+15. **AIC, BIC, or cross-validation.** All three select models, but they optimize different things. Reconcile: which one is asymptotically equivalent to leave-one-out CV, which one recovers the true model as $n \to \infty$, and when do they disagree about how many factors to keep?
+16. **Three tests, one hypothesis.** Define the Wald, likelihood-ratio, and score (LM) tests of $H_0\!:\beta_j = 0$. Show why they are asymptotically equivalent (quadratic expansion of the log-likelihood), state which models each requires you to fit (restricted, unrestricted, or both), and give a finite-sample situation where they materially disagree — which one do you report?
+17. **When the standard errors lie.** Your residuals show volatility clustering and autocorrelation. Which OLS outputs survive (unbiasedness of $\hat\beta$) and which break — reconcile "the point estimate is fine" with "every $p$-value is wrong." Write White's sandwich estimator and say what each slice estimates; state when feasible GLS/WLS strictly beats OLS-with-robust-SEs (Aitken) and when misspecified weights make things worse; and since HC errors do nothing about serial correlation, say what Newey–West adds and the bandwidth trade-off.
+18. **Spurious regression.** Regress one trending, non-stationary series on another, unrelated one: you get a large $R^2$ and a huge $t$-stat. Explain the mechanism that manufactures the significance, how you'd detect it, and what differencing or cointegration testing changes.
+19. **When collinearity *does* hurt prediction.** The lesson says collinearity is "often harmless for prediction." Construct the counter-example: $x_1 \approx x_2$ in training, decoupled at deployment (a regime change). Explain via the low-variance principal directions why the fitted model extrapolates wildly off the training subspace — and why ridge's shrinkage of exactly those directions is an implicit bet about deployment data.
+20. **Alpha or multiple testing?** In a factor regression, "the strategy has alpha" is a $t$-test on the intercept. You test 200 candidate signals and 12 clear $|t| > 2$. Reconcile this with the 5% false-positive rate, and describe how you'd adjust the bar — this is the overfit-backtest problem in one question.
 
-1. **Penalties are not scale-invariant.** Show that OLS predictions are invariant to rescaling a column of $X$ (the coefficient rescales inversely), but the ridge and lasso solutions are not. What does this force you to do before penalized fitting? Why is the intercept conventionally left unpenalized, and what goes wrong — concretely — if you penalize it?
-2. **Ridge's effective degrees of freedom.** Define $\text{df}(\lambda) = \text{trace}(H_\lambda)$ and derive $\text{df}(\lambda) = \sum_j d_j^2/(d_j^2+\lambda)$ via the SVD. Use it to put "ridge at 5 effective dof" and "PCR keeping 5 components" on the same axis — then construct a case where the two equal-dof models predict very differently.
-3. **The exact bias of ridge.** Derive $\mathbb{E}[\hat\beta_{\text{ridge}}] = (X^\top X + \lambda I)^{-1}X^\top X\,\beta$. In the SVD basis, write the per-direction bias and variance, and show the MSE-optimal $\lambda$ for a single direction depends on the *unknown* true coefficient. What does that imply about what cross-validated $\lambda$ is — and isn't — doing?
-4. **Lasso as a variable-selection oracle — challenge it.** Two genuinely predictive features are $0.95$-correlated. What does lasso typically do with them, and why is the selected set unstable across bootstrap resamples? State (informally) the irrepresentable condition for support recovery, explain elastic net's grouping effect, and say when "lasso found the important features" is a defensible sentence.
-5. **The Wald test's silent failure.** In logistic regression approaching separation, both $\hat\beta_j$ and $\text{SE}(\hat\beta_j)$ blow up. Show why the Wald statistic can *fall toward zero* as the evidence for the effect grows — the Hauck–Donner effect — while the likelihood-ratio test keeps working. Which do you trust near-separation, and why does the LR test survive?
-6. **Rebalanced logistic and the intercept.** Prove that case-control (outcome-dependent) sampling biases *only the intercept* of a logistic regression, leaving the slopes consistent, and write the additive log-odds correction $\log(\tilde\pi/\pi)$-style offset. Connect to c1.1's prior-correction question: why does this clean fix exist for logistic regression's log-odds form but not for an arbitrary model?
-7. **To standardize or not (PCA).** Covariance-PCA and correlation-PCA can disagree completely. Construct a two-feature example where they pick essentially opposite first components. Give one case where standardizing first is clearly right, one where it is clearly wrong (features share meaningful units), and argue why "always standardize before PCA" is convention, not mathematics.
-8. **PCA: eigendecomposition vs SVD.** Mathematically $X^\top X = V D^2 V^\top$, so eig-of-covariance and SVD-of-$X$ "agree." Why do numerical libraries compute PCA via the SVD of centered $X$ anyway — what does forming $X^\top X$ do to the condition number, and which small singular values get destroyed? Finally: what breaks if you skip centering before the SVD, and does uncentered "PCA" still deserve the name?
+## Rapid-fire: regularization, logistic regression & PCA in the wild
+
+Use the same layered format: intuition, controlling principle, minimal derivation, practical consequence. Each bold heading is the core two-minute question; the remaining clauses are progressive follow-ups. These drills intentionally move beyond the lesson, but unfamiliar terminology should become a research pointer—not something to bluff through.
+
+1. **Regularize even when $n \gg p$?** With far more observations than features, OLS is well-posed — so construct the case for shrinkage anyway. When does penalization still lower test error, and when is the honest answer "don't bother"?
+2. **Rescale a feature.** Multiply one column of $X$ by 1000. Derive what happens to its OLS coefficient, its $t$-stat, and its ridge coefficient. Use the asymmetry to explain why you must standardize before penalized fitting but not before OLS — equivariance is the word to define. Why is the intercept conventionally left unpenalized, and what goes wrong — concretely — if you penalize it?
+3. **Two collinear twins.** Two genuinely predictive features are $0.95$-correlated. What does lasso typically do with the pair, why is the selected set unstable across bootstrap resamples, and what does elastic net's grouping effect buy you? State (informally) the irrepresentable condition for support recovery, say when "lasso found the important features" is a defensible sentence — and when you actually want one-of-the-pair sparsity instead.
+4. **Generative vs. discriminative.** Naive Bayes and logistic regression can represent the *same* decision boundary, yet they estimate it differently. Contrast what each one models, which needs less data to reach its asymptotic error (and the classical result behind that), and when you'd deliberately pick the "worse" asymptotic model.
+5. **Odds are not probabilities.** A logistic coefficient is $\hat\beta_j = 0.7$. Interpret it exactly. Why is "the probability increases by 0.7" wrong twice over, and why does the effect of $x_j$ on the *probability* depend on where you are on the curve while its effect on the *log-odds* doesn't?
+6. **Where the hyperplane comes from.** Derive why logistic regression's decision boundary is linear in $x$, then name two ways to get a nonlinear boundary *without* leaving logistic regression — and the price you pay in each.
+7. **Logit vs. probit.** Both squash a linear index through a CDF. Give the latent-variable derivation of each, say why their fitted coefficients differ by a roughly constant scale factor, and name a situation where the choice actually changes a conclusion.
+8. **Sigmoid without overflow.** You're implementing logistic regression from scratch in an interview. Write the loss so it's numerically stable at logits of $\pm 500$ — which expression blows up naively, what does the log-sum-exp trick do, and how do you verify your gradient is right before training?
+9. **Newton or SGD.** IRLS converges in a handful of iterations; SGD needs thousands of steps. Compare the per-iteration cost of each in $n$ and $p$, and explain why statsmodels uses the second-order method while ad-scale CTR systems and deep learning use first-order — where exactly is the crossover?
+10. **Softmax's extra degree of freedom.** Show that adding the same constant to every class logit leaves softmax probabilities unchanged. What does this imply about identifiability of multinomial-logistic parameters, how does the binary sigmoid case resolve it, and why doesn't the redundancy bother a regularized deep net?
+11. **More parameters than points.** With $p > n$, infinitely many coefficient vectors interpolate the training data exactly. Which one does gradient descent from zero find, why can that minimum-norm interpolator generalize better than a moderately overparameterized fit — and what does this "double descent" behavior do to the classical bias–variance story?
+12. **Calibrated for the auction.** An ads CTR model is trained on negatively-downsampled data. Explain why its probabilities are inflated, derive the recalibration that undoes a downsampling rate $w$, and prove the deeper fact behind it: outcome-dependent sampling biases *only the intercept* of a logistic regression, leaving the slopes consistent — an additive log-odds offset fixes everything. Why does great ROC-AUC *not* certify the model is safe to price an auction with, and why does this clean fix exist for logistic regression's log-odds form but not for an arbitrary model?
+13. **Covariance or correlation matrix.** PCA on the covariance matrix and PCA on the correlation matrix can disagree completely — construct a two-feature example where the first PC changes essentially entirely between the two. Give one case where standardizing first is clearly right, one where it is clearly wrong (features share meaningful units), and argue why "always standardize before PCA" is convention, not mathematics.
+14. **PCA: eigendecomposition vs SVD.** Mathematically $X^\top X = V D^2 V^\top$, so eig-of-covariance and SVD-of-$X$ "agree." Why do numerical libraries compute PCA via the SVD of centered $X$ anyway — what does forming $X^\top X$ do to the condition number, and which small singular values get destroyed? Finally: what breaks if you skip centering before the SVD, and does uncentered "PCA" still deserve the name?
+15. **Level, slope, curvature.** Run PCA on daily yield-curve moves and roughly three components explain nearly all the variance, with famously interpretable shapes. Explain why highly correlated assets concentrate variance in a few components, what the analogous first PC of equity returns is, and how a desk uses the three factors to hedge.
+16. **Loadings that won't sit still.** You rerun PCA on a bootstrap resample and several loadings change sign; two components swap places. Explain which parts of this are mathematically inevitable (sign indeterminacy, near-degenerate eigenvalues) versus evidence of instability — and what that means for treating loadings as tradeable factors.
+17. **How many components are real.** Defend a choice of $k$ three ways: the scree/explained-variance heuristic, cross-validated reconstruction or downstream error, and comparison against a random-matrix null for the eigenvalue spectrum. Why does the naive elbow systematically over-count for correlated noise?
+18. **When the formula fails, resample.** Your coefficient's analytic standard error assumes homoskedastic errors and a large sample; you have neither. Describe how the pairs bootstrap gets you a confidence interval anyway, how it differs from the residual bootstrap, and one regression setting where the bootstrap itself quietly fails.
