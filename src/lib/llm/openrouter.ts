@@ -61,6 +61,15 @@ export async function exchangeCode(code: string): Promise<string> {
   return data.key as string;
 }
 
+export class OpenRouterError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "OpenRouterError";
+    this.status = status;
+  }
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -86,11 +95,23 @@ export async function chat(
   });
 
   if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`OpenRouter ${resp.status}: ${text}`);
+    let detail = await resp.text();
+    try {
+      detail = JSON.parse(detail).error?.message ?? detail;
+    } catch {
+      // not JSON — keep the raw body
+    }
+    throw new OpenRouterError(resp.status, detail);
   }
 
   const data = await resp.json();
+  // OpenRouter can also report failures in a 200 body.
+  if (data.error) {
+    throw new OpenRouterError(
+      data.error.code ?? 500,
+      data.error.message ?? "Unknown OpenRouter error",
+    );
+  }
   return {
     text: data.choices[0].message.content,
     model: data.model ?? model,
