@@ -365,7 +365,23 @@ Penalties act on coefficient size, so feature scale changes the effective punish
 
 The prior view supplies intuition for $\lambda$: larger $\lambda$ means a tighter prior around zero—stronger prior belief that large coefficients are unlikely. MAP is still a point estimate; a full Bayesian analysis keeps the posterior distribution and propagates parameter uncertainty.
 
-**Bias for variance — and why unbiased isn't sacred.** Ridge is biased, yet its variance reduction can lower total MSE below OLS's (recall $\text{MSE} = \text{Bias}^2 + \text{Variance}$; OLS minimizes variance *subject to zero bias*, an often-suboptimal constraint). The deep version: **James–Stein (1961)** — the ordinary sample mean is *inadmissible* for estimating a Gaussian mean in dimension $\ge 3$; a shrinkage estimator strictly dominates it in total MSE, even with independent coordinates. Shrinkage isn't a hack; it's provably better in $\ge 3$ dimensions. Ridge is the regression analogue.
+**Bias for variance — and why unbiased isn't sacred.** For a single coefficient, the decomposition is
+
+$$
+\mathbb E\left[(\hat\beta_j-\beta_j)^2\right]
+=\left(\mathbb E[\hat\beta_j]-\beta_j\right)^2
++\operatorname{Var}(\hat\beta_j)
+$$
+
+In words: coefficient MSE equals squared bias plus variance. For the full coefficient vector, the corresponding total squared-error decomposition is
+
+$$
+\mathbb E\left[\lVert\hat\beta-\beta\rVert_2^2\right]
+=\left\lVert\mathbb E[\hat\beta]-\beta\right\rVert_2^2
++\operatorname{tr}\!\left(\operatorname{Cov}(\hat\beta)\right)
+$$
+
+The trace appears because $\operatorname{Cov}(\hat\beta)$ is a matrix; its diagonal entries are the component variances, and their sum is the estimator's total variance. Ridge is biased, but its reduction in total variance can outweigh its squared bias and produce lower total MSE than OLS. OLS minimizes variance only *among linear unbiased estimators*, an often-overlooked restriction. The deep version is **James–Stein (1961)**: the ordinary sample mean is inadmissible for estimating a Gaussian mean in dimension $\ge 3$; a shrinkage estimator can have lower total MSE. Shrinkage is not merely a numerical hack. Ridge applies that bias–variance logic to regression.
 
 Regularized coefficients do not inherit ordinary OLS $p$-values. The penalty changes their bias and sampling distribution, while data-driven tuning adds selection uncertainty. Use regularization primarily for prediction and stability; use carefully designed post-selection or Bayesian methods when inference is the goal.
 
