@@ -329,7 +329,7 @@ $\lambda$ is the strength of skepticism. At $\lambda=0$ we recover OLS; as $\lam
 
 **Ridge (L2)** solves
 
-$$\min_\beta\ \lVert y-X\beta\rVert^2+\lambda\lVert\beta\rVert_2^2$$
+$$\min_\beta\ \frac12\lVert y-X\beta\rVert^2+\frac\lambda2\lVert\beta\rVert_2^2$$
 
 and has the closed form
 
@@ -343,7 +343,7 @@ Geometrically, ridge asks for the lowest-RSS contour that touches a round L2 bal
 
 **Lasso (L1)** solves
 
-$$\min_\beta\ \lVert y-X\beta\rVert^2+\lambda\lVert\beta\rVert_1$$
+$$\min_\beta\ \frac12\lVert y-X\beta\rVert^2+\lambda\lVert\beta\rVert_1$$
 
 The L1 constraint has diamond-shaped corners on the coordinate axes. An expanding RSS contour often touches a corner, making one or more coefficients exactly zero. Lasso therefore performs estimation and feature selection together.
 
@@ -353,7 +353,22 @@ $$\hat\beta_j^{\text{ridge}}=\frac{\hat\beta_j^{\text{OLS}}}{1+\lambda}$$
 
 $$\hat\beta_j^{\text{lasso}}=\operatorname{sign}(\hat\beta_j^{\text{OLS}})\max\left(|\hat\beta_j^{\text{OLS}}|-\lambda,0\right)$$
 
-Ridge proportionally shrinks; lasso **soft-thresholds**, subtracting a fixed amount and zeroing weak coefficients.
+Ridge proportionally shrinks; lasso **soft-thresholds**, subtracting a fixed amount and setting weak coefficients exactly equal to zero. Here “exactly zero” means $\hat\beta_j=0$, so feature $j$ contributes $x_j\hat\beta_j=0$ to every prediction—the fitted model has excluded that feature.
+
+**Orthonormality is only what makes the closed form simple.** Lasso can produce exact-zero coefficients for a general design matrix too. Let $r=y-X\hat\beta$ be the residual at the lasso optimum. Its KKT/subgradient condition for feature $j$ is
+
+$$
+x_j^\top r=
+\begin{cases}
+\lambda, & \hat\beta_j>0,\\
+-\lambda, & \hat\beta_j<0,\\
+\text{some value in }[-\lambda,\lambda], & \hat\beta_j=0.
+\end{cases}
+$$
+
+Thus a feature whose remaining correlation with the residual is too weak to overcome the penalty, $|x_j^\top r|\le\lambda$, can optimally receive coefficient zero. Unlike the orthonormal case, the coefficients are coupled: changing one coefficient changes $r$ and therefore changes the conditions for all the others. There is no general rule that independently thresholds each OLS coefficient.
+
+Ridge, by contrast, has a smooth penalty and **no mechanism designed to create sparsity**. Its solution is generally dense. A ridge coefficient can coincidentally equal zero because of symmetry or cancellation, so “ridge never produces zeros” is too absolute; the accurate claim is that ridge does not map a whole region of weak signals to zero and is not a feature-selection method.
 
 With a group of highly correlated features, lasso may choose one somewhat arbitrarily and drop the rest. That can be useful for a compact predictor but dangerous for scientific interpretation: “selected” does not mean uniquely important. **Elastic net** combines L1 and L2, encouraging sparsity while making correlated features more likely to enter together.
 
