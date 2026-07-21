@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   MessageCircleIcon,
   SendIcon,
@@ -13,6 +14,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { ask } from "@/lib/llm/client";
+import { OpenRouterError } from "@/lib/llm/openrouter";
 import { loadSettings } from "@/lib/llm/settings";
 import { cn } from "@/lib/utils";
 
@@ -44,11 +46,49 @@ export function TutorWidget() {
   );
 }
 
+// Turn a failed ask() into a message that names the actual cause, not a
+// generic "request failed" — the status codes carry the fix the user needs.
+function failureHint(err: unknown): string {
+  if (err instanceof OpenRouterError) {
+    const detail = `**OpenRouter error ${err.status}:** ${err.message}`;
+    switch (err.status) {
+      case 402:
+        return `${detail}\n\nYour OpenRouter account has no credits, so paid models are rejected. In Settings (gear icon, top right), pick a model tagged **free** — or add credits on openrouter.ai.`;
+      case 401:
+        return `${detail}\n\nYour OpenRouter key was rejected. In Settings (gear icon, top right), disconnect and reconnect your OpenRouter account.`;
+      case 429:
+        return `${detail}\n\nYou're being rate-limited — free-tier models share tight limits. Wait a minute and retry, or switch to a different **free** model in Settings.`;
+      case 404:
+        return `${detail}\n\nThe selected model isn't available right now. Pick a different model in Settings (gear icon, top right).`;
+      default:
+        return `${detail}\n\nCheck your OpenRouter settings (gear icon, top right) and try again.`;
+    }
+  }
+  const { mode, bridgePort } = loadSettings();
+  if (mode === "local") {
+    return `Couldn't reach the local bridge on port ${bridgePort}. The bridge only works in a browser on the same machine where \`claude-bridge\` is running — on a phone, switch to **OpenRouter** mode in Settings (gear icon, top right).`;
+  }
+  const detail = err instanceof Error ? err.message : String(err);
+  return `**The request failed:** ${detail}\n\nCheck your connection and OpenRouter settings (gear icon, top right), then try again.`;
+}
+
+// "/c/c1/c1.4" → "lesson c1.4", "/c/c1/c1.4/quiz" → "the quiz for lesson c1.4"
+function pageContext(pathname: string): string | null {
+  const m = pathname.match(/^\/c\/[^/]+\/([^/]+?)(\/quiz)?\/?$/);
+  if (!m) return null;
+  const title =
+    typeof document !== "undefined" ? document.title.split(" · ")[0] : "";
+  const page = m[2] ? `the quiz for lesson ${m[1]}` : `lesson ${m[1]}`;
+  return title ? `${page} ("${title}")` : page;
+}
+
 function TutorPanel({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const pathname = usePathname();
   const sessionRef = useRef<string | undefined>(undefined);
+  const sentContextRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -67,20 +107,26 @@ function TutorPanel({ onClose }: { onClose: () => void }) {
     setInput("");
     setMessages((m) => [...m, { role: "user", content: query }]);
     setBusy(true);
+    const context = pageContext(pathname);
+    const fullQuery =
+      context && !sentContextRef.current
+        ? `(The reader is currently on: ${context})\n\n${query}`
+        : query;
     try {
-      const result = await ask(query, sessionRef.current);
-      if (!result.isError) sessionRef.current = result.sessionId;
+      const result = await ask(fullQuery, sessionRef.current);
+      if (!result.isError) {
+        sessionRef.current = result.sessionId;
+        sentContextRef.current = true;
+      }
       setMessages((m) => [
         ...m,
         { role: "assistant", content: result.text, isError: result.isError },
       ]);
-    } catch {
-      const { mode, bridgePort } = loadSettings();
-      const hint =
-        mode === "local"
-          ? `Couldn't reach the local bridge on port ${bridgePort}. The bridge only works in a browser on the same machine where \`claude-bridge\` is running — on a phone, switch to **OpenRouter** mode in Settings (gear icon, top right).`
-          : "The request failed. Check your connection and OpenRouter settings (gear icon, top right), then try again.";
-      setMessages((m) => [...m, { role: "assistant", content: hint, isError: true }]);
+    } catch (err) {
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: failureHint(err), isError: true },
+      ]);
     } finally {
       setBusy(false);
     }
@@ -89,6 +135,7 @@ function TutorPanel({ onClose }: { onClose: () => void }) {
   const clear = useCallback(() => {
     setMessages([]);
     sessionRef.current = undefined;
+    sentContextRef.current = false;
   }, []);
 
   return (
