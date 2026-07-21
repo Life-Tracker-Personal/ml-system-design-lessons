@@ -86,6 +86,17 @@ If a lesson only confirms what a textbook says, it's missing the point of this c
 **Question-type taxonomy** (aim for a spread, not 12 of one kind):
 derivation from first principles · repeat-a-derivation-for-a-variant · exact quantified computation (gradients, influence, variance) · edge-case / pathology (non-differentiability, variance blow-up) · prove a property (continuity, unbiasedness) · prove-via-integral / calculus · closed-form-exists-or-not · invariance / equivariance · **library-specific debugging** (must be version-accurate — see §7) · **construct an adversarial dataset / counter-example** · asymptotic / Taylor analysis · design-a-protocol.
 
+### Rapid-fire sections (mandatory — after the 12 `<Quiz>` blocks)
+
+Every quiz ends with **1–2 `## Rapid-fire: <sub-topic>` sections** in the c1.1 style (see the end of `c1/c1.1.quiz.mdx` — it's the spec). These are *interview-verbatim calibration*: the questions actually being asked in current (2024–2026) ML / AI-research / quant interviews at frontier labs (OpenAI, Anthropic, DeepMind), FAANG, and quant funds (Jane Street, Citadel, Two Sigma, HRT), scoped to the lesson's topic.
+
+- **Format:** a numbered list of **15–20 questions per section**, each item opening with a **bold 2–5-word hook** (`**Unbiased for what?**`) followed by the question. Many bundle 2–3 sub-questions; a strong answer hits every part.
+- **No model answers, on purpose.** The intro line states the contract: *if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close.* Name the interview tier the questions come from (frontier labs, FAANG, quant funds).
+- **Sourcing:** ground the set in *reported* questions — the `interview-questions` skill's company bank, plus fresh research (Blind, Glassdoor, interviewing.io, r/MachineLearning interview threads, company eng blogs). Rephrase into the course's derive/construct voice, but the underlying question must be one interviewers actually ask; don't invent plausible-sounding fillers.
+- **Same phrasing bar as the main quiz:** derive / construct / reconcile / "when does X fail" — never "what is." The best items expose a tension ("unbiased estimator ≠ good objective") or a named mechanism (`detach`, prior correction, VIF).
+- **Quant/stats items are required** where the topic touches estimators, distributions, OLS, PCA, testing, or calibration (§3's quant lens) — these are the questions quant-research loops lead with.
+- **No overlap with the 12 main questions** — rapid-fire covers the breadth the deep dozen can't; a rapid-fire item that repeats a main question's core point is a wasted slot.
+
 ---
 
 ## 6. MDX & component mechanics
@@ -179,6 +190,7 @@ Before considering a lesson + quiz done:
 - [ ] At least one **"challenge the standard story"** moment in the lesson, and counter-example/adversarial questions in the quiz (§4).
 - [ ] Each "what you'll be able to do" bullet has a **matching quiz question**.
 - [ ] Quiz: **12 questions**, derive/prove/construct phrasing, each with a **model answer + explicit rubric**, plus the intro + calibration line.
+- [ ] Quiz ends with **1–2 rapid-fire sections** (§5): 15–20 interview-verbatim questions each, bold hooks, no answers, sourced from current top-lab/FAANG/quant interviews, no overlap with the main 12.
 - [ ] **Plain-English-first** ordering throughout; intuition precedes every equation.
 - [ ] Every section / sub-section / worked example **opens with a 1–2 sentence goal statement** (big-picture-first, `**Goal — …**`).
 - [ ] Where the topic has a statistics backbone (distributions, estimators, OLS, PCA, testing, calibration), the **stats/quant-research angle** is surfaced.
