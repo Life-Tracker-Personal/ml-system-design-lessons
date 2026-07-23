@@ -76,9 +76,9 @@ at* specific sampling techniques rather than name them upfront.
 
 | Topic | Existing lesson | Gap? |
 |---|---|---|
-| Logistic regression derivation, no closed form, gradient, update | `c1.4` | Confirm the lesson makes the "no closed form → iterative optimization → gradient → update step" chain explicit, and shows the bias-shifts-the-sigmoid intuition. |
-| Linear vs. logistic | `c1.4` | Covered. |
-| XGBoost / RF hyperparameter effects | `c1.5` | Covered. |
-| Importance / rejection / reservoir sampling | `c1.11` | Verify all three sampling methods appear; reservoir sampling in particular is a streaming technique that may be under-covered. |
-| Precision/recall as the right imbalance metric; F1 = harmonic mean rationale | `c1.10`, `c1.11` | Confirm the "why harmonic mean" derivation is present (harmonic mean penalizes the smaller of P/R, resisting the 0.99-precision-0.01-recall trap). |
-| GNNs for recsys | none yet | Planned Ch. 3 / rehearsal track. |
+| Logistic regression derivation, no closed form, gradient, update | `c1.4` | ✅ Explicit — new rapid-fire "logistic regression from the whiteboard to code" (`c1.4.quiz.mdx`): derive-from-nothing, move-the-bias/curve-shift, no-closed-form→gradient→update-step, code-it-up. |
+| Linear vs. logistic | `c1.4` | ✅ Explicit — item 3 of that same rapid-fire section. |
+| XGBoost / RF hyperparameter effects | `c1.5` | ✅ Explicit — new item 21 "Turn the knobs — which way does error move?" (`c1.5.quiz.mdx`), knob-by-knob for both RF and XGBoost. |
+| Importance / rejection / reservoir sampling | `c1.11` | ✅ Explicit — new rapid-fire section "the three sampling primitives — importance · rejection · reservoir" (`c1.11.quiz.mdx`), each in "arrive-at-it" scenario form; reservoir includes the $k/i$ replacement + $k/n$ induction proof. |
+| Precision/recall as the right imbalance metric; F1 = harmonic mean rationale | `c1.10` | ✅ Explicit — new items 21 ("Are precision and recall even the right metrics?") and 22 ("Why *harmonic*, not arithmetic?") in `c1.10.quiz.mdx`, on top of existing Q10 (Fβ derivation). |
+| GNNs for recsys | none yet | ⬜ **Only remaining gap.** No lesson exists — GNNs are planned for Ch. 3 (architectures) / the system-design-rehearsal track, so there's no quiz to host the question yet. Flagged for when that chapter is authored. |
