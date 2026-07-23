@@ -192,11 +192,11 @@ So $\phi$ is infinite-dimensional.
 <details>
 <summary>Model answer + rubric</summary>
 
-**Cover–Hart (1967).** As $n \to \infty$, the 1-NN error $R$ satisfies, for $M$ classes,
+**Cover–Hart (1967).** As $n \to \infty$, the binary 1-NN error is squeezed between the Bayes error and twice it:
 
-$$R^\star \le R \le R^\star\Bigl(2 - \tfrac{M}{M-1}R^\star\Bigr)$$
+$$R^\star \le R \le 2R^\star(1 - R^\star) \le 2R^\star$$
 
-In the **binary** case ($M=2$): $R^\star \le R \le 2R^\star(1 - R^\star) \le 2R^\star$.
+(The general $M$-class form carries an extra $M/(M-1)$ factor; for the exact statement, ask an AI assistant — an interviewer wants the $2R^\star$ takeaway, not the constant.)
 
 **Interpretation of $R \le 2R^\star$.** Even the crudest possible classifier — "copy the label of the single closest point" — has asymptotic error no worse than **twice** the best achievable error of *any* classifier (the Bayes classifier, which knows the true $P(y\mid x)$). Put differently, at least **half the achievable information about the label is contained in the single nearest neighbor**. That's a remarkable guarantee for a method that does no training at all.
 
