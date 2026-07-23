@@ -8,8 +8,6 @@ estimatedMinutes: 45
 
 These 12 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
 
-If you can derive Q1, Q2, Q5, and Q8 from scratch, and explain Q9 and Q10 cold, you're calibrated for the regression portion of any top-tier or quant interview.
-
 <Quiz id="1">
 
 **Q1. From “closest line” to the OLS formula.** OLS chooses the prediction vector $X\hat\beta$ closest to $y$. Show that statement algebraically in two ways: minimize RSS with calculus, then view $X\hat\beta$ as the orthogonal projection of $y$ onto the space spanned by $X$. Use the projection picture to decide whether the hat matrix is symmetric, idempotent, invertible, has trace $p$, and has eigenvalues in $\{0,1\}$. Finally, explain what must be true of the feature columns for the usual closed form to exist.
@@ -405,15 +403,6 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 
 ## Rapid-fire: OLS, inference & the quant gauntlet
 
-These are **deep interview drills**, despite the traditional “rapid-fire” label. Many contain a two-minute core question followed by harder extensions. Do not try to say every equation at once. Give a layered answer:
-
-1. State the phenomenon in one plain-English sentence.
-2. Name the assumption or identity that controls it.
-3. Derive the smallest equation that proves the claim.
-4. Add the production or quant implication only after the core answer is clear.
-
-For example, on “duplicate every row,” begin with “the fitted line is unchanged, but naive inference mistakes copies for new information.” Then prove each part. The bold phrase at the start of every prompt names the central tension; treat later clauses as follow-ups an interviewer may ask, not one breathless response.
-
 1. **Regress both ways.** You regress $y$ on $x$, then $x$ on $y$. Derive both slopes in terms of $\rho$, $\sigma_x$, $\sigma_y$. Show their product is $\rho^2$, state when the two slopes are equal, and explain why the second slope is *not* the reciprocal of the first even though the algebra of the fitted line suggests it should be.
 2. **Duplicate every row.** You copy the entire dataset once, so every observation appears twice, and rerun OLS. Derive what happens to $\hat\beta$, $R^2$, the residual variance estimate, the standard errors, and the $t$-statistics — and explain why the quantities that *change* are exactly the ones that were pretending you had new information.
 3. **Which assumption buys what.** Gauss–Markov lists four assumptions: linearity, strict exogeneity, homoskedasticity, no perfect collinearity. Map each to precisely which conclusion dies when it — and only it — fails: unbiasedness, the BLUE property, valid standard errors, or the existence of $\hat\beta$ at all. Which single failure makes $\hat\beta$ biased *and* inconsistent, and which merely wrecks inference while leaving $\hat\beta$ unbiased?
@@ -437,8 +426,6 @@ For example, on “duplicate every row,” begin with “the fitted line is unch
 
 ## Rapid-fire: regularization, logistic regression & PCA in the wild
 
-Use the same layered format: intuition, controlling principle, minimal derivation, practical consequence. Each bold heading is the core two-minute question; the remaining clauses are progressive follow-ups. These drills intentionally move beyond the lesson, but unfamiliar terminology should become a research pointer—not something to bluff through.
-
 1. **Regularize even when $n \gg p$?** With far more observations than features, OLS is well-posed — so construct the case for shrinkage anyway. When does penalization still lower test error, and when is the honest answer "don't bother"?
 2. **Rescale a feature.** Multiply one column of $X$ by 1000. Derive what happens to its OLS coefficient, its $t$-stat, and its ridge coefficient. Use the asymmetry to explain why you must standardize before penalized fitting but not before OLS — equivariance is the word to define. Why is the intercept conventionally left unpenalized, and what goes wrong — concretely — if you penalize it?
 3. **Two collinear twins.** Two genuinely predictive features are $0.95$-correlated. What does lasso typically do with the pair, why is the selected set unstable across bootstrap resamples, and what does elastic net's grouping effect buy you? State (informally) the irrepresentable condition for support recovery, say when "lasso found the important features" is a defensible sentence — and when you actually want one-of-the-pair sparsity instead.
@@ -458,8 +445,6 @@ Use the same layered format: intuition, controlling principle, minimal derivatio
 
 ## Rapid-fire: logistic regression from the whiteboard to code (the breadth-round drill)
 
-The exact sequence a LinkedIn/FAANG **ML-breadth** interviewer walks: derive logistic regression cold, perturb its parameters, contrast it with linear regression, then implement it — gradient and update step by hand. No model answers on purpose: if you can't produce each cleanly, out loud or on a whiteboard, in ~2 minutes, that's the gap to close. Several bundle sub-questions; a strong answer hits every part.
-
 1. **Derive it from nothing.** Start from "$y\mid x$ is Bernoulli with parameter $p(x)$" and the choice to make the **log-odds** linear, $\log\frac{p}{1-p}=w^\top x+b$. Invert to get the sigmoid $p=\sigma(w^\top x+b)$, write the Bernoulli log-likelihood over $n$ points, and show maximizing it *is* minimizing binary cross-entropy. Name the one modeling choice (the logit link) that turns a generic classifier into *this* one — and what would change if you'd picked the probit link instead.
 2. **Move the bias, shift the curve.** With one feature, $p(x)=\sigma(wx+b)$. Show precisely how $b$ **translates** the sigmoid along the $x$-axis (the 0.5-crossing sits at $x=-b/w$) while $w$ sets its **steepness** and orientation (sign flip mirrors it). Derive the slope of $p$ at the crossing ($w/4$), and answer the follow-up: as $\lVert w\rVert\to\infty$ the curve approaches a step — what does that correspond to in the data (separability), and why does an unregularized fit chase it?
 3. **Linear vs. logistic — line them up.** Both are linear in $x$; list *exactly* what changes: the link (identity vs. logit), the output's meaning (conditional mean vs. $P(y{=}1\mid x)$), the noise model / loss (Gaussian–squared vs. Bernoulli–cross-entropy), and the boundary. Then land the punchline: why is fitting a *linear* regression to 0/1 labels (the linear probability model) a defensible move for *estimating average effects* but a bad one for *predicting probabilities* — where does it embarrass itself?
@@ -468,8 +453,6 @@ The exact sequence a LinkedIn/FAANG **ML-breadth** interviewer walks: derive log
 6. **Code it up.** Implement logistic regression from scratch in ~15 lines of NumPy: forward ($\sigma$), loss, gradient, and the update loop. Two things the interviewer is watching for — write the loss in a **numerically stable** form so a logit of $\pm 500$ doesn't overflow (log-sum-exp / `logaddexp`), and state how you'd **gradient-check** it (finite differences) before trusting a single training step.
 
 ## Rapid-fire: linear & logistic regression, fast recall
-
-The machine-gun version — the canonical breadth-round questions you should answer cleanly in **under 90 seconds each**, no derivation theater. These are the fundamentals underneath the deeper drills above; if any one makes you hesitate, that's the gap to close first.
 
 1. **Probability or label?** Does logistic regression output a class or a probability? How do you turn its output into a 0/1 decision — and is a 0.5 cutoff always right?
 2. **Why not linear regression for classification?** Give three concrete reasons fitting a straight line to 0/1 labels misbehaves — predictions outside $[0,1]$, the wrong noise model, and sensitivity to points far from the boundary.
