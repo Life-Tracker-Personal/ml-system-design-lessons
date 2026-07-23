@@ -76,8 +76,8 @@ If a lesson only confirms what a textbook says, it's missing the point of this c
 ## 5. Quiz anatomy (`cX.Y.quiz.mdx`)
 
 - **12 questions.** `estimatedMinutes: 45`.
-- **Intro paragraph** stating these test understanding/derivation/counter-example construction, **not recall**, and inviting the reader to answer before revealing.
-- **A calibration line** giving the staff-level bar, e.g. *"If you can answer 8 of these cleanly, you're calibrated for an ML system-design interview at staff level. If you can answer all 12, you can teach this material."* — or name the must-derive subset ("If you can derive Q1, Q2, Q5, Q7 from scratch on a whiteboard…").
+- **Intro paragraph** stating these test understanding/derivation/counter-example construction, **not recall**, and inviting the reader to answer before revealing. Keep it to what the questions test — then stop.
+- **No study-coaching meta-text.** Do **not** add a "calibration line" ("if you can answer 8 of these you're calibrated for a staff interview / you can teach this material"), a self-assessment bar, timing or performance instructions ("answer in ~2 minutes", "out loud", "under 90 seconds"), or "if you can't answer this, that's the gap to close" framing. It reads as filler; the questions carry the value on their own.
 - Each question is a `<Quiz id="N">` block containing:
   - `**QN.** <prompt>` — phrased as **derive / prove / compute exactly / construct / design / show**. Never "what is" or "list."
   - `<details>` → `<summary>Model answer + rubric</summary>` → the full worked answer → a **`**Rubric:**`** bullet list enumerating the exact points that earn credit → `</details>`.
@@ -90,8 +90,8 @@ derivation from first principles · repeat-a-derivation-for-a-variant · exact q
 
 Every quiz ends with **1–2 `## Rapid-fire: <sub-topic>` sections** in the c1.1 style (see the end of `c1/c1.1.quiz.mdx` — it's the spec). These are *interview-verbatim calibration*: the questions actually being asked in current (2024–2026) ML / AI-research / quant interviews at frontier labs (OpenAI, Anthropic, DeepMind), FAANG, and quant funds (Jane Street, Citadel, Two Sigma, HRT), scoped to the lesson's topic.
 
-- **Format:** a numbered list of **15–20 questions per section**, each item opening with a **bold 2–5-word hook** (`**Unbiased for what?**`) followed by the question. Many bundle 2–3 sub-questions; a strong answer hits every part.
-- **No model answers, on purpose.** The intro line states the contract: *if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close.* Name the interview tier the questions come from (frontier labs, FAANG, quant funds).
+- **Format:** a numbered list of **15–20 questions per section**, each item opening with a **bold 2–5-word hook** (`**Unbiased for what?**`) followed by the question. Many bundle 2–3 sub-questions.
+- **No model answers, and no intro preamble.** Put the numbered questions directly under the `## Rapid-fire: <topic>` heading — the heading already names the topic, so no lead-in sentence, no timing/coaching contract ("~2 minutes", "out loud", "that's the gap"), and no company/fund name-drop in the prose. A short framing line is allowed **only** when it conveys real content (e.g. how this sub-topic's questions differ from the section above), never study-coaching.
 - **Sourcing:** ground the set in *reported* questions — the `interview-questions` skill's company bank, plus fresh research (Blind, Glassdoor, interviewing.io, r/MachineLearning interview threads, company eng blogs). Rephrase into the course's derive/construct voice, but the underlying question must be one interviewers actually ask; don't invent plausible-sounding fillers.
 - **Same phrasing bar as the main quiz:** derive / construct / reconcile / "when does X fail" — never "what is." The best items expose a tension ("unbiased estimator ≠ good objective") or a named mechanism (`detach`, prior correction, VIF).
 - **Quant/stats items are required** where the topic touches estimators, distributions, OLS, PCA, testing, or calibration (§3's quant lens) — these are the questions quant-research loops lead with.
@@ -189,8 +189,8 @@ Before considering a lesson + quiz done:
 - [ ] Every core claim is **derived, quantified, or named-incident-grounded** — no bare assertions.
 - [ ] At least one **"challenge the standard story"** moment in the lesson, and counter-example/adversarial questions in the quiz (§4).
 - [ ] Each "what you'll be able to do" bullet has a **matching quiz question**.
-- [ ] Quiz: **12 questions**, derive/prove/construct phrasing, each with a **model answer + explicit rubric**, plus the intro + calibration line.
-- [ ] Quiz ends with **1–2 rapid-fire sections** (§5): 15–20 interview-verbatim questions each, bold hooks, no answers, sourced from current top-lab/FAANG/quant interviews, no overlap with the main 12.
+- [ ] Quiz: **12 questions**, derive/prove/construct phrasing, each with a **model answer + explicit rubric**, plus a short intro paragraph — **no calibration line or study-coaching meta-text** (§5).
+- [ ] Quiz ends with **1–2 rapid-fire sections** (§5): 15–20 interview-verbatim questions each, bold hooks, no answers, **no intro coaching/name-drop preamble**, sourced from current top-lab/FAANG/quant interviews, no overlap with the main 12.
 - [ ] **Plain-English-first** ordering throughout; intuition precedes every equation.
 - [ ] Every section / sub-section / worked example **opens with a 1–2 sentence goal statement** (big-picture-first, `**Goal — …**`).
 - [ ] Where the topic has a statistics backbone (distributions, estimators, OLS, PCA, testing, calibration), the **stats/quant-research angle** is surfaced.

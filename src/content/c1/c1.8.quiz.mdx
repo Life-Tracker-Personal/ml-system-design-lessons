@@ -8,8 +8,6 @@ estimatedMinutes: 45
 
 These 12 questions test whether you understand Naive Bayes as a *generative MLE model* — its linearity, its generative–discriminative pairing with logistic regression, and why it classifies well but lies about probabilities — not whether you can name it. Try to answer before revealing.
 
-If you can derive Q1, Q2, Q3, and Q6 from scratch, you're calibrated for the probabilistic-classifier portion of any top-tier or quant interview.
-
 <Quiz id="1">
 
 **Q1.** Prove that Bernoulli Naive Bayes has a linear decision boundary. Derive the weight $w_j$ and bias $b$ explicitly.
@@ -329,8 +327,6 @@ and classifies by the **smallest** complement match: $\hat y=\arg\min_c\sum_j x_
 
 ## Rapid-fire: Bayes' rule, independence & the generative family
 
-Additional interview-calibrated questions — the ones that separate candidates in ML-breadth rounds at FAANG (Amazon, Apple, LinkedIn, Pinterest), frontier labs (OpenAI, Anthropic, DeepMind), and quant funds. No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
-
 1. **Count the parameters.** For $d$ binary features and two classes, derive the exact number of free parameters in the full joint likelihood $p(x\mid y)$ versus the naive factorization — $2(2^d-1)$ vs $2d$. Explain why this makes the *wrong* model estimable and the *right* one hopeless at a 10,000-word vocabulary, and what that says about "more expressive is better."
 2. **Conditional $\ne$ marginal.** Construct a pair of features that are conditionally independent given the class yet strongly correlated marginally — and the reverse. Which independence does NB actually assume, and why does inspecting a marginal correlation matrix tell you almost nothing about whether that assumption holds?
 3. **The Bayes-optimal floor.** Define the Bayes error, and show NB attains it when its assumptions hold *exactly*. If conditional independence holds but your $\hat\theta$ come from finite counts, is NB still optimal? Separate approximation error from estimation error.
@@ -352,8 +348,6 @@ Additional interview-calibrated questions — the ones that separate candidates 
 19. **Implement it end-to-end.** Whiteboard a from-scratch Multinomial NB — Pinterest's online assessment and Apple's ML-coding round ask exactly this. Cover training as count matrices, prediction in log-space, smoothing, and vectorization — then name the numerical bug that passes unit tests on a toy vocabulary but silently corrupts predictions at 50,000 words.
 
 ## Rapid-fire: posteriors, calibration & production — the quant lens
-
-Same contract — no answers, ~2 minutes out loud each. These skew toward the estimator and decision-theory angle that quant-research loops (Jane Street, Citadel, Two Sigma, HRT) and DeepMind-style math rounds lead with, ending on the production follow-ups FAANG loops close with.
 
 1. **The 1-in-1000 test.** A disease has prevalence 1/1000; the test has 99% sensitivity and 99% specificity. Compute the posterior probability of disease given a positive result — exactly — and explain why every rare-event classifier (fraud, spam, abuse) inherits the same arithmetic. This is the standard opener at quant funds.
 2. **Posterior vs posterior predictive.** Two coins, one fair and one that lands heads 80% of the time; you pick one uniformly and flip heads three times. Derive the posterior that you hold the biased coin *and* the probability the next flip is heads — and say precisely why those are different objects. (The DeepMind-style Bayes opener.)
