@@ -376,3 +376,25 @@ Use the same layered answer: behavior first, gradient or systems mechanism secon
 18. **SHAP or nothing?** Split-gain importance can *decrease* when the model relies on a feature *more* — the inconsistency that motivated TreeSHAP (Lundberg et al. 2018, 2020). State the consistency property Shapley values guarantee, why exact Shapley is tractable for trees specifically, and what the interventional-vs-path-dependent background choice changes under correlated features.
 19. **When do nets win on tabular?** Grinsztajn et al. 2022 give three mechanisms for GBDT's tabular dominance — state all three. Then construct the reversal: a tabular task where a neural net *should* win (think: enormous $n$, smooth rotation-invariant targets, high-cardinality categoricals wanting learned embeddings, multimodal side-inputs, transfer from pretraining). For each of the three mechanisms, say whether it's a property of the data or of the inductive bias.
 20. **RF or GBDT — decide.** Pick one model family for each constraint: (a) p99 serving budget of 2 ms on CPU, (b) 30% label noise, (c) training must parallelize across a cluster, (d) weekly unattended automated retrains. Make the four calls and defend each with a mechanism — model size and tree count, loss curvature vs. noise, sequential vs. independent fitting, tuning surface — not a vibe.
+21. **Turn the knobs — which way does error move?** The rapid-fire breadth version of "you tune XGBoost and a random forest — what does each parameter do?" For a **random forest**, state the bias/variance direction of `n_estimators`, `max_features`, `max_depth`, and `min_samples_leaf`, and identify which one you can crank *without* overfitting risk (and why — the $\text{bias}^2+\rho\sigma^2$ view). For **XGBoost**, do the same for `learning_rate`, `n_estimators`, `max_depth`, `subsample`/`colsample_bytree`, `min_child_weight`, and `reg_lambda`/`gamma` — and nail the two contrasts that separate a strong answer: (a) why adding trees to an RF *converges* harmlessly while adding rounds to a GBDT eventually *overfits*, and (b) why `learning_rate` and `n_estimators` must be tuned *jointly* in boosting but tree count in an RF is a standalone "more is fine" dial. Bundle: which single GBDT knob most directly fights label noise, and why?
+
+## Rapid-fire: trees & ensembles, fast recall
+
+The machine-gun version — the canonical breadth-round questions you should answer cleanly in **under 90 seconds each**. These are the fundamentals underneath the deeper drills above; if any one makes you hesitate, that's the gap to close first.
+
+1. **How does a tree split?** What criterion does a *classification* tree use to pick a split (Gini or entropy) and a *regression* tree (variance / MSE reduction)? Write Gini impurity for a node.
+2. **Gini vs entropy.** Do they usually choose different trees? Which is cheaper to compute, and why?
+3. **Bagging in one line.** What is bagging, and which of bias / variance does it attack?
+4. **Why does averaging cut variance?** Give the variance-of-an-average argument, and say what role the *correlation* between trees plays in how much you gain.
+5. **The forest's second trick.** Beyond resampling rows, what does a random forest randomize at each split, and why does that help?
+6. **Bias or variance?** Relative to one deep tree, does a random forest mainly reduce bias, variance, or both?
+7. **Boosting vs bagging.** Sequential vs. parallel — which reduces bias and which reduces variance?
+8. **Gradient boosting in one line.** What does each new tree in a GBM fit?
+9. **Shrinkage.** What does the learning rate do, and why do smaller rates need more trees?
+10. **XGBoost's edges.** Name three things XGBoost adds over a vanilla GBM (regularization, second-order/Newton steps, sparsity-aware split finding, column subsampling).
+11. **Overfit a single tree.** Which hyperparameters control a tree's overfitting, and which direction is "more regularized" for each?
+12. **No scaling needed.** Why are tree models invariant to any monotone transform of a feature — so standardizing buys nothing?
+13. **Missing values.** How do XGBoost and LightGBM handle missing values without imputation?
+14. **Can it extrapolate?** Can a tree ensemble ever predict above the largest training label? Why or why not — and what does that mean for trending time series?
+15. **RF or XGBoost — pick.** Give the two-sentence "when do you reach for each" answer.
+16. **Feature importance.** Name two ways trees rank feature importance and one way the default (impurity/gain) can mislead.

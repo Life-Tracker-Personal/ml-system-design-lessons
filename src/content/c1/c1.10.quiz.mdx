@@ -335,6 +335,8 @@ Additional interview-calibrated questions — the statistics-of-evaluation side 
 18. **ECE's binning problem.** Two teams compute ECE on identical predictions and get different numbers. Explain how bin count and equal-width vs equal-mass binning change the answer, show how over- and under-confident examples cancelling *within* a bin drive binned ECE toward zero for a genuinely miscalibrated model, and name one debiased or binning-free alternative.
 19. **Platt vs isotonic vs temperature.** For each recalibration map — Platt's fitted sigmoid, isotonic regression's monotone step function, temperature scaling's single scalar on the logits (Guo et al. 2017) — state the functional form it assumes, the regime where it overfits, and which one provably cannot change a classifier's argmax accuracy.
 20. **Calibration under prior shift.** A model calibrated at 2% prevalence deploys into a 6% world with unchanged class-conditional score distributions. Which survives — the ranking or the calibration? Derive the one-line logit correction from the old and new log-odds of the prior, prove the corrected model has *identical* AUC (what kind of transform is it?), and state what happens to the cost-optimal threshold afterwards.
+21. **Are precision and recall even the right metrics?** The reflex answer to "imbalanced data → use precision and recall" — interrogate it. State what precision and recall each *ignore* (recall ignores the negatives entirely; precision moves with prevalence, so a "precision drop" can be pure base-rate change, not a worse model), and construct a case where two models with identical ROC curves report very different precision. Then say when P/R at a *fixed threshold* is the wrong report and a threshold-free view (PR-AUC, or ranking + a cost-optimal $t^\star$ on a calibrated $p$) is the right one — and, conversely, the operational setting (a fixed review budget of $k$) where precision@$k$/recall are exactly what the business feels and AUC is the distraction.
+22. **Why *harmonic*, not arithmetic?** F1 is the harmonic mean of precision and recall — defend the choice of *mean*. Show that the harmonic mean is dominated by the smaller argument ($F1 \le \min(P,R)\cdot$something; more precisely it sits near the min), so a model with $P=0.99,\,R=0.01$ scores $F1\approx 0.02$ where the arithmetic mean flatters it to $0.50$ and the geometric mean to $0.099$. Derive $F1 = \frac{2}{1/P + 1/R}$ from "average the *rates*, not the values," explain why averaging rates (events per prediction, events per positive) is the dimensionally honest thing to do, and state the property — punish imbalance between P and R — that uniquely motivates harmonic over arithmetic or geometric.
 
 ## Rapid-fire: ranking metrics, experiments & metrics in production
 
@@ -360,3 +362,23 @@ Same format — no answers, ~2 minutes each. These skew toward the production an
 18. **Perplexity's fine print.** Define perplexity as exponentiated per-token cross-entropy. Why are perplexities incomparable across models with different tokenizers, what per-byte normalization restores comparability, and what does a perplexity improvement *not* tell you about downstream task quality?
 19. **Judge the judge.** You're evaluating a chat model with an LLM-as-judge. Name three documented judge biases — position, verbosity, self-preference (Zheng et al. 2023, MT-Bench) — and design the harness that neutralizes each. Then explain how you'd calibrate the judge against a human-labeled gold set before trusting its win rates.
 20. **Evals that predict shipping.** Design the eval suite for an LLM support assistant: a golden set, regression tests per release, and a hallucination rate defined as the share of answer sentences unsupported by retrieved spans. What makes that rate *measurable*, and what guards the eval set against leaking into prompt iteration?
+
+## Rapid-fire: metrics, fast recall
+
+The machine-gun version — the canonical breadth-round questions you should answer cleanly in **under 90 seconds each**. These are the fundamentals underneath the deeper AUC/calibration drills above; if any one makes you hesitate, that's the gap to close first.
+
+1. **Confusion matrix.** Define TP, FP, FN, TN, then write precision and recall straight from them.
+2. **Precision vs recall in words.** "Of what I flagged, how much was right" vs. "of the real positives, how many did I catch" — map each to precision/recall on a spam filter.
+3. **Which error is worse where?** Name one product where a false positive hurts more and one where a false negative hurts more.
+4. **The accuracy trap.** Why is 99% accuracy meaningless at 1% prevalence, and what trivial model already hits it?
+5. **F1 in one line.** Define it, say what it balances, and when you'd pick $F_\beta$ with $\beta\neq1$.
+6. **ROC axes.** What's on each axis of an ROC curve, and what does the diagonal mean?
+7. **AUC in words.** Give the one-sentence probabilistic reading of AUC.
+8. **ROC vs PR.** Which curve do you trust under heavy imbalance, and why?
+9. **Pick a threshold.** How do you choose the decision threshold, and what considerations move it off 0.5?
+10. **Log loss vs accuracy.** What does log loss reward that accuracy is blind to?
+11. **Calibration.** What does "calibrated" mean, and why can a high-AUC model still be badly miscalibrated?
+12. **Sensitivity & specificity.** Define both and map them to TPR and FPR.
+13. **Macro vs micro averaging.** What's the difference across classes, and when does the choice matter?
+14. **Regression metrics.** RMSE vs. MAE vs. MAPE — one line each on what each optimizes and how it misleads.
+15. **One number or many?** Why do teams report a *suite* (AUC + calibration + a business metric) rather than a single score — what does each catch that the others miss?
