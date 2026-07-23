@@ -99,9 +99,11 @@ $$\nabla_\beta \operatorname{RSS}=-2X^\top(y-X\beta)=0$$
 
 Therefore
 
-$$X^\top X\hat\beta=X^\top y
+$$
+X^\top X\hat\beta=X^\top y
 \qquad\Rightarrow\qquad
-\boxed{\hat\beta=(X^\top X)^{-1}X^\top y}$$
+\boxed{\hat\beta=(X^\top X)^{-1}X^\top y}
+$$
 
 This formula exists when $X$ has full column rank: no column is an exact combination of the others. The Hessian is $2X^\top X\succeq0$, so RSS is convex and this stationary point is a global minimum. In numerical software, do not literally form the inverse; QR or SVD solvers are more stable. The inverse is valuable because it exposes the statistics.
 
