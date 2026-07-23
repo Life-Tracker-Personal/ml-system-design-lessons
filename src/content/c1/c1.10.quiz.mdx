@@ -362,3 +362,23 @@ Same format — no answers, ~2 minutes each. These skew toward the production an
 18. **Perplexity's fine print.** Define perplexity as exponentiated per-token cross-entropy. Why are perplexities incomparable across models with different tokenizers, what per-byte normalization restores comparability, and what does a perplexity improvement *not* tell you about downstream task quality?
 19. **Judge the judge.** You're evaluating a chat model with an LLM-as-judge. Name three documented judge biases — position, verbosity, self-preference (Zheng et al. 2023, MT-Bench) — and design the harness that neutralizes each. Then explain how you'd calibrate the judge against a human-labeled gold set before trusting its win rates.
 20. **Evals that predict shipping.** Design the eval suite for an LLM support assistant: a golden set, regression tests per release, and a hallucination rate defined as the share of answer sentences unsupported by retrieved spans. What makes that rate *measurable*, and what guards the eval set against leaking into prompt iteration?
+
+## Rapid-fire: metrics, fast recall
+
+The machine-gun version — the canonical breadth-round questions you should answer cleanly in **under 90 seconds each**. These are the fundamentals underneath the deeper AUC/calibration drills above; if any one makes you hesitate, that's the gap to close first.
+
+1. **Confusion matrix.** Define TP, FP, FN, TN, then write precision and recall straight from them.
+2. **Precision vs recall in words.** "Of what I flagged, how much was right" vs. "of the real positives, how many did I catch" — map each to precision/recall on a spam filter.
+3. **Which error is worse where?** Name one product where a false positive hurts more and one where a false negative hurts more.
+4. **The accuracy trap.** Why is 99% accuracy meaningless at 1% prevalence, and what trivial model already hits it?
+5. **F1 in one line.** Define it, say what it balances, and when you'd pick $F_\beta$ with $\beta\neq1$.
+6. **ROC axes.** What's on each axis of an ROC curve, and what does the diagonal mean?
+7. **AUC in words.** Give the one-sentence probabilistic reading of AUC.
+8. **ROC vs PR.** Which curve do you trust under heavy imbalance, and why?
+9. **Pick a threshold.** How do you choose the decision threshold, and what considerations move it off 0.5?
+10. **Log loss vs accuracy.** What does log loss reward that accuracy is blind to?
+11. **Calibration.** What does "calibrated" mean, and why can a high-AUC model still be badly miscalibrated?
+12. **Sensitivity & specificity.** Define both and map them to TPR and FPR.
+13. **Macro vs micro averaging.** What's the difference across classes, and when does the choice matter?
+14. **Regression metrics.** RMSE vs. MAE vs. MAPE — one line each on what each optimizes and how it misleads.
+15. **One number or many?** Why do teams report a *suite* (AUC + calibration + a business metric) rather than a single score — what does each catch that the others miss?

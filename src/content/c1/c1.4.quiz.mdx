@@ -466,3 +466,23 @@ The exact sequence a LinkedIn/FAANG **ML-breadth** interviewer walks: derive log
 4. **Is there a closed form?** Linear regression has $\hat\beta=(X^\top X)^{-1}X^\top y$. Show why logistic regression has **no** closed form: write $\nabla_w=X^\top(\sigma(Xw)-y)$, set it to zero, and explain why $\sigma$ makes the normal equations transcendental (no isolating $w$). So what *is* the optimization — name it (convex! — prove the Hessian $X^\top\!\operatorname{diag}(p_i(1-p_i))X\succeq 0$), and say why convexity is the property that makes "just run gradient descent" actually safe here.
 5. **Write the gradient and the learning step.** From the cross-entropy loss, derive $\nabla_w=\frac1n X^\top(\sigma(Xw)-y)$ and $\nabla_b=\frac1n\sum_i(\sigma_i-y_i)$ — and remark on *why the gradient is so clean* (the sigmoid derivative cancels against the log). Write the plain-SGD update $w\leftarrow w-\eta\,\nabla_w$, then the Newton/IRLS step $w\leftarrow w-H^{-1}\nabla_w$; say when each is used (statsmodels' IRLS converges in ~5 iterations; ad-scale CTR uses first-order SGD) and where the crossover in $n,p$ sits.
 6. **Code it up.** Implement logistic regression from scratch in ~15 lines of NumPy: forward ($\sigma$), loss, gradient, and the update loop. Two things the interviewer is watching for — write the loss in a **numerically stable** form so a logit of $\pm 500$ doesn't overflow (log-sum-exp / `logaddexp`), and state how you'd **gradient-check** it (finite differences) before trusting a single training step.
+
+## Rapid-fire: linear & logistic regression, fast recall
+
+The machine-gun version — the canonical breadth-round questions you should answer cleanly in **under 90 seconds each**, no derivation theater. These are the fundamentals underneath the deeper drills above; if any one makes you hesitate, that's the gap to close first.
+
+1. **Probability or label?** Does logistic regression output a class or a probability? How do you turn its output into a 0/1 decision — and is a 0.5 cutoff always right?
+2. **Why not linear regression for classification?** Give three concrete reasons fitting a straight line to 0/1 labels misbehaves — predictions outside $[0,1]$, the wrong noise model, and sensitivity to points far from the boundary.
+3. **What is the sigmoid?** Write $\sigma(z)=1/(1+e^{-z})$, state its range and its limits as $z\to\pm\infty$, and its derivative $\sigma'=\sigma(1-\sigma)$ — why is that identity so convenient in backprop?
+4. **Why cross-entropy, not MSE?** Say what breaks if you pair squared error with a sigmoid output — the loss surface stops being convex and the gradient vanishes exactly when the model is confidently wrong.
+5. **Read a logistic coefficient.** A coefficient is $0.7$. What happens to the *odds* when that feature rises by one unit, and what is $e^{0.7}$ in plain words?
+6. **Read a linear coefficient.** In linear regression a coefficient is $3.2$ — state its meaning and one sentence on how that reading differs from the logistic one.
+7. **Decision boundary.** What shape is logistic regression's boundary in feature space, and what equation defines it (where does $p=0.5$ land)?
+8. **What is it maximizing?** In one sentence: which likelihood does logistic regression maximize, and why does maximizing it equal minimizing cross-entropy?
+9. **L1 vs L2.** What does each penalty do to the coefficients, which one drives some to *exactly* zero, and why does that one give sparsity?
+10. **Who needs scaling?** Does plain linear regression need feature scaling? Plain logistic regression? *Regularized* logistic regression? Answer all three and give the reason.
+11. **Go multiclass.** How do you extend logistic regression to $K$ classes — name softmax vs. one-vs-rest and one practical difference.
+12. **State the assumptions.** List the core assumptions of linear regression, and separately what logistic regression assumes about the log-odds.
+13. **Which score goes where?** $R^2$ vs. accuracy vs. AUC — match each to the model it belongs with and say what it measures.
+14. **Correlated features.** What does multicollinearity do to the fitted coefficients, and does it damage *predictions* or *interpretation* more?
+15. **Why still use it?** When would you ship plain linear/logistic regression over a GBDT or neural net? Give the honest staff-level answer (interpretability, calibration, latency, small data, a baseline).
