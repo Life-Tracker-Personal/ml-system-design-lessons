@@ -120,9 +120,7 @@ So **1-NN's asymptotic error is at most twice the optimal** — half the achieva
 
 ### The curse of dimensionality — a probability fact
 
-Here's the catch. In high dimensions, distances **concentrate**: for a query against $n$ points, the ratio of the farthest to the nearest distance tends to 1. Formally (Beyer et al. 1999): let $D_d$ be the distance from the query to a random data point in dimension $d$; if $\operatorname{Var}\!\bigl(D_d/\mathbb{E}[D_d]\bigr)\to0$ as $d\to\infty$ (true for i.i.d. features and much more broadly), then for every $\varepsilon>0$,
-
-$$\Pr\bigl[\,\text{Dmax}_d \le (1+\varepsilon)\,\text{Dmin}_d\,\bigr]\ \longrightarrow\ 1$$
+Here's the catch. In high dimensions, distances **concentrate**: for a query against $n$ points, the ratio of the farthest to the nearest distance tends to 1. Beyer et al. (1999) make this precise — under mild conditions the ratio of farthest to nearest distance converges to 1 (for the formal variance-ratio statement, ask an AI assistant; an interviewer won't ask you to reproduce it).
 
 Intuition: $\|x-x'\|^2=\sum_{j=1}^d(x_j-x_j')^2$ is a sum of $d$ i.i.d. terms, so its mean grows like $d$ but its standard deviation like $\sqrt{d}$ — the coefficient of variation shrinks like $1/\sqrt{d}$, and all pairwise distances bunch together. "Nearest" stops being meaningfully nearest. This is *why* high-dimensional kNN needs either low **intrinsic** dimension (cluster structure) or learned low-dimensional embeddings.
 
