@@ -144,7 +144,7 @@ $$
 
 The trace sums the component variances. OLS is unbiased, but when $X^\top X$ has small eigenvalues, $\operatorname{Cov}(\hat\beta_{\text{OLS}})=\sigma^2(X^\top X)^{-1}$ can have a very large trace. Ridge shrinks coefficients toward zero, creating bias, while sharply reducing variance along those poorly identified directions. For an appropriate $\lambda>0$, the reduction in $\operatorname{tr}(\operatorname{Cov}(\hat\beta))$ can exceed the increase in squared bias, giving ridge lower total coefficient MSE. OLS minimizes variance only within the class of linear unbiased estimators.
 
-**The intuition (skip the theorem).** With many noisy coefficients, shrinking them all toward zero gives up a little bias to buy a large cut in variance — so on *total* MSE the shrunk estimate can beat the unbiased one. That is the whole reason ridge is principled and not a hack. There is a celebrated formal result making this precise for a high-dimensional Gaussian mean, but no interviewer will ask you to reproduce it — if you want the exact statement and proof, ask an AI assistant (Claude or ChatGPT) to walk you through it.
+**Classical result.** **James–Stein (1961):** the ordinary sample mean is *inadmissible* for estimating a multivariate Gaussian mean in dimension $\ge 3$ — a shrinkage estimator strictly dominates it in total MSE, even when the coordinates are independent. Ridge is the regression analogue: shrinkage is provably better, not a hack.
 
 **Rubric:**
 - $X^\top X$ PSD; $+\lambda I$ shifts eigenvalues to $\ge\lambda>0$ → positive-definite → always invertible (even $p>n$)
@@ -152,7 +152,7 @@ The trace sums the component variances. OLS is unbiased, but when $X^\top X$ has
 - Vector decomposition: total MSE = squared bias norm + $\operatorname{tr}(\operatorname{Cov}(\hat\beta))$
 - Explain why covariance itself cannot be added to scalar squared bias; ridge accepts bias to cut total variance
 - Collinearity → huge OLS variance, so ridge wins for some $\lambda$
-- Intuition: shrinkage trades a little bias for a big variance cut → can beat OLS on total MSE (no need to quote the formal theorem)
+- Cite James–Stein / inadmissibility for dim ≥ 3
 
 </details>
 
