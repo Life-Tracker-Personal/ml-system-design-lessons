@@ -8,8 +8,6 @@ estimatedMinutes: 45
 
 These 12 questions probe whether you understand the math behind regression losses, not whether you can name them. Try to answer before revealing.
 
-If you can derive Q1, Q2, Q5, and Q7 from scratch on a whiteboard, you can handle the regression-loss portion of any ML interview.
-
 <Quiz id="1">
 
 **Q1.** Derive from first principles that minimizing mean squared error (MSE) is equivalent to maximum-likelihood estimation under additive Gaussian noise. Show every step. Why does the variance $\sigma^2$ not affect the optimizing parameters?
@@ -587,8 +585,6 @@ The gradient is bounded in $(-1, +1)$ — same as MAE's saturation, but smooth. 
 
 ## Rapid-fire: noise models & loss choice in production
 
-Interview-calibrated breadth beyond the deep dozen — the loss-function questions reported from current (2024–2026) FAANG, frontier-lab, and marketplace-ML loops (Meta, Google/DeepMind, OpenAI, Amazon, Microsoft, Uber, DoorDash). No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
-
 1. **Sufficient, not necessary.** Prove that the population minimizer of expected squared error is $E[Y \mid X]$ under *any* finite-variance noise distribution — no Gaussianity needed. So what does the noise model actually buy you beyond picking the target functional (efficiency, correct likelihood-based standard errors, a full predictive distribution)? Distinguish the M-estimation justification of a loss from the MLE justification.
 2. **Penalty or prior?** Show that ridge regression is MAP estimation with a Gaussian prior on the weights and lasso is MAP with a Laplace prior — the exact mirror of this lesson's "loss = noise model," one level up. What does the prior's scale parameter become on the penalty side?
 3. **Sparsity from a gradient.** (The DeepMind bar.) Explain via gradients — not the diamond-and-circle picture — why an L1 penalty drives weights exactly to zero while L2 only shrinks them: compare each penalty's gradient as $w \to 0$, and say why answering "L1 gives sparsity" alone fails this question.
@@ -611,8 +607,6 @@ Interview-calibrated breadth beyond the deep dozen — the loss-function questio
 
 ## Rapid-fire: OLS, estimators & robustness
 
-Same contract — no answers, ~2 minutes each, out loud. These lead with the statistics backbone: the questions quant-research loops (Jane Street, Citadel, Two Sigma, HRT, D.E. Shaw) and research-lab depth rounds open with.
-
 1. **MLE warm-up, done fast.** For iid samples from $\mathcal{N}(\mu, \sigma^2)$, derive both MLEs in under a minute, state which one is biased, and explain how this tiny example already contains the whole lesson: which loss does $\hat\mu$ minimize, and which loss would the Laplace analogue hand you?
 2. **Sampling distribution of $\hat{\beta}$.** For OLS under Gaussian noise, derive $\hat{\beta} \sim \mathcal{N}\bigl(\beta,\; \sigma^2 (X^\top X)^{-1}\bigr)$ from $\hat{\beta} = (X^\top X)^{-1}X^\top y$. Which parts survive when the noise is non-Gaussian (asymptotically, via the CLT), and read $(X^\top X)^{-1}$ as a statement about collinearity: what happens to the variance of a coefficient whose feature is nearly a linear combination of the others?
 3. **BLUE without the bell curve.** State the Gauss–Markov assumptions and what "BLUE" does and does not claim: which properties of OLS survive if the errors are non-Gaussian but homoscedastic and uncorrelated, and what do you gain only when Gaussianity holds (exact $t$/$F$ inference, OLS $=$ MLE, Cramér–Rao efficiency)? Then break each qualifier: exhibit a *biased* estimator with lower MSE (ridge), and a heavy-tailed noise distribution where a *nonlinear* estimator (LAD) beats OLS — which word in "best linear unbiased" does each counter-example exploit?
@@ -630,4 +624,4 @@ Same contract — no answers, ~2 minutes each, out loud. These lead with the sta
 15. **Breakdown points, and the leverage trap.** Define the breakdown point and compare: sample mean (0), sample median (1/2), OLS, Huber-M regression, least trimmed squares. Now the trap: LAD regression is robust to $y$-outliers yet has breakdown point 0 against a single high-leverage point in $x$ — construct the two-point picture that shows it, and show where leverage enters the estimating equation $\sum_i \psi(r_i)\, x_i = 0$. What actually bounds influence in feature space (LTS, MM-estimators), and why does "we switched to MAE, we're robust now" not survive this question?
 16. **Duplicate every row.** (A reported Two Sigma favorite.) You duplicate every observation and rerun OLS. Derive what happens to $\hat\beta$, $R^2$, the standard error of $\hat\beta$, and the $t$-statistic — and explain why the two that change are lying to you.
 17. **Which mean do you report?** Your per-trade P&L is heavy-tailed. Defend or attack: "report the trimmed mean or median of returns instead of the sample mean." What does each estimator estimate, and when do they answer *different* business questions rather than the same one more or less robustly?
-18. **Elicitability — the quant-desk question.** Squared error elicits the mean, pinball elicits quantiles. Which functionals *cannot* be elicited by any loss on their own? Show variance and expected shortfall (CVaR) are not elicitable alone but are jointly elicitable (variance with the mean; ES with the VaR quantile). Why did this matter for backtesting risk models under Basel, and what does it imply about "just train a model to predict the CVaR"?
+18. **Elicitability — the quant-desk question.** Squared error elicits the mean, pinball elicits quantiles. Which functionals *cannot* be elicited by any loss on their own? Variance and expected shortfall (CVaR) are the classic ones that *cannot* — each is only targetable jointly with a second functional (variance with the mean; ES with its VaR quantile). Why did this matter for backtesting risk models under Basel, and what does it imply about "just train a model to predict the CVaR"?
