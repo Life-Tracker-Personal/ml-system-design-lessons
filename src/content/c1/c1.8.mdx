@@ -96,7 +96,7 @@ So NB's `predict_proba` outputs are **systematically overconfident** — the can
 
 - **Generative vs discriminative, precisely:** NB models the full joint $p(x,y)$ — so it can sample $x$, flag novelty via $p(x)$, and **handle missing features by marginalizing them out** (a real advantage); logistic spends no capacity on $p(x)$ (which you don't need to classify). Same hypothesis class, different objective.
 - **Ng–Jordan is bias-variance at the estimator-class level:** the generative model imposes strong structure → higher bias (worse asymptote) but lower variance (fast convergence); discriminative imposes less → lower bias, higher variance. The quant framing: with a *short backtest / few labeled events*, the high-bias generative estimator can dominate.
-- **Smoothing = shrinkage = MAP** (the c1.4/James–Stein thread): smoothed counts dominate raw frequencies when many parameters are estimated from sparse data.
+- **Smoothing = shrinkage = MAP** (the c1.4 shrinkage thread): smoothed counts dominate raw frequencies when many parameters are estimated from sparse data.
 
 ## Tradeoff matrix
 
