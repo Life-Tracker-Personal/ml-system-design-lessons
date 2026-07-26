@@ -6,6 +6,13 @@ import rehypeSlug from "rehype-slug";
 import { DeepDive } from "./deep-dive";
 import { LossChart } from "./loss-chart";
 import { Quiz } from "./quiz";
+import {
+  OLSFit,
+  Sigmoid,
+  RegularizationBalls,
+  ShrinkageCurves,
+  PCARotation,
+} from "./regression-figures";
 
 export function MdxContent({ source }: { source: string }) {
   return (
@@ -14,6 +21,11 @@ export function MdxContent({ source }: { source: string }) {
       components={{
         DeepDive,
         LossChart,
+        OLSFit,
+        Sigmoid,
+        RegularizationBalls,
+        ShrinkageCurves,
+        PCARotation,
         Quiz,
       }}
       options={{
