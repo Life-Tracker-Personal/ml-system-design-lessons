@@ -14,6 +14,7 @@ import shutil
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "claude"
 MODEL = os.environ.get("BRIDGE_MODEL", "sonnet")
@@ -35,12 +36,19 @@ ALLOWED_ORIGINS = [
     if o.strip()
 ]
 
-app = FastAPI(title="claude-bridge", version="0.3.0")
+app = FastAPI(title="claude-bridge", version="0.3.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+)
+# CORS alone doesn't stop DNS rebinding — a browser tricked into re-resolving
+# some public hostname to 127.0.0.1 will send the request without any CORS
+# check. Reject anything whose Host header isn't localhost.
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["127.0.0.1", "localhost"],
 )
 
 
