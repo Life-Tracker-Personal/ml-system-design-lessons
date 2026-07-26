@@ -10,6 +10,8 @@ import asyncio
 import json
 import os
 import shutil
+import sys
+import tempfile
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,7 +38,30 @@ ALLOWED_ORIGINS = [
     if o.strip()
 ]
 
-app = FastAPI(title="claude-bridge", version="0.3.1")
+# Defence in depth for the "no tools" guarantee.
+#
+# `--allowedTools ""` is an ALLOW-list, not an off switch, and the CLI still
+# inherits the user's settings (whose permissions.allow may contain e.g.
+# `Bash(curl *)`, `Bash(git:*)`). In Claude Code, DENY rules take precedence
+# over allow rules, so an explicit denylist is what actually guarantees a
+# prompt-injected query cannot run a tool. We pair that with:
+#   * an empty allowlist,
+#   * --strict-mcp-config with no --mcp-config, so NO MCP servers (and their
+#     tools) load regardless of the user's MCP configuration, and
+#   * an isolated working directory (below), so the current project's
+#     .claude/settings.local.json allowlist is never even on the search path.
+DISALLOWED_TOOLS = [
+    "Bash", "Edit", "MultiEdit", "Write", "NotebookEdit",
+    "Read", "Glob", "Grep", "WebFetch", "WebSearch",
+    "Task", "TodoWrite",
+]
+
+# Run the CLI in an empty, throwaway directory so it does NOT pick up the
+# user's project-level settings (which may whitelist shell tools). User-level
+# settings can still load, but the denylist above overrides any allow there.
+WORK_DIR = tempfile.mkdtemp(prefix="claude-bridge-")
+
+app = FastAPI(title="claude-bridge", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -71,6 +96,15 @@ def _check_auth(authorization: str | None) -> None:
         raise HTTPException(status_code=401, detail="invalid or missing token")
 
 
+def _check_origin(origin: str | None) -> None:
+    # CORS middleware protects real browsers, but enforce the allowlist
+    # server-side too: reject any request that DOES send a disallowed Origin
+    # (a malicious page trying to drive the local CLI). Requests with no
+    # Origin (curl, health checks) are left to the token / localhost gate.
+    if origin is not None and origin not in ALLOWED_ORIGINS:
+        raise HTTPException(status_code=403, detail="origin not allowed")
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True, "provider": "local-cli", "claude_bin": CLAUDE_BIN, "model": MODEL}
@@ -78,8 +112,11 @@ async def health() -> dict:
 
 @app.post("/ask", response_model=AskResponse)
 async def ask(
-    req: AskRequest, authorization: str | None = Header(default=None)
+    req: AskRequest,
+    authorization: str | None = Header(default=None),
+    origin: str | None = Header(default=None),
 ) -> AskResponse:
+    _check_origin(origin)
     _check_auth(authorization)
     if len(req.query) > MAX_QUERY_CHARS:
         raise HTTPException(status_code=413, detail="query too long")
@@ -87,9 +124,13 @@ async def ask(
     args = [
         CLAUDE_BIN, "-p",
         "--output-format", "json",
-        "--allowedTools", "",
         "--model", MODEL,
         "--append-system-prompt", SYSTEM_PROMPT,
+        # No-tools guarantee: empty allowlist + explicit denylist (deny wins
+        # over any inherited allow) + no MCP servers. See DISALLOWED_TOOLS.
+        "--allowedTools", "",
+        "--disallowedTools", *DISALLOWED_TOOLS,
+        "--strict-mcp-config",
     ]
     if req.session_id:
         args += ["--resume", req.session_id]
@@ -100,6 +141,7 @@ async def ask(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=WORK_DIR,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=500, detail=f"claude binary not found at {CLAUDE_BIN!r}")
@@ -135,8 +177,23 @@ async def ask(
 if __name__ == "__main__":
     import uvicorn
 
+    host = os.environ.get("BRIDGE_HOST", "127.0.0.1")
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        print(
+            f"WARNING: binding to {host!r} exposes the bridge beyond localhost. "
+            "Anyone who can reach this host can spend your Claude usage. "
+            "Set BRIDGE_TOKEN and a tight BRIDGE_ALLOWED_ORIGINS if you must.",
+            file=sys.stderr,
+        )
+    elif not BRIDGE_TOKEN:
+        print(
+            "NOTE: BRIDGE_TOKEN is unset — /ask is guarded only by the localhost "
+            "bind and the Origin allowlist. Set BRIDGE_TOKEN for an extra gate.",
+            file=sys.stderr,
+        )
+
     uvicorn.run(
         app,
-        host=os.environ.get("BRIDGE_HOST", "127.0.0.1"),
+        host=host,
         port=int(os.environ.get("BRIDGE_PORT", "8787")),
     )
