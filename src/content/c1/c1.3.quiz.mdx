@@ -8,6 +8,8 @@ estimatedMinutes: 45
 
 These 12 questions probe whether you understand classification losses as maximum likelihood / KL minimization, and whether you can reason about *calibration* — not whether you can name them. Try to answer before revealing.
 
+If you can derive Q1, Q3, Q4, and Q8 from scratch on a whiteboard, you can handle the classification-loss portion of any top-tier ML interview.
+
 <Quiz id="1">
 
 **Q1.** Derive the gradient of softmax cross-entropy with respect to the logits, $\partial \mathcal{L}/\partial z_j$, starting from the softmax Jacobian. State the binary (sigmoid) analogue. Which specific cancellation makes the result clean, and why does it mean cross-entropy is the "natural" partner of softmax?
@@ -359,6 +361,8 @@ So $\log\text{softmax} \approx [\,-2.408,\ -1.408,\ -0.408\,]$, and $\text{softm
 
 ## Rapid-fire: cross-entropy, softmax & loss design
 
+Additional interview-calibrated questions — the ones that separate candidates at frontier labs (OpenAI, Anthropic, DeepMind), in Meta/Google ML-depth rounds, and in quant-research screens, where "derive the softmax–CE gradient" is the warm-up, not the question. No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
+
 1. **One logit too many.** Softmax is unchanged if you add a constant to every logit. Show that a $K$-class softmax head is over-parameterized, that the two-logit case collapses exactly to a sigmoid on $z_1 - z_0$, and what (if anything) changes if you pin one logit to zero.
 2. **Second derivative, not first.** The gradient $q - y$ is the warm-up (main Q1); derive the *Hessian* of softmax–CE with respect to the logits, show it equals $\operatorname{diag}(q) - qq^\top$, and prove it is positive semi-definite. What is its null space, and how does that connect to softmax's shift invariance?
 3. **The gradient isn't coincidence.** Re-derive $q - y$ from the GLM view: Bernoulli/Categorical as an exponential family with sigmoid/softmax as the *canonical link*. What property of the canonical link produces the clean "prediction minus target" gradient, and what breaks if you swap in probit?
@@ -380,6 +384,8 @@ So $\log\text{softmax} \approx [\,-2.408,\ -1.408,\ -0.408\,]$, and $\text{softm
 19. **The weighted-mean divisor.** In PyTorch, `CrossEntropyLoss(weight=w)` with `reduction='mean'` divides by the *sum of the weights present in the batch*, not by the batch size. Construct two batches where identical per-example losses produce different effective step sizes, and say when this bites (heavily imbalanced batches, rare-class spikes).
 
 ## Rapid-fire: calibration, forecasting & the quant lens
+
+Same format — no answers, ~2 minutes each. This set skews toward what quant-research loops (Jane Street, Citadel, Two Sigma, HRT) and ads/fraud teams (Meta, Google, TikTok, Stripe) lead with: estimators, proper scores, and probabilities that survive contact with money.
 
 1. **NLL rises, error falls.** Guo et al. observed test error still *decreasing* while test NLL *increases* late in training. A strictly proper scoring rule getting worse while accuracy improves — is that a contradiction of Q4? Decompose NLL (or Brier) into calibration and refinement components, identify which one deteriorates, and state what this implies about early-stopping on NLL vs. on accuracy.
 2. **Perfectly calibrated, perfectly useless.** Construct a classifier with $\text{ECE} \approx 0$ and zero discrimination. Which term of the Murphy decomposition is it missing — what does *resolution* measure that ECE cannot see? Then break ECE the other way: show how binning choices (bin count, miscalibrations of opposite sign canceling within a bin) can manufacture a near-zero ECE for a genuinely miscalibrated model, and explain why ECE is not a proper scoring rule while Brier and NLL are.

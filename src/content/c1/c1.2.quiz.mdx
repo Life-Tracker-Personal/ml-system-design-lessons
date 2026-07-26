@@ -8,6 +8,8 @@ estimatedMinutes: 45
 
 These 12 questions probe whether you understand the math behind regression losses, not whether you can name them. Try to answer before revealing.
 
+If you can derive Q1, Q2, Q5, and Q7 from scratch on a whiteboard, you can handle the regression-loss portion of any ML interview.
+
 <Quiz id="1">
 
 **Q1.** Derive from first principles that minimizing mean squared error (MSE) is equivalent to maximum-likelihood estimation under additive Gaussian noise. Show every step. Why does the variance $\sigma^2$ not affect the optimizing parameters?
@@ -585,6 +587,8 @@ The gradient is bounded in $(-1, +1)$ — same as MAE's saturation, but smooth. 
 
 ## Rapid-fire: noise models & loss choice in production
 
+Interview-calibrated breadth beyond the deep dozen — the loss-function questions reported from current (2024–2026) FAANG, frontier-lab, and marketplace-ML loops (Meta, Google/DeepMind, OpenAI, Amazon, Microsoft, Uber, DoorDash). No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
+
 1. **Sufficient, not necessary.** Prove that the population minimizer of expected squared error is $E[Y \mid X]$ under *any* finite-variance noise distribution — no Gaussianity needed. So what does the noise model actually buy you beyond picking the target functional (efficiency, correct likelihood-based standard errors, a full predictive distribution)? Distinguish the M-estimation justification of a loss from the MLE justification.
 2. **Penalty or prior?** Show that ridge regression is MAP estimation with a Gaussian prior on the weights and lasso is MAP with a Laplace prior — the exact mirror of this lesson's "loss = noise model," one level up. What does the prior's scale parameter become on the penalty side?
 3. **Sparsity from a gradient.** (The DeepMind bar.) Explain via gradients — not the diamond-and-circle picture — why an L1 penalty drives weights exactly to zero while L2 only shrinks them: compare each penalty's gradient as $w \to 0$, and say why answering "L1 gives sparsity" alone fails this question.
@@ -606,6 +610,8 @@ The gradient is bounded in $(-1, +1)$ — same as MAE's saturation, but smooth. 
 19. **Winsorize, delete, or robustify?** Compare winsorizing the targets, deleting suspected outliers, and switching to a robust loss: what does each do to the conditional functional you end up estimating, and which one quietly changes the *target* rather than the estimator?
 
 ## Rapid-fire: OLS, estimators & robustness
+
+Same contract — no answers, ~2 minutes each, out loud. These lead with the statistics backbone: the questions quant-research loops (Jane Street, Citadel, Two Sigma, HRT, D.E. Shaw) and research-lab depth rounds open with.
 
 1. **MLE warm-up, done fast.** For iid samples from $\mathcal{N}(\mu, \sigma^2)$, derive both MLEs in under a minute, state which one is biased, and explain how this tiny example already contains the whole lesson: which loss does $\hat\mu$ minimize, and which loss would the Laplace analogue hand you?
 2. **Sampling distribution of $\hat{\beta}$.** For OLS under Gaussian noise, derive $\hat{\beta} \sim \mathcal{N}\bigl(\beta,\; \sigma^2 (X^\top X)^{-1}\bigr)$ from $\hat{\beta} = (X^\top X)^{-1}X^\top y$. Which parts survive when the noise is non-Gaussian (asymptotically, via the CLT), and read $(X^\top X)^{-1}$ as a statement about collinearity: what happens to the variance of a coefficient whose feature is nearly a linear combination of the others?

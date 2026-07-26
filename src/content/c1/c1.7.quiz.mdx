@@ -8,6 +8,8 @@ estimatedMinutes: 45
 
 These 12 questions test whether you understand clustering as probabilistic modeling and embeddings as neighbor-preserving optimization — not as API calls. Try to answer before revealing.
 
+If you can derive Q1, Q3, Q5, and Q9 from scratch on a whiteboard, you understand clustering as modeling rather than recipe — the staff/quant bar.
+
 <Quiz id="1">
 
 **Q1.** Prove that Lloyd's algorithm monotonically decreases the within-cluster sum of squares and terminates. Why does "terminates" not mean "global optimum"? And why is the centroid update the *mean* (not the median)?
@@ -319,6 +321,8 @@ where $\mathbb{E}[\text{RI}]$ is computed from the contingency-table margins und
 
 ## Rapid-fire: k-means, mixtures & the EM family
 
+Additional interview-calibrated questions — the ones that tend to separate candidates at top-tier ML loops (Meta and Snap ML-coding rounds, Amazon/Microsoft breadth, frontier-lab research rounds, quant-research loops at Two Sigma-tier funds). No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
+
 1. **Vectorize the assign step.** Implement the k-means assignment in NumPy with no Python loop over points: expand $\lVert x-\mu\rVert^2=\lVert x\rVert^2-2x^\top\mu+\lVert\mu\rVert^2$ into one matrix expression. What is the shape and memory cost of the intermediate distance matrix for $n$ points and $k$ centers, and why can the expansion produce slightly *negative* "squared distances" that a naive `sqrt` turns into `nan`?
 2. **The empty-cluster edge case.** Mid-run, a centroid attracts zero points. What does the naive mean-update compute, how do production implementations recover (e.g. re-seeding the center from a far/high-cost point), and why does careful seeding make the case rarer without eliminating it?
 3. **NP-hard, yet fast in practice.** Minimizing WCSS is NP-hard even for $k=2$, Lloyd's worst-case iteration count is superpolynomial — and yet real runs finish in a few dozen $O(nkd)$ iterations. Reconcile all three statements precisely: what does Lloyd converge *to*, what does smoothed analysis say about why it's fast in practice, and what does a library's `max_iter` + `tol` stopping rule actually compare?
@@ -340,6 +344,8 @@ where $\mathbb{E}[\text{RI}]$ is computed from the contingency-table margins und
 19. **GMM vs. HMM for regimes.** A GMM on daily returns treats each day's regime as an independent draw; markets have *persistent* regimes. What does an HMM add, and how does Baum–Welch's E-step differ from the GMM E-step (forward–backward smoothed posteriors vs. pointwise responsibilities)?
 
 ## Rapid-fire: embeddings, spectral methods & production clustering
+
+Same format — no answers, ~2 minutes each. These skew toward frontier-lab and vector-search loops (OpenAI-style RAG/retrieval rounds, Google-scale visualization, recsys cold-start) plus the quant-research lens.
 
 1. **Derive the t-SNE gradient.** Starting from $\text{KL}(P\,\|\,Q)$ with $q_{ij}\propto(1+\lVert y_i-y_j\rVert^2)^{-1}$, derive $\frac{\partial C}{\partial y_i}=4\sum_j(p_{ij}-q_{ij})(1+\lVert y_i-y_j\rVert^2)^{-1}(y_i-y_j)$ and split it into attraction and repulsion. Where does the repulsion come from, given the objective never mentions one? What does early exaggeration (multiplying $p_{ij}$ by ~12 for the first few hundred iterations) do to that balance, and why does it decide the final cluster layout?
 2. **The crowding problem, quantitatively.** In $d$ dimensions the volume of a shell at radius $r$ scales like $r^{d-1}$ — compare how many roughly-equidistant "moderate distance" neighbors a point can have in 10-D vs. 2-D. Derive why no 2-D layout can honor all moderate high-dim distances, why symmetric SNE's Gaussian low-dim kernel therefore crushes clusters together, and exactly how the Student-t (Cauchy) tail fixes it.

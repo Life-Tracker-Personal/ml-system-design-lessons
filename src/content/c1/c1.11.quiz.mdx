@@ -8,6 +8,8 @@ estimatedMinutes: 45
 
 These 12 questions test whether you can defend an imbalance decision from first principles — prior correction, the threshold-equivalence of resampling, the leakage trap — rather than reflexively reaching for SMOTE. Try to answer before revealing.
 
+If you can derive Q1, Q2, Q4, and Q6 from scratch, you can defend any imbalance decision in a staff or quant interview; all 12 means you can teach why "just SMOTE it" is usually wrong.
+
 <Quiz id="1">
 
 **Q1.** You train on a balanced sample ($\bar y=0.5$) but deploy at true prevalence $\tau=0.01$. Derive the additive log-odds correction, and show the corrected model is the *same ranking* as the original — i.e. resampling changed nothing a recalibration couldn't.
@@ -327,6 +329,8 @@ So for a **contaminated** training set → **Isolation Forest**.
 
 ## Rapid-fire: SMOTE internals, resampling algebra & the estimator lens
 
+Interview-calibrated questions one layer below the deep dozen — the versions of "how do you handle imbalance?" that separate candidates at FAANG ML loops (Meta, Google, LinkedIn), fintech risk teams (Stripe, PayPal, Affirm), and quant funds (Two Sigma, SIG). No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
+
 1. **Is imbalance even the problem?** Hold the ratio fixed at 1:100 and construct two datasets: one where doing nothing is provably optimal (near-separable classes) and one where every rebalancing trick fails (heavy overlap, 20 minority points). Then compare dataset A — 1:1,000 with $10^6$ minority examples — against dataset B — 1:10 with 50. Give the estimation-variance argument for why absolute minority *count* governs what's learnable, identify where the *ratio* still bites (minibatch composition, accuracy's baseline, the PR baseline), and say how this reframes your answer to "how do you handle class imbalance?"
 2. **Duplicate every row.** A quant-fund classic: duplicate every row of a regression dataset and rerun OLS. Derive what happens to $\hat\beta$, the standard errors, $R^2$, and the $t$-statistics — then connect it to imbalance: random oversampling *is* row duplication, so what does it do to any inference you run on the resampled data?
 3. **Eight positives, infinite coefficients.** With 8 positives in 100k rows and enough flexible features, the logistic MLE can fail to exist — perfect or quasi-separation sends coefficients to infinity. Explain why separation kills the MLE, why sklearn's `LogisticRegression` never shows you the divergence (its default L2 penalty, `C=1.0`, guarantees a finite optimum), and what that silent regularization means for interpreting the fitted coefficients.
@@ -349,6 +353,8 @@ So for a **contaminated** training set → **Isolation Forest**.
 20. **Decoupling contradicts the folklore.** Kang et al. 2020: a representation trained with *instance-balanced* (natural, imbalanced) sampling plus a rebalanced classifier head beats end-to-end class-balanced training on long-tailed benchmarks. Reconcile this with "rebalance so the minority gets gradient signal" — which part of the network was imbalance actually hurting, and where does that say resampling belongs (if anywhere) in a deep pipeline?
 
 ## Rapid-fire: thresholds, fraud ops & LLM-era pipelines
+
+Same format — no answers, ~2 minutes out loud each. These skew toward the settings where imbalance is most extreme and most current: trust-and-safety and fraud at FAANG/fintech scale, retrieval negatives, and the preference and safety data of frontier-lab (OpenAI, Anthropic, DeepMind) post-training loops.
 
 1. **The threshold isn't one number.** In fraud the false-negative cost is the transaction amount: $C_{\text{FN}}(x) = \text{amount}(x)$ against a fixed friction cost $C_{\text{FP}}$. Derive the per-example rule $t^\star(x)$, prove a single global threshold is suboptimal for any non-degenerate amount distribution, and explain why no class-level resampling or class-weighting scheme can encode this — while a calibrated $p(x)$ handles it trivially. What property must the model's output have for the per-example rule to work at all?
 2. **Approve, review, block.** Real fraud systems have three actions, and human review costs money. Derive the *two* thresholds from a cost matrix that includes reviewer cost, state when the review band collapses to zero width, and explain how you'd set the band when the binding constraint is reviewer *capacity* — a fixed-size queue — rather than a per-item cost.
@@ -373,7 +379,7 @@ So for a **contaminated** training set → **Isolation Forest**.
 
 ## Rapid-fire: the three sampling primitives — importance · rejection · reservoir
 
-The scenario version of the imbalance question: an interviewer describes a data situation and makes you *arrive at* the sampling method rather than name it. Each of importance, rejection, and reservoir sampling solves a *different* problem — reweight vs. reshape vs. subsample-a-stream — and confusing them is the tell.
+The scenario version of the imbalance question: an interviewer describes a data situation and makes you *arrive at* the sampling method rather than name it (a LinkedIn/FAANG ML-breadth staple; the estimator lens is where quant loops — Two Sigma, D. E. Shaw — take it). Each of importance, rejection, and reservoir sampling solves a *different* problem — reweight vs. reshape vs. subsample-a-stream — and confusing them is the tell. No model answers: if you can't derive each cleanly in ~2 minutes, that's the gap. Several bundle sub-questions; a strong answer hits every part.
 
 1. **Reweight, don't resample (importance sampling).** You want $\mathbb{E}_{p}[f]$ but can only draw from $q$. Derive the identity $\mathbb{E}_{p}[f(x)] = \mathbb{E}_{q}\!\big[f(x)\,\tfrac{p(x)}{q(x)}\big]$ and read the weight $w(x)=p(x)/q(x)$ as "how over/under-represented this draw is." Now map it onto imbalance: training on a rebalanced set $q$ but wanting the loss under the true prevalence $p$ *is* importance sampling — show that per-class importance weights $\propto \pi_{\text{true}}/\pi_{\text{train}}$ are exactly the class weights, and that this is the reweighting alternative to physically resampling.
 2. **When the weights explode.** Importance sampling is unbiased for *any* valid $q$ — so why does it fail in practice? Derive the variance of the IS estimator, show it blows up when $q$ has thinner tails than $p$ (a few samples carry enormous weight), and define the **effective sample size** $\text{ESS} = (\sum_i w_i)^2/\sum_i w_i^2$. What does $\text{ESS}=1$ mean, and why is self-normalized IS (weights normalized to sum to 1) the usual fix — at the cost of what?
@@ -386,6 +392,8 @@ The scenario version of the imbalance question: an interviewer describes a data 
 9. **Pick the primitive.** Rapid discrimination round — for each, name the *one* right tool and why: (a) unbiased offline estimate of a metric under the deployment prevalence, from a model trained on rebalanced data; (b) build a 50/50 training set from a firehose you can't buffer; (c) draw exact samples from an awkward target density with a cheap envelope; (d) correct a two-tower recommender's popularity-biased in-batch negatives. Then the trap: which of these does **oversampling/SMOTE** *not* solve, and why is "just SMOTE it" the wrong reflex for a streaming or estimation problem?
 
 ## Rapid-fire: class imbalance, fast recall
+
+The machine-gun version — the canonical breadth-round questions you should answer cleanly in **under 90 seconds each**. These are the fundamentals underneath the deeper resampling/estimator drills above; if any one makes you hesitate, that's the gap to close first.
 
 1. **Why is imbalance a problem?** In one sentence, what goes wrong when 99% of labels are one class?
 2. **Cheapest first move.** Before touching the data, what are the two cheapest fixes for imbalance (a better metric, class weights, moving the threshold)?
