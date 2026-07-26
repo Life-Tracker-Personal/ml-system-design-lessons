@@ -8,6 +8,8 @@ estimatedMinutes: 45
 
 These questions test whether you can explain what an ensemble is doing before reaching for its formula. Start every answer with the behavior you expect, then use the derivation to justify it. The decorrelation identity, functional gradient descent, and the XGBoost objective are evidence for the intuition—not substitutes for it.
 
+If you can derive Q2, Q4, Q5, and Q6 from scratch, you're calibrated for the trees/ensembles portion of any top-tier or quant interview.
+
 <Quiz id="1">
 
 **Q1. Did the split make the groups easier to predict?** A parent node contains 8 class-A and 2 class-B examples. A candidate question sends $\{6A,0B\}$ left and $\{2A,2B\}$ right. Before calculating, explain which child is pure, which remains uncertain, and why child sizes must be used as weights. Then compute the Gini decrease and entropy information gain. Do the criteria agree?
@@ -331,6 +333,8 @@ $$w_j^\star = \frac{\sum_{i\in I_j} r_i}{n_j + \lambda} = \frac{n_j\,\bar r_j}{n
 
 ## Rapid-fire: trees, bagging & random forests
 
+These are deep drills, not literal two-minute recitations. For each bold scenario, answer in layers: describe the expected behavior, name the mechanism, derive one supporting result, then take the follow-up extensions. If a prompt introduces an unfamiliar named method, first explain the ordinary tree or forest idea it modifies; the name comes second.
+
 1. **Greedy is blind.** Construct a two-feature dataset (XOR is the classic) on which *no* single axis-aligned split reduces impurity, yet a depth-2 tree is perfect. Why does the pathology vanish at depth 2, why doesn't lookahead search fix it in practice, and is the "deep trees have near-zero bias" claim a statement about the hypothesis class or about the greedy algorithm that searches it?
 2. **The axis-aligned tax.** The true decision boundary is the diagonal $x_1 + x_2 = 1$ on the unit square. What does a tree's fitted boundary look like, and roughly how does the number of leaves needed for error $\varepsilon$ scale? Contrast with a single oblique split $w^\top x = c$. Then defend the status quo: why do mainstream libraries still ship axis-aligned splits only — hit the compute, invariance-to-monotone-feature-transforms, and interpretability arguments — and what preprocessing partially buys obliqueness back?
 3. **Monotone-invariance, proved.** Show from the split-search procedure that a tree's fitted function is invariant to any strictly monotone transformation of a *feature* — so standardizing buys nothing. Then explain why the same argument fails for a monotone transformation of the *target* in gradient boosting: what changes in the pseudo-residuals?
@@ -349,6 +353,8 @@ $$w_j^\star = \frac{\sum_{i\in I_j} r_i}{n_j + \lambda} = \frac{n_j\,\bar r_j}{n
 16. **When OLS beats the forest.** Signal-to-noise on daily equity returns is minuscule. Argue why a quant desk might still run ridge/OLS over a tuned GBDT — estimator variance, non-stationarity, extrapolation, the audit trail — and state what evidence would flip the decision back to trees. (This is the seniority question at quant funds.)
 
 ## Rapid-fire: boosting, GBDT & the tabular frontier
+
+Use the same layered answer: behavior first, gradient or systems mechanism second, derivation third, production implication last. The bold heading is the core interview question; later clauses are escalating follow-ups rather than one expected monologue.
 
 1. **Why Newton?** Derive from XGBoost's second-order Taylor expansion that each new tree solves a *weighted* least-squares problem — targets $-g_i/h_i$ with weights $h_i$. For log loss ($h_i = p_i(1-p_i)$), what do those weights do to confidently-classified points, and why is that the right behavior — and what does this weighting view add over the plain "fit the pseudo-residual" story of first-order boosting?
 2. **The margin mystery.** AdaBoost's training error hits zero, yet test error keeps *falling* for hundreds more rounds — reconcile that with this lesson's "more rounds overfit, always early-stop" via margin theory (Schapire et al. 1998): what does continued boosting do to the margin distribution, what roles do label noise, weak-learner capacity, and the choice of loss play in deciding which story you observe, and is "GBDT overfits in rounds" a theorem or an empirical regularity?
@@ -373,6 +379,8 @@ $$w_j^\star = \frac{\sum_{i\in I_j} r_i}{n_j + \lambda} = \frac{n_j\,\bar r_j}{n
 21. **Turn the knobs — which way does error move?** The rapid-fire breadth version of "you tune XGBoost and a random forest — what does each parameter do?" For a **random forest**, state the bias/variance direction of `n_estimators`, `max_features`, `max_depth`, and `min_samples_leaf`, and identify which one you can crank *without* overfitting risk (and why — the $\text{bias}^2+\rho\sigma^2$ view). For **XGBoost**, do the same for `learning_rate`, `n_estimators`, `max_depth`, `subsample`/`colsample_bytree`, `min_child_weight`, and `reg_lambda`/`gamma` — and nail the two contrasts that separate a strong answer: (a) why adding trees to an RF *converges* harmlessly while adding rounds to a GBDT eventually *overfits*, and (b) why `learning_rate` and `n_estimators` must be tuned *jointly* in boosting but tree count in an RF is a standalone "more is fine" dial. Bundle: which single GBDT knob most directly fights label noise, and why?
 
 ## Rapid-fire: trees & ensembles, fast recall
+
+The machine-gun version — the canonical breadth-round questions you should answer cleanly in **under 90 seconds each**. These are the fundamentals underneath the deeper drills above; if any one makes you hesitate, that's the gap to close first.
 
 1. **How does a tree split?** What criterion does a *classification* tree use to pick a split (Gini or entropy) and a *regression* tree (variance / MSE reduction)? Write Gini impurity for a node.
 2. **Gini vs entropy.** Do they usually choose different trees? Which is cheaper to compute, and why?

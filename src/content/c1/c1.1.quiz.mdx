@@ -8,6 +8,8 @@ estimatedMinutes: 45
 
 These 12 questions are conceptually difficult by design. Each tests understanding, derivation, or counter-example construction — not recall. Try to answer in your head (or on paper) before revealing the model answer. The rubric at the bottom of each answer lists the specific points the answer should contain.
 
+If you can answer 8 of these cleanly, you're calibrated for an ML system design interview at staff level. If you can answer all 12, you can teach this material.
+
 <Quiz id="1">
 
 **Q1.** Prove that stratified sampling has variance no greater than simple random sampling (SRS), given the same total sample size $n$. Then construct a concrete case where the two have *equal* variance.
@@ -517,6 +519,8 @@ Formally: let $f_e(\cdot)$ be the time-series of feature values for entity $e$, 
 
 ## Rapid-fire: sampling & class imbalance
 
+Additional interview-calibrated questions — the ones that tend to separate candidates at top-tier ML interviews (Anthropic, Meta, frontier startups, quant funds). No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
+
 1. **Unbiased for what?** When you draw mini-batches uniformly from the training set, what objective are the gradients an unbiased estimate of? If you instead force 50/50 batches on a 95/5 dataset, what objective are you *now* implicitly optimizing — and how do importance weights restore the original one?
 2. **Oversampling vs. loss weighting.** In expectation, when is duplicating minority examples mathematically equivalent to up-weighting the minority term in the loss? Where do the two diverge — variance, compute, overfitting?
 3. **Why oversampling adds no information.** Explain why plain oversampling cannot create new information and tends to overfit. Define "effective sample size" / effective diversity, and say what actually increases it.
@@ -539,6 +543,8 @@ Formally: let $f_e(\cdot)$ be the time-series of feature values for entity $e$, 
 20. **Design a sampler end-to-end.** You're handed a 1,000:1 fraud dataset. Walk through how you'd combine split strategy, batch sampling, weighting/augmentation, metric choice, and threshold/calibration into one coherent training + evaluation plan — and justify each choice.
 
 ## Rapid-fire: leakage & feature redundancy
+
+Same format — no answers, ~2 minutes each.
 
 1. **The low-importance leaker.** A leaky feature shows surprisingly *low* permutation/tree importance, and dropping it barely moves AUC — yet it *is* leaking. Explain how feature redundancy (collinearity) produces both symptoms at once, and what detection approach surfaces it where drop-column and single-feature importance both fail.
 2. **VIF — detection vs. prediction.** Why is multicollinearity primarily a *leakage-detection* and *coefficient-inference* problem rather than a *prediction* problem for a tree model? Define the variance inflation factor $\text{VIF}_j = 1/(1 - R_j^2)$ and state precisely what $R_j^2$ is the result of regressing on what.
