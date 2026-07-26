@@ -97,7 +97,7 @@ Tools to know:
 
 - **Reliability diagram.** Bin predictions by confidence, plot empirical accuracy vs. mean confidence; the diagonal is perfect calibration.
 - **Expected Calibration Error (ECE).** $\text{ECE} = \sum_b \frac{|B_b|}{N}\,\bigl|\,\text{acc}(B_b) - \text{conf}(B_b)\,\bigr|$. Caveat worth stating in an interview: ECE is sensitive to the binning scheme and only measures *top-label* calibration — class-wise ECE or the Brier score are more robust.
-- **Brier score** $= \frac1N\sum_n \|q_n - y_n\|^2$ — MSE on probabilities, itself a proper scoring rule. It splits cleanly into a **calibration** term and a **discrimination** term (plus an irreducible base-rate term) — for the formal reliability–resolution–uncertainty (Murphy) decomposition, ask an AI assistant; an interviewer won't.
+- **Brier score** $= \frac1N\sum_n \|q_n - y_n\|^2$ — MSE on probabilities, itself a proper scoring rule. Its **Murphy decomposition** $\text{Brier} = \text{Reliability} - \text{Resolution} + \text{Uncertainty}$ cleanly separates *calibration* (reliability) from *discrimination* (resolution) and the irreducible base-rate term.
 - **Temperature scaling** (Guo 2017). Post-hoc, learn a single scalar $T>0$ and predict $\text{softmax}(z/T)$, fitting $T$ by minimizing validation NLL. $T>1$ softens overconfidence. **It cannot change accuracy** — dividing all logits by a positive constant preserves the argmax — so it's a free calibration fix that never costs you decisions.
 
 This is the stats/quant lens on classification: cross-entropy and Brier are *proper scoring rules*; perplexity (the language-model headline metric) is just $\exp(\text{CE})$; calibration is the bridge between a model's loss and a decision system's expected value.
