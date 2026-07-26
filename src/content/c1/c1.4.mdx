@@ -398,7 +398,7 @@ $$
 +\operatorname{tr}\!\left(\operatorname{Cov}(\hat\beta)\right)
 $$
 
-The trace appears because $\operatorname{Cov}(\hat\beta)$ is a matrix; its diagonal entries are the component variances, and their sum is the estimator's total variance. Ridge is biased, but its reduction in total variance can outweigh its squared bias and produce lower total MSE than OLS. OLS minimizes variance only *among linear unbiased estimators*, an often-overlooked restriction. The deep version is **James–Stein (1961)**: the ordinary sample mean is inadmissible for estimating a Gaussian mean in dimension $\ge 3$; a shrinkage estimator can have lower total MSE. Shrinkage is not merely a numerical hack. Ridge applies that bias–variance logic to regression.
+The trace appears because $\operatorname{Cov}(\hat\beta)$ is a matrix; its diagonal entries are the component variances, and their sum is the estimator's total variance. Ridge is biased, but its reduction in total variance can outweigh its squared bias and produce lower total MSE than OLS. OLS minimizes variance only *among linear unbiased estimators*, an often-overlooked restriction. That shrinkage can beat the unbiased estimate on *total* MSE is a real effect, not a numerical hack. (The classic formal result is James–Stein (1961) on shrinkage dominance; for the precise inadmissibility statement and proof, ask an AI assistant like Claude or ChatGPT — an interviewer won't.) Ridge applies that bias–variance logic to regression.
 
 Regularized coefficients do not inherit ordinary OLS $p$-values. The penalty changes their bias and sampling distribution, while data-driven tuning adds selection uncertainty. Use regularization primarily for prediction and stability; use carefully designed post-selection or Bayesian methods when inference is the goal.
 
@@ -552,7 +552,7 @@ PCA also captures only linear directions, can be dominated by outliers, and make
 ## Interview gotchas
 
 - **"Is OLS the minimum-variance unbiased estimator, and does it need Gaussian errors?"** — It's BLUE (best *linear* unbiased) by Gauss–Markov; normality is **not** required for BLUE, only for finite-sample $t$/$F$ inference. A nonlinear or biased estimator can beat it.
-- **"When is a biased estimator better than OLS?"** — bias-variance: ridge trades bias for a larger variance cut → lower MSE; James–Stein proves dominance for dimension $\ge 3$.
+- **"When is a biased estimator better than OLS?"** — bias-variance: ridge trades bias for a larger variance cut → lower MSE. (The formal shrinkage-dominance result is James–Stein; ask an AI for the precise statement — an interviewer won't.)
 - **"Why does logistic regression have no closed form, and is the objective convex?"** — score equation is nonlinear in $\beta$ (no closed form); Hessian $-X^\top W X \preceq 0$ for the log-likelihood → NLL convex → IRLS/Newton finds the global optimum.
 - **"What happens under perfect separation?"** — MLE diverges to $\pm\infty$; regularize or use Firth. (Cite Albert–Anderson.)
 - **"Ridge vs lasso — and what priors are they?"** — L2 shrinks / Gaussian prior; L1 zeros / Laplace prior; show soft-thresholding.

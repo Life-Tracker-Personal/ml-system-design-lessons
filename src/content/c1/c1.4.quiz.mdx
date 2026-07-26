@@ -8,8 +8,6 @@ estimatedMinutes: 45
 
 These 12 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
 
-If you can derive Q1, Q2, Q5, and Q8 from scratch, and explain Q9 and Q10 cold, you're calibrated for the regression portion of any top-tier or quant interview.
-
 <Quiz id="1">
 
 **Q1. From “closest line” to the OLS formula.** OLS chooses the prediction vector $X\hat\beta$ closest to $y$. Show that statement algebraically in two ways: minimize RSS with calculus, then view $X\hat\beta$ as the orthogonal projection of $y$ onto the space spanned by $X$. Use the projection picture to decide whether the hat matrix is symmetric, idempotent, invertible, has trace $p$, and has eigenvalues in $\{0,1\}$. Finally, explain what must be true of the feature columns for the usual closed form to exist.
@@ -144,7 +142,7 @@ $$
 
 The trace sums the component variances. OLS is unbiased, but when $X^\top X$ has small eigenvalues, $\operatorname{Cov}(\hat\beta_{\text{OLS}})=\sigma^2(X^\top X)^{-1}$ can have a very large trace. Ridge shrinks coefficients toward zero, creating bias, while sharply reducing variance along those poorly identified directions. For an appropriate $\lambda>0$, the reduction in $\operatorname{tr}(\operatorname{Cov}(\hat\beta))$ can exceed the increase in squared bias, giving ridge lower total coefficient MSE. OLS minimizes variance only within the class of linear unbiased estimators.
 
-**Classical result.** **James–Stein (1961):** the ordinary sample mean is *inadmissible* for estimating a multivariate Gaussian mean in dimension $\ge 3$ — a shrinkage estimator strictly dominates it in total MSE, even when the coordinates are independent. Ridge is the regression analogue: shrinkage is provably better, not a hack.
+**The intuition (skip the theorem).** With many noisy coefficients, shrinking them all toward zero gives up a little bias to buy a large cut in variance — so on *total* MSE the shrunk estimate can beat the unbiased one. That is the whole reason ridge is principled and not a hack. There is a celebrated formal result making this precise for a high-dimensional Gaussian mean, but no interviewer will ask you to reproduce it — if you want the exact statement and proof, ask an AI assistant (Claude or ChatGPT) to walk you through it.
 
 **Rubric:**
 - $X^\top X$ PSD; $+\lambda I$ shifts eigenvalues to $\ge\lambda>0$ → positive-definite → always invertible (even $p>n$)
@@ -152,7 +150,7 @@ The trace sums the component variances. OLS is unbiased, but when $X^\top X$ has
 - Vector decomposition: total MSE = squared bias norm + $\operatorname{tr}(\operatorname{Cov}(\hat\beta))$
 - Explain why covariance itself cannot be added to scalar squared bias; ridge accepts bias to cut total variance
 - Collinearity → huge OLS variance, so ridge wins for some $\lambda$
-- Cite James–Stein / inadmissibility for dim ≥ 3
+- Intuition: shrinkage trades a little bias for a big variance cut → can beat OLS on total MSE (no need to quote the formal theorem)
 
 </details>
 
@@ -405,19 +403,10 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 
 ## Rapid-fire: OLS, inference & the quant gauntlet
 
-These are **deep interview drills**, despite the traditional “rapid-fire” label. Many contain a two-minute core question followed by harder extensions. Do not try to say every equation at once. Give a layered answer:
-
-1. State the phenomenon in one plain-English sentence.
-2. Name the assumption or identity that controls it.
-3. Derive the smallest equation that proves the claim.
-4. Add the production or quant implication only after the core answer is clear.
-
-For example, on “duplicate every row,” begin with “the fitted line is unchanged, but naive inference mistakes copies for new information.” Then prove each part. The bold phrase at the start of every prompt names the central tension; treat later clauses as follow-ups an interviewer may ask, not one breathless response.
-
 1. **Regress both ways.** You regress $y$ on $x$, then $x$ on $y$. Derive both slopes in terms of $\rho$, $\sigma_x$, $\sigma_y$. Show their product is $\rho^2$, state when the two slopes are equal, and explain why the second slope is *not* the reciprocal of the first even though the algebra of the fitted line suggests it should be.
 2. **Duplicate every row.** You copy the entire dataset once, so every observation appears twice, and rerun OLS. Derive what happens to $\hat\beta$, $R^2$, the residual variance estimate, the standard errors, and the $t$-statistics — and explain why the quantities that *change* are exactly the ones that were pretending you had new information.
 3. **Which assumption buys what.** Gauss–Markov lists four assumptions: linearity, strict exogeneity, homoskedasticity, no perfect collinearity. Map each to precisely which conclusion dies when it — and only it — fails: unbiasedness, the BLUE property, valid standard errors, or the existence of $\hat\beta$ at all. Which single failure makes $\hat\beta$ biased *and* inconsistent, and which merely wrecks inference while leaving $\hat\beta$ unbiased?
-4. **Behind the regression table.** Starting from $y = X\beta + \varepsilon$, derive $\hat\beta - \beta = (X^\top X)^{-1}X^\top\varepsilon$ and hence $\text{Var}(\hat\beta)$. Then justify the $t_{n-p}$ (not Normal) reference distribution: show $\text{RSS}/\sigma^2 \sim \chi^2_{n-p}$ via the idempotent $I-H$, and argue $\hat\beta$ and $\hat\sigma^2$ are independent under Gaussian errors. Where exactly does each fact enter the $t$-statistic?
+4. **Behind the regression table.** Starting from $y = X\beta + \varepsilon$, derive $\hat\beta - \beta = (X^\top X)^{-1}X^\top\varepsilon$ and hence $\text{Var}(\hat\beta)$. Then justify the $t_{n-p}$ (not Normal) reference distribution — you standardize by an *estimated* $\sigma$, and the $n-p$ degrees of freedom are the fit directions already consumed estimating $\hat\beta$. (For the formal $\chi^2$/independence derivation via the idempotent $I-H$, ask an AI assistant — no interviewer asks you to reproduce it.)
 5. **Frisch–Waugh–Lovell.** Prove that the multiple-regression coefficient $\hat\beta_j$ equals the slope from regressing the *residualized* $y$ on the *residualized* $x_j$ (both residualized on the other predictors). Then use FWL to *derive* the VIF: show $\text{Var}(\hat\beta_j) = \sigma^2 / \|\tilde x_j\|^2$ where $\tilde x_j$ is that residual, and extract the $1/(1-R_j^2)$ factor.
 6. **Omitted-variable bias, exactly.** You omit $x_2$ from $y = \beta_1 x_1 + \beta_2 x_2 + \varepsilon$. Derive the bias of $\hat\beta_1$ in terms of $\beta_2$ and the auxiliary regression of $x_2$ on $x_1$, and use the formula to predict the *direction* of the bias in a concrete case. State the two conditions under which omission is harmless — and reconcile with the quant experience "my alpha vanished when I added an industry factor."
 7. **The sign flips on you.** Adding a control variable flips the sign of your main coefficient. Construct a small concrete example where this happens, and then defend an answer to the harder question: which sign should you believe, and what extra knowledge does the answer depend on?
@@ -429,15 +418,13 @@ For example, on “duplicate every row,” begin with “the fitted line is unch
 13. **$R^2$ folklore.** Prove or refute: (a) out-of-sample $R^2$ can be negative — and state what baseline $R^2 = 0$ corresponds to out of sample; (b) $R^2$ is invariant to affine rescaling of $y$; (c) comparing $R^2$ between a model of $y$ and a model of $\log y$ is meaningful. Explain why quant researchers treat a *positive* OOS $R^2$ of a few percent as a strong result — then: why is there no canonical $R^2$ for logistic regression, and what do pseudo-$R^2$s actually measure?
 14. **Unbiased, consistent — pick one.** Construct an estimator that is unbiased but inconsistent, and one that is biased but consistent — which of the two is the MLE of $\sigma^2$? State what OLS consistency actually requires ($\text{plim}\,X^\top X/n$ invertible plus $\mathbb{E}[x_i\varepsilon_i]=0$), give a realistic time-series case — a lagged dependent variable — where OLS is biased in finite samples yet consistent, and say which of the two properties you'd rather sacrifice in a large-sample trading context.
 15. **AIC, BIC, or cross-validation.** All three select models, but they optimize different things. Reconcile: which one is asymptotically equivalent to leave-one-out CV, which one recovers the true model as $n \to \infty$, and when do they disagree about how many factors to keep?
-16. **Three tests, one hypothesis.** Define the Wald, likelihood-ratio, and score (LM) tests of $H_0\!:\beta_j = 0$. Show why they are asymptotically equivalent (quadratic expansion of the log-likelihood), state which models each requires you to fit (restricted, unrestricted, or both), and give a finite-sample situation where they materially disagree — which one do you report?
+16. **Three tests, one hypothesis.** Define the Wald, likelihood-ratio, and score (LM) tests of $H_0\!:\beta_j = 0$. Note that all three coincide asymptotically — each is a local quadratic approximation to the same log-likelihood around the MLE (skip the formal expansion; no interviewer asks you to reproduce it), state which models each requires you to fit (restricted, unrestricted, or both), and give a finite-sample situation where they materially disagree — which one do you report?
 17. **When the standard errors lie.** Your residuals show volatility clustering and autocorrelation. Which OLS outputs survive (unbiasedness of $\hat\beta$) and which break — reconcile "the point estimate is fine" with "every $p$-value is wrong." Write White's sandwich estimator and say what each slice estimates; state when feasible GLS/WLS strictly beats OLS-with-robust-SEs (Aitken) and when misspecified weights make things worse; and since HC errors do nothing about serial correlation, say what Newey–West adds and the bandwidth trade-off.
 18. **Spurious regression.** Regress one trending, non-stationary series on another, unrelated one: you get a large $R^2$ and a huge $t$-stat. Explain the mechanism that manufactures the significance, how you'd detect it, and what differencing or cointegration testing changes.
 19. **When collinearity *does* hurt prediction.** The lesson says collinearity is "often harmless for prediction." Construct the counter-example: $x_1 \approx x_2$ in training, decoupled at deployment (a regime change). Explain via the low-variance principal directions why the fitted model extrapolates wildly off the training subspace — and why ridge's shrinkage of exactly those directions is an implicit bet about deployment data.
 20. **Alpha or multiple testing?** In a factor regression, "the strategy has alpha" is a $t$-test on the intercept. You test 200 candidate signals and 12 clear $|t| > 2$. Reconcile this with the 5% false-positive rate, and describe how you'd adjust the bar — this is the overfit-backtest problem in one question.
 
 ## Rapid-fire: regularization, logistic regression & PCA in the wild
-
-Use the same layered format: intuition, controlling principle, minimal derivation, practical consequence. Each bold heading is the core two-minute question; the remaining clauses are progressive follow-ups. These drills intentionally move beyond the lesson, but unfamiliar terminology should become a research pointer—not something to bluff through.
 
 1. **Regularize even when $n \gg p$?** With far more observations than features, OLS is well-posed — so construct the case for shrinkage anyway. When does penalization still lower test error, and when is the honest answer "don't bother"?
 2. **Rescale a feature.** Multiply one column of $X$ by 1000. Derive what happens to its OLS coefficient, its $t$-stat, and its ridge coefficient. Use the asymmetry to explain why you must standardize before penalized fitting but not before OLS — equivariance is the word to define. Why is the intercept conventionally left unpenalized, and what goes wrong — concretely — if you penalize it?
@@ -471,8 +458,6 @@ The Laplace distribution ties this cluster together — as a *noise model* it yi
 
 ## Rapid-fire: logistic regression from the whiteboard to code (the breadth-round drill)
 
-The exact sequence a LinkedIn/FAANG **ML-breadth** interviewer walks: derive logistic regression cold, perturb its parameters, contrast it with linear regression, then implement it — gradient and update step by hand. No model answers on purpose: if you can't produce each cleanly, out loud or on a whiteboard, in ~2 minutes, that's the gap to close. Several bundle sub-questions; a strong answer hits every part.
-
 1. **Derive it from nothing.** Start from "$y\mid x$ is Bernoulli with parameter $p(x)$" and the choice to make the **log-odds** linear, $\log\frac{p}{1-p}=w^\top x+b$. Invert to get the sigmoid $p=\sigma(w^\top x+b)$, write the Bernoulli log-likelihood over $n$ points, and show maximizing it *is* minimizing binary cross-entropy. Name the one modeling choice (the logit link) that turns a generic classifier into *this* one — and what would change if you'd picked the probit link instead.
 2. **Move the bias, shift the curve.** With one feature, $p(x)=\sigma(wx+b)$. Show precisely how $b$ **translates** the sigmoid along the $x$-axis (the 0.5-crossing sits at $x=-b/w$) while $w$ sets its **steepness** and orientation (sign flip mirrors it). Derive the slope of $p$ at the crossing ($w/4$), and answer the follow-up: as $\lVert w\rVert\to\infty$ the curve approaches a step — what does that correspond to in the data (separability), and why does an unregularized fit chase it?
 3. **Linear vs. logistic — line them up.** Both are linear in $x$; list *exactly* what changes: the link (identity vs. logit), the output's meaning (conditional mean vs. $P(y{=}1\mid x)$), the noise model / loss (Gaussian–squared vs. Bernoulli–cross-entropy), and the boundary. Then land the punchline: why is fitting a *linear* regression to 0/1 labels (the linear probability model) a defensible move for *estimating average effects* but a bad one for *predicting probabilities* — where does it embarrass itself?
@@ -481,8 +466,6 @@ The exact sequence a LinkedIn/FAANG **ML-breadth** interviewer walks: derive log
 6. **Code it up.** Implement logistic regression from scratch in ~15 lines of NumPy: forward ($\sigma$), loss, gradient, and the update loop. Two things the interviewer is watching for — write the loss in a **numerically stable** form so a logit of $\pm 500$ doesn't overflow (log-sum-exp / `logaddexp`), and state how you'd **gradient-check** it (finite differences) before trusting a single training step.
 
 ## Rapid-fire: linear & logistic regression, fast recall
-
-The machine-gun version — the canonical breadth-round questions you should answer cleanly in **under 90 seconds each**, no derivation theater. These are the fundamentals underneath the deeper drills above; if any one makes you hesitate, that's the gap to close first.
 
 1. **Probability or label?** Does logistic regression output a class or a probability? How do you turn its output into a 0/1 decision — and is a 0.5 cutoff always right?
 2. **Why not linear regression for classification?** Give three concrete reasons fitting a straight line to 0/1 labels misbehaves — predictions outside $[0,1]$, the wrong noise model, and sensitivity to points far from the boundary.
