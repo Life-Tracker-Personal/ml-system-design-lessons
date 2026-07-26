@@ -8,8 +8,6 @@ estimatedMinutes: 45
 
 These 12 questions test whether you understand SVMs and kNN *geometrically* — margins, duality, kernels, and why distance breaks in high dimensions — not whether you can name them. Try to answer before revealing.
 
-If you can derive Q1, Q4, Q6, and Q9 from scratch, you're calibrated for the kernel/instance-based portion of any top-tier or quant interview.
-
 <Quiz id="1">
 
 **Q1.** Derive that the SVM margin width is $2/\|w\|$, starting from the canonical margin hyperplanes. Why does maximizing the margin equal minimizing $\tfrac12\|w\|^2$, and why must it be the *geometric* margin, not the functional margin?
@@ -194,11 +192,11 @@ So $\phi$ is infinite-dimensional.
 <details>
 <summary>Model answer + rubric</summary>
 
-**Cover–Hart (1967).** As $n \to \infty$, the 1-NN error $R$ satisfies, for $M$ classes,
+**Cover–Hart (1967).** As $n \to \infty$, the binary 1-NN error is squeezed between the Bayes error and twice it:
 
-$$R^\star \le R \le R^\star\Bigl(2 - \tfrac{M}{M-1}R^\star\Bigr)$$
+$$R^\star \le R \le 2R^\star(1 - R^\star) \le 2R^\star$$
 
-In the **binary** case ($M=2$): $R^\star \le R \le 2R^\star(1 - R^\star) \le 2R^\star$.
+(The general $M$-class form carries an extra $M/(M-1)$ factor; for the exact statement, ask an AI assistant — an interviewer wants the $2R^\star$ takeaway, not the constant.)
 
 **Interpretation of $R \le 2R^\star$.** Even the crudest possible classifier — "copy the label of the single closest point" — has asymptotic error no worse than **twice** the best achievable error of *any* classifier (the Bayes classifier, which knows the true $P(y\mid x)$). Put differently, at least **half the achievable information about the label is contained in the single nearest neighbor**. That's a remarkable guarantee for a method that does no training at all.
 
@@ -320,8 +318,6 @@ The nearest and farthest points become indistinguishable — the "relative contr
 
 ## Rapid-fire: SVMs, kernels & margins
 
-Additional interview-calibrated questions — the ones that separate candidates at top-tier ML loops (DeepMind-style math-depth rounds, Meta/Google ML breadth, OpenAI/Anthropic research screens, and quant funds like Jane Street, Citadel, and Two Sigma). No model answers on purpose: if you can't answer one cleanly, out loud, in ~2 minutes, that's the gap to close. Several bundle multiple sub-questions; a strong answer hits every part.
-
 1. **Separable data, diverging weights.** What happens to logistic regression's weights on a perfectly linearly separable dataset, and in which *direction* does the gradient-descent iterate converge (Soudry et al. 2018 — the implicit-bias result)? Why does the SVM have no such pathology, and what does this reveal about the two losses at large margins?
 2. **The hinge minimizer.** Derive the population minimizer of hinge loss at a point with $\eta = \Pr[y{=}1 \mid x]$ and show it is $\operatorname{sign}(2\eta - 1)$ — a hard label, with no invertible map back to $\eta$. Contrast with the logistic-loss minimizer, and explain why this makes hinge classification-calibrated but *not* a proper scoring rule — so Platt scaling is *structurally* necessary rather than a convenience. What exactly does Platt scaling fit, on what data, and name two ways it silently fails (sigmoid misspecification; scores from the same data the SVM was trained on).
 3. **Subgradient at the kink.** Hinge is non-differentiable at margin $m = 1$. Write its subdifferential there, explain why subgradient/SGD methods converge anyway, and say what squared hinge changes analytically — and what it costs you in outlier sensitivity.
@@ -345,11 +341,9 @@ Additional interview-calibrated questions — the ones that separate candidates 
 
 ## Rapid-fire: kNN, distance geometry & vector search
 
-Same format — no answers, ~2 minutes each. This half skews toward what vector-search system rounds at FAANG, retrieval/RAG rounds at frontier labs, and quant-research loops actually probe: distance geometry, estimator quality, and production ANN.
-
 1. **Lazy has a price.** kNN trains in $O(1)$ and predicts in $O(nd)$. Construct one deployment where that trade is unacceptable and one where it's ideal — then reconcile "no training" with the very real, training-like cost of building an ANN index.
 2. **All-pairs, no loops.** Derive the vectorized pairwise squared-distance identity $\|x - z\|^2 = \|x\|^2 + \|z\|^2 - 2\,x^\top z$ at the matrix level, name the floating-point pitfall it introduces (tiny negative distances from cancellation) and the fix, and state the memory cost of the full $n \times n$ result. This is the kNN/k-means from-scratch round at Meta, Uber, and Microsoft.
-3. **Compute the shell.** For uniform data on the unit hypercube in $d = 100$, compute the fraction of volume within $0.01$ of the boundary, $1 - 0.98^{100}$. Then compute the sub-cube edge length needed to capture 1% of uniform data in $d = 10$, i.e. $0.01^{1/10}$. Do both out loud, and state what each number does to "local" averaging.
+3. **Compute the shell.** For uniform data on the unit hypercube in $d = 100$, compute the fraction of volume within $0.01$ of the boundary, $1 - 0.98^{100}$. Then compute the sub-cube edge length needed to capture 1% of uniform data in $d = 10$, i.e. $0.01^{1/10}$. Do both, and state what each number does to "local" averaging.
 4. **The Gaussian soap bubble.** Show that the norm of a standard Gaussian vector in $d$ dimensions concentrates around $\sqrt{d}$ with $O(1)$ fluctuation. What does this imply about where high-dimensional embeddings actually live, and about Euclidean vs. cosine geometry on that shell?
 5. **Why KD-trees die.** Explain the *mechanism* by which KD-tree branch-and-bound collapses to a linear scan in high dimensions — why can the query ball no longer exclude most cells once distances concentrate? And why do ball trees only postpone, not prevent, the collapse?
 6. **$k \approx \sqrt{n}$ is folklore.** Is the popular rule $k \approx \sqrt{n}$ convention or mathematics? State the actual optimal-rate result — under second-order smoothness, $k^\star \propto n^{4/(4+d)}$ — find the one dimension where the folklore agrees with it, and say what should actually choose $k$ in practice.

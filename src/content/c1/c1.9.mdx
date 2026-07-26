@@ -89,7 +89,7 @@ A **learning curve** (error vs training-set size) diagnoses the regime: **high b
 
 ## The stats / quant-research lens
 
-- **The decomposition is the whole game** — derive it cold, state the squared-loss caveat, and connect "ridge accepts bias to cut variance" to c1.4's James–Stein (shrinkage dominates the MLE in dim ≥ 3).
+- **The decomposition is the whole game** — derive it cold, state the squared-loss caveat, and connect "ridge accepts bias to cut variance" to c1.4's shrinkage story (a little bias can strictly lower total MSE).
 - **CV error is an estimator with a sampling distribution** — three distinct effects (pessimistic bias from smaller folds, high variance from correlated LOO folds, optimistic *selection* bias from min-over-candidates); a staff-level answer separates all three.
 - **Data-snooping = meta-level leakage:** running 100 CV configs and reporting the best is multiple testing; the number is an order statistic biased by $\approx\tau\sqrt{2\ln m}$. In quant this is **backtest overfitting** (Bailey & López de Prado's *deflated Sharpe ratio*); nested CV / a truly-held-out set is the only honest fix — the same root cause as "more factors mechanically raise in-sample $R^2$" (c1.4).
 - **Double descent as statistics:** at $p=n$ the min-norm solution's variance spikes ($X^\top X$ ill-conditioned), then falls as $p\gg n$ because the pseudoinverse spreads and shrinks weight — an implicit ridge (the c1.4 SVD picture).
