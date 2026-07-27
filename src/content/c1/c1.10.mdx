@@ -45,9 +45,13 @@ estimatedMinutes: 60
 
 **F1** $=\frac{2PR}{P+R}=\frac{2\text{TP}}{2\text{TP}+\text{FP}+\text{FN}}$ — the harmonic mean punishes the smaller of precision/recall, and **it ignores TN entirely**, which is exactly why it's the imbalanced-data default (TN is the huge, uninformative cell). **Fβ** $=(1+\beta^2)\frac{PR}{\beta^2P+R}$ weights recall $\beta$ times as much as precision. **The threshold should be read off a cost matrix:** with per-error costs $c_{\text{FP}},c_{\text{FN}}$, expected cost at threshold $t$ is $\pi(1-\text{TPR}(t))c_{\text{FN}}+(1-\pi)\text{FPR}(t)c_{\text{FP}}$, and you minimize it (Part 5).
 
+<ConfusionMatrixHeat caption="The 2×2 confusion matrix with normalization directions overlaid. In this layout (rows = Actual, cols = Predicted) Recall/TPR and FPR are within-actual-class rates — they use one row's totals only, so they don't move when you rescale the other class → ROC's prevalence invariance. Precision mixes columns (its denominator is TP + FP, cells from different actual-class rows) → PR's prevalence sensitivity. Every ROC/PR gotcha in this lesson traces back to which marginal each rate normalizes over." />
+
 ## Part 2 — AUC = concordance = Wilcoxon
 
 > **Goal — derive the one identity that everything else follows from.**
+
+*In one sentence:* sweep the classifier's threshold from ∞ down to −∞, plot (FPR, TPR) at every value → that's the ROC curve. AUC is the area under it, and (as we'll derive) it equals the fraction of (positive, negative) pairs whose scores are in the right order — a pure ranking statistic.
 
 Let positives have scores $X\sim F_+$, negatives $Y\sim F_-$. The ROC curve plots $\text{TPR}=1-F_+(t)$ against $\text{FPR}=1-F_-(t)$; parameterize by $u=\text{FPR}=1-F_-(t)$:
 
@@ -81,6 +85,8 @@ Hold the scorer fixed (TPR, FPR fixed) and change only $\pi$ → precision and P
 
 **The imbalanced trap (the c1.1 "95%-accuracy trap," resolved).** At $\pi=1\%$ over 100k cases (1k positive, 99k negative), a TPR-0.9/FPR-0.1 model flags $0.9(1000)+0.1(99000)=900+9900=10{,}800$ cases — only 900 real. The tiny 0.1 FPR, multiplied by the 99× larger negative pool, **floods** the flagged set. ROC-AUC ≈ 0.9 and the system is still useless. **So for imbalanced problems, report PR-AUC** (Saito & Rehmsmeier 2015); the no-skill PR baseline is the prevalence $\pi$, not 0.5. (Davis & Goadrich 2006: a curve that *dominates* in ROC space dominates in PR space — but a larger ROC-*area* does **not** imply a larger PR-area, and crossing curves have no dominance.)
 
+<RocPrSideBySide caption="The same scorer at π=0.5 (balanced) and π=0.01 (1% positives). Left: the two ROC curves are on top of each other — ROC is prevalence-invariant. Right: the PR curves are radically different — at π=0.5 precision at t=0.5 is 0.90; at π=0.01 the same operating point drops to 0.083. The PR baseline (the no-skill line) also slides from 0.5 down to 0.01. If you have to pick one plot for an imbalanced problem, it's the right one — the left panel is what makes 'AUC=0.9' misleading." />
+
 > **Stop and think.** Your model has AUC = 0.5. Does it mean "no signal"? *Hint: no — it means no monotone-rank signal. If positives concentrate at both score extremes and negatives in the middle, AUC ≈ 0.5 while the feature is strongly (non-monotonically) predictive — visible as a non-monotone ROC or a U-shaped reliability diagram. And AUC below 0.5 means the score is anti-correlated → flip its sign to get $1-\text{AUC}>0.5$.*
 
 ## Part 4 — Ranking is not calibration
@@ -89,12 +95,18 @@ Hold the scorer fixed (TPR, FPR fixed) and change only $\pi$ → precision and P
 
 Because AUC depends only on score *order* (Part 2), apply any strictly increasing $g$ to all scores and AUC is unchanged — while the probabilities can become arbitrarily miscalibrated. Pass a perfectly-ranked model's scores through $p\mapsto p^{10}$: AUC stays at 0.99, but every probability is crushed toward 0 → useless for any threshold/expected-value decision. So **a model can have perfect AUC and be uncalibrated.** This is why you also need *proper scoring rules* — **log-loss** and **Brier** (derived in c1.3) — and **reliability diagrams**, which *do* penalize miscalibration (Brier = reliability − resolution + uncertainty, c1.3's Murphy decomposition). The recalibration maps — **Platt scaling** (fit a sigmoid) and **isotonic regression** (monotone step function) — are *monotone*, so they **improve log-loss/Brier while leaving AUC unchanged**: the cleanest proof that ranking and calibration are orthogonal.
 
+<ReliabilityDiagram caption="An overconfident model (red) sits below the diagonal on the high-confidence bins — a 0.95 prediction is only ~0.82 accurate. Temperature scaling (blue) snaps it back onto the diagonal. Because temperature scaling is a monotone map on the scores, it doesn't reorder any pair — so AUC is identical for both curves. That's the whole 'ranking is not calibration' claim, made visual: two curves with the same AUC and radically different reliability." />
+
 ## Part 5 — Picking the threshold
 
 > **Goal — choose the operating point AUC can't give you.**
 
 - **Youden's J:** $J=\text{Sensitivity}+\text{Specificity}-1=\text{TPR}-\text{FPR}$ (the two are algebraically identical) — maximizing it = the ROC point of maximum vertical distance above the diagonal. Optimal only under an *implicit* equal-cost assumption.
 - **Cost-optimal threshold (the general answer):** predict positive iff the calibrated $p\ge t^\star=\dfrac{c_{\text{FP}}}{c_{\text{FP}}+c_{\text{FN}}}$ (derived by comparing expected costs of the two actions). Equivalently, the optimal ROC operating point is where the iso-cost line of slope $\frac{(1-\pi)c_{\text{FP}}}{\pi\,c_{\text{FN}}}$ is tangent to the curve. A **calibrated model + a cost matrix** beats picking F1's argmax.
+
+*Iso-cost intuition:* an iso-cost line is the set of ROC points with equal expected cost (the same way an indifference curve or a budget line collects points with equal utility in economics). You want the *highest* curve point that touches such a line — the point where cost per additional TPR is exactly the FP-cost ratio.
+
+<ThresholdSweep caption="Sweeping the threshold t from 0 to 1: precision rises (blue), recall falls (red), and expected cost (amber, secondary axis) traces a U-shape whose minimum sets t*. Youden's J (max TPR − FPR) is a different — equal-cost — pick. When c_FP ≠ c_FN, t* shifts; the picture makes it obvious that 'default 0.5' is only right for one specific cost ratio." />
 
 ## The stats / quant-research lens
 

@@ -89,6 +89,8 @@ There's a second compounding win: **compression**. A row is a heterogeneous mix 
 
 This is why every modern OLAP storage format — Parquet, ORC, Arrow — is column-oriented.
 
+<RowVsColumnStorage caption="Row-store vs column-store on the same table for a 'SELECT country FROM …' query. Row-store must read every cell of every row (24 cells) to reach the one column it wants; column-store reads only that column's 6 cells. The 50× compression + I/O win in the worked example above is exactly this ratio compounded across 100M rows." />
+
 ### Data warehouse vs data lake vs lakehouse
 
 These three names confuse everyone. They evolved historically:
@@ -200,6 +202,8 @@ $$\text{Var}(\bar{x}) = \frac{\sigma^2}{n} \cdot \frac{N - n}{N - 1}$$
 
 The fraction $\frac{N - n}{N - 1}$ is the **finite population correction (FPC)**. It approaches 1 when $N \gg n$, so for big-data ML you usually drop it: $\text{Var}(\bar{x}) \approx \sigma^2 / n$. The "$1/n$" decay rate of variance is why "double your data" cuts standard error by a factor of $\sqrt{2}$, not 2.
 
+*Intuition for the FPC:* when your sample is already a big fraction of a finite pool, there's less residual uncertainty left to average out, so the correction pulls the variance below the infinite-population $\sigma^2/n$ approximation. In the limit $n=N$ (you sampled everything), the correction is exactly 0 — there's no uncertainty left.
+
 > **Stop and think.** Why does variance shrink as $1/n$ instead of $1/n^2$? It's the central-limit-theorem result for averaging $n$ independent random variables, each with variance $\sigma^2$: $\text{Var}\!\left(\frac{1}{n} \sum X_i\right) = \frac{1}{n^2} \sum \text{Var}(X_i) = \frac{n \sigma^2}{n^2} = \frac{\sigma^2}{n}$.
 
 ### Stratified sampling
@@ -276,6 +280,8 @@ $$\hat{\mu} = \frac{1}{n} \sum_{i=1}^n \frac{p(x_i)}{q(x_i)} f(x_i)$$
 
 The ratio $w_i = p(x_i)/q(x_i)$ is the **importance weight**. The estimator is unbiased ($E_q[\hat{\mu}] = E_p[f(X)]$, by construction), but its **variance can explode** when $q$ has thinner tails than $p$ — i.e. when there's a region where $p(x)$ is appreciable but $q(x)$ is tiny, individual weights $w_i$ become huge.
 
+*In one line:* if $q$ almost never visits a region where $p$ is heavy, the rare samples that *do* land there arrive with monstrous weights that swamp the estimator; the sample mean gets dominated by one or two enormous $w_i f(x_i)$ terms, and its variance is unbounded even though its mean is right.
+
 **Three places this matters in ML:**
 
 1. **Class-imbalance training.** Oversample the minority class (a $q$ that emphasizes positives), then weight by $w_i$ to recover unbiased gradients with respect to the true label distribution.
@@ -318,6 +324,8 @@ If you only have train/test and you tune hyperparameters against test, you have 
 ### Four split strategies, in priority order
 
 Ordered by how often they're the right answer for real production data.
+
+<SplitStrategyPanels caption="Four ways to slice the same 40 rows into train (filled) and test (outlined) — random, temporal, grouped, and stratified. The random panel is what `train_test_split(shuffle=True)` does; the other three exist because random silently violates the IID assumption in a specific way (drift, entity correlation, class imbalance). Pick the split whose panel matches your data's actual structure — not the one that gives the best offline number." />
 
 **1. Temporal split.** Train on weeks 1–8, validate on week 9, test on week 10.
 
@@ -422,6 +430,8 @@ A pipeline has **data leakage** if information that wouldn't be available at pre
 Formally: let $\mathcal{I}(t)$ be the set of facts about the world that an honest production prediction at time $t$ would have access to (the user's profile at $t$, events before $t$, etc.). The model's training features for that example must be a function of $\mathcal{I}(t)$ alone. If any training feature carries information outside $\mathcal{I}(t)$, you have leakage.
 
 This single definition unifies the four "named" categories below; they're just different mechanisms by which information from outside $\mathcal{I}(t)$ shows up in your training pipeline.
+
+<LeakageTimeline caption="One picture, four leakage types. The vertical line is t_pred — the moment your production system commits to a prediction. Green lanes carry information from I(t) (features honestly available at t_pred). Red lanes carry information that only exists after t_pred: post-label events (target leakage), session data still accumulating (session bleed), features computed with knowledge of the test rows (preprocessing leak), or future-dated snapshots (look-ahead). Every named category below is a red bar in a different lane." />
 
 ### 1. Target leakage
 
