@@ -51,11 +51,17 @@ $$\log p(y\mid x)=\log p(y)+\sum_{j=1}^d \log p(x_j\mid y)-\log p(x)$$
 
 > **Goal — show that "counting" produces exactly a logistic-regression-shaped hyperplane.**
 
+The mechanism is worth naming before the algebra: taking the log turns Bayes's *product* over features into a *sum*, and each per-feature summand collapses to a constant plus a weight times $x_j$. Sum those and you get a linear function of $x$ — a hyperplane. That's it; "linear boundary" is a *consequence* of independence + log, not a modeling assumption.
+
 Take binary features $x_j\in\{0,1\}$ with $\theta_{cj}=p(x_j{=}1\mid y{=}c)$, so $\log p(x_j\mid c)=x_j\log\theta_{cj}+(1-x_j)\log(1-\theta_{cj})$ — **affine in $x_j$**. Summing over $j$ and subtracting the $y{=}0$ case gives the log-odds:
 
 $$\log\frac{p(1\mid x)}{p(0\mid x)}=\underbrace{\Bigl[\log\tfrac{p(1)}{p(0)}+\sum_j\log\tfrac{1-\theta_{1j}}{1-\theta_{0j}}\Bigr]}_{b}+\sum_j x_j\underbrace{\log\frac{\theta_{1j}(1-\theta_{0j})}{\theta_{0j}(1-\theta_{1j})}}_{w_j}=w^\top x+b$$
 
-A hyperplane — **NB is a linear classifier**, of the same log-linear family as logistic regression. The variants differ only in the per-feature likelihood $p(x_j\mid y)$:
+A hyperplane — **NB is a linear classifier**, of the same log-linear family as logistic regression.
+
+<GaussianClassConditionals caption="Two Gaussian class-conditionals with shared variance (blue = class 0, red = class 1). The dashed vertical is where the densities cross — the point at which the posteriors flip. Bottom axis: the log-odds log p(x|1)/p(x|0), which under shared variance is exactly linear in x and crosses zero at the same crossover. 'Equal-variance Gaussian NB = logistic regression' is this picture: same linear decision function, fit two different ways." />
+
+The variants differ only in the per-feature likelihood $p(x_j\mid y)$:
 
 - **Gaussian NB** — continuous $x_j\sim\mathcal{N}(\mu_{cj},\sigma_{cj}^2)$.
 - **Multinomial NB** — word counts; score $\log p(c)+\sum_j x_j\log\theta_{cj}$ (text).
@@ -82,11 +88,17 @@ $$\log\frac{p(1\mid x)}{p(0\mid x)}=b+\sum_j\frac{\mu_{1j}-\mu_{0j}}{\sigma_j^2}
 
 **Which wins (Ng & Jordan 2002).** Logistic has **lower asymptotic error** (it fits $p(y\mid x)$ directly, so it isn't biased by NB's false independence assumption). But NB **converges far faster**: its $O(d)$ parameters are independent univariate estimates each converging at $O(1/\sqrt m)$, so $m=O(\log d)$ examples suffice to approach its (worse) plateau, versus logistic's $m=O(d)$. **Two regimes:** with *few* examples NB reaches its plateau fast and wins; with *many*, logistic overtakes. "Generative is obsolete" is wrong — it's the right tool when labels are scarce relative to dimension.
 
+<NgJordanCurves caption="Test error vs log(n) for Naive Bayes (red) and logistic regression (blue). NB descends steeply and plateaus at a higher floor — its bias caps how good it can get, but its low-variance $\log d$-sized parameter count means it gets there on very few examples. Logistic descends more slowly (needs $O(d)$ examples for its variance to shrink) but keeps improving past NB's plateau. The shaded band marks the crossover — before it, generative wins on scarce data; after it, discriminative wins." />
+
 ## Part 5 — Great classifier, terrible probabilities
 
 > **Goal — internalize the course's sharpest calibration lesson: a model can rank perfectly and still lie about probabilities.**
 
 Why does a model built on a *false* assumption work at all? **Domingos & Pazzani (1997):** the assumption damages the *probabilities*, not the *argmax*. Correlated features make NB **double-count evidence** — if $x_2\approx x_1$, NB multiplies their likelihood ratios as if independent, squaring the true evidence and pushing the posterior toward 0 or 1. But the decision only needs the (biased) posterior to stay on the correct side of $\tfrac12$. Their exact result: the region where NB is *classification*-optimal is vastly larger than where it's *probability*-optimal.
+
+*In one line:* double-counting correlated features squares the log-odds, so the sigmoid saturates — but "saturated on the correct side of ½" is still the right label. Accuracy survives; probabilities don't.
+
+<NbReliability caption="Reliability diagram: predicted confidence (x) vs empirical accuracy (y). The dashed diagonal is perfect calibration. Uncalibrated Naive Bayes (red) is S-shaped — pinned near 0 or 1 for most of its predictions because double-counted evidence squares the log-odds. Platt-recalibrated NB (blue) tracks the diagonal. AUC (a rank statistic) is unchanged across both curves — the rankings didn't move, only the scores they were mapped to did." />
 
 So NB's `predict_proba` outputs are **systematically overconfident** — the canonical "high AUC, bad ECE/Brier" case (c1.3, c1.5), and unlike the deep-net overconfidence of Guo 2017 this comes from the model structure itself. **Treat NB scores as rankings, not probabilities**; if you threshold on a probability or feed it into expected-value math, **calibrate first** (Platt/sigmoid or isotonic via `CalibratedClassifierCV`).
 
