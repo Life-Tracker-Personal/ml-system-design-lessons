@@ -1,7 +1,9 @@
 # Curriculum plan
 
 The lesson list for this ML-interview-prep course. Authoring standard lives in
-`.claude/skills/authoring-lessons/`. Reference lessons that set the bar: `c1.1`, `c1.2`.
+`.claude/skills/authoring-lessons/` — including §11 on **figures**, which is a hard bar:
+every lesson ships with 2–4 inline SVG figures where a whiteboard sketch would help.
+Reference lessons that set the bar: `c1.1`, `c1.2`, and (as of the figure sweep) `c1.4`.
 Real interview questions + expected-answer rubrics by company (for the system-design-rehearsal
 track and "Interview gotchas" sections) live in `.claude/skills/interview-questions/`.
 
