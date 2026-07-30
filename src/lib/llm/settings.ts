@@ -39,3 +39,8 @@ export function patchSettings(patch: Partial<LLMSettings>): LLMSettings {
   saveSettings(next);
   return next;
 }
+
+/** Remove the stored OpenRouter key (Disconnect). Local-only — see SECURITY.md. */
+export function clearOpenRouterKey(): LLMSettings {
+  return patchSettings({ openrouterKey: null });
+}
