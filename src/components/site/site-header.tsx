@@ -1,6 +1,6 @@
 import Link from "next/link";
+import { SettingsIcon } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
-import { LLMSettingsButton } from "./llm-settings";
 
 export function SiteHeader({ children }: { children?: React.ReactNode }) {
   return (
@@ -30,7 +30,14 @@ export function SiteHeader({ children }: { children?: React.ReactNode }) {
           )}
         </div>
         <div className="flex items-center gap-1">
-          <LLMSettingsButton />
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            title="Settings"
+            className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+          >
+            <SettingsIcon className="size-[1.05rem]" />
+          </Link>
           <ThemeToggle />
         </div>
       </div>

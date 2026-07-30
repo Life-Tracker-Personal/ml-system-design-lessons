@@ -24,7 +24,12 @@ const VERIFIER_KEY = "or-pkce-verifier";
 
 export async function startOAuthFlow(): Promise<void> {
   const verifier = generateVerifier();
-  sessionStorage.setItem(VERIFIER_KEY, verifier);
+  // localStorage (not sessionStorage): the OAuth round-trip navigates the tab
+  // away to openrouter.ai and back via the callback redirect. sessionStorage
+  // can be dropped across that cross-origin hop; localStorage survives it (and
+  // is readable by the /settings page that performs the exchange). Single-use
+  // and cleared immediately after exchangeCode().
+  localStorage.setItem(VERIFIER_KEY, verifier);
 
   const challenge = await sha256Base64url(verifier);
   const callbackUrl = `${window.location.origin}/api/openrouter/callback`;
@@ -39,8 +44,14 @@ export async function startOAuthFlow(): Promise<void> {
 }
 
 export async function exchangeCode(code: string): Promise<string> {
-  const verifier = sessionStorage.getItem(VERIFIER_KEY) ?? "";
-  sessionStorage.removeItem(VERIFIER_KEY);
+  const verifier = localStorage.getItem(VERIFIER_KEY) ?? "";
+  localStorage.removeItem(VERIFIER_KEY);
+  if (!verifier) {
+    throw new Error(
+      "Missing PKCE verifier — the sign-in link was opened in a different " +
+        "browser or the verifier expired. Please click Connect again.",
+    );
+  }
 
   const resp = await fetch(KEYS_URL, {
     method: "POST",
