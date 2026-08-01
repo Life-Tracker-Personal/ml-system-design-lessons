@@ -1,36 +1,41 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ML interview-prep course
 
-## Getting Started
+A Next.js 16 + MDX site teaching ML for **top-tier (senior–staff, FAANG / frontier-lab) interviews**. Content lives in `src/content/cX/cX.Y.mdx` (lesson) + `cX.Y.quiz.mdx` (paired quiz), discovered by directory scan — no manifest.
 
-First, run the development server:
+## Standard
+
+Every lesson meets four bars:
+
+1. **Derive, don't state.** Every claim is derived from first principles, quantified with real numbers, or grounded in a named real-world incident. Generic "in practice…" is below the bar.
+2. **Plain English before math.** Each idea leads with one sentence of intuition before an equation.
+3. **Challenge the standard story.** Every lesson interrogates at least one "rule everybody repeats" — where it's mathematically true, where it's just convention, and where it breaks.
+4. **Figures where a whiteboard sketch belongs.** Every idea a working ML engineer would draw on a whiteboard gets an inline SVG figure. Math-only prose is a draft, not a shipped lesson. See `src/components/mdx/figure-helpers.tsx` for the shared helpers and the various `*-figures.tsx` files for the topic-specific components.
+
+The authoring standard (structure, quiz format, MDX gotchas, figure conventions) is codified in `.claude/skills/authoring-lessons/SKILL.md`. Read it before writing new content.
+
+The curriculum outline lives in `PLAN.md`.
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev          # dev server on :3000
+npm run build        # production build (also type-checks)
+npx tsc --noEmit     # type-check only
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Lessons render at `/c/<chapter>/<lesson>`, quizzes at `/c/<chapter>/<lesson>/quiz`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## MDX gotchas that have shipped 500s
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Escape bare `<` and `>` in prose (MDX parses them as JSX).
+- Escape or avoid bare `{` / `}` in prose (MDX parses them as JS expressions — a literal set like `{a, b, c}` in prose 500s at request time).
+- A clean `npm run build` is not a clean render — MDX compiles per request. Curl the live lesson *and* quiz pages after deploy to confirm 200s.
 
-## Learn More
+## Repository layout
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `src/content/cX/` — lessons and quizzes as MDX.
+- `src/components/mdx/` — MDX-renderer, `Quiz`, `DeepDive`, and figure components.
+- `src/lib/lessons.ts` — lesson discovery (`listLessons`).
+- `.claude/skills/authoring-lessons/SKILL.md` — the authoring spec.
+- `.claude/skills/interview-questions/SKILL.md` — company-by-company interview-question bank and expected-answer rubrics.

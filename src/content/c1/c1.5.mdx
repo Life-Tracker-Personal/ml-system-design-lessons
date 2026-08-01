@@ -49,6 +49,8 @@ Each internal node asks one yes/no question of the form $x_j\le s$. Each answer 
 
 This makes a tree a piecewise-constant model. It does not learn one global equation. It divides feature space into rectangular regions and gives every point in a region the same prediction. That is why trees naturally capture thresholds and interactions: “high debt is risky *only when* prior delinquencies are present” is simply a branch.
 
+<TreePartition2D caption="A depth-3 tree carving 2D feature space into axis-aligned rectangles, each shaded by its majority class. Two split conditions are labeled. Every leaf is a rectangle; every rectangle predicts one constant value. That's the whole 'piecewise-constant, axis-aligned, thresholds and interactions for free' story in one picture — logistic regression can't draw this partition, but a depth-3 tree learns it in one greedy pass." />
+
 ### What makes one question better than another?
 
 A useful split creates children whose outcomes are more alike than the parent's. **Impurity** is just a numerical score for how mixed a node is.
@@ -71,6 +73,8 @@ The intuition is structural. If a few rows change which split wins at the root, 
 
 **Pruning.** A fully grown tree overfits, so prune by **cost-complexity**: minimize $R_\alpha(T) = R(T) + \alpha|T|$ over subtrees, trading fit $R(T)$ against the number of leaves $|T|$. As $\alpha$ grows from 0 there's a finite nested sequence of optimal subtrees (sklearn: `ccp_alpha`). The same $\alpha|T|$ regularization reappears inside XGBoost.
 
+*Why penalize $|T|$ rather than depth?* Because leaves are how many independent constant-value regions the tree carves — that's the true capacity. Two depth-5 trees can have wildly different leaf counts (one balanced 32-leaf full tree; one lopsided 6-leaf skinny tree), so depth alone doesn't cap what the tree can memorize. Leaf count does.
+
 ## Part 2 — Bagging & random forests
 
 > **Goal — turn one unstable tree into a low-variance committee, and see that the entire benefit is capped by how *correlated* the trees are.**
@@ -91,6 +95,8 @@ As $B\to\infty$ the second term vanishes, leaving a **floor of $\rho\sigma^2$**.
 
 Read the formula in two pieces. $(1-\rho)\sigma^2/B$ is the independent part of the noise, which averaging removes as $B$ grows. $\rho\sigma^2$ is the shared mistake, which survives forever. More trees reduce the first term; only more diverse trees reduce the floor.
 
+<DecorrelationVarianceFloor caption="Ensemble variance as a function of number of trees B, for four correlation values ρ ∈ {0, 0.2, 0.5, 0.9} — the decorrelation identity ρσ² + (1−ρ)σ²/B, made a floor you can point at. Every curve is dropping the second term as B grows, and every curve hits ρσ² and stops. Bagged trees (ρ ≈ 0.9) plateau near 0.9 — most of a single tree's variance survives no matter how many you average. Random forests (ρ ≈ 0.3) plateau much lower — the whole reason RF exists is to lower ρ by hiding features at each split." />
+
 **Random forests** (Breiman 2001) = bagging **+ a random subset of $m \le p$ features considered at each split**. Forcing each split to choose among different features makes the trees disagree more → **lowers $\rho$** → lowers the $\rho\sigma^2$ floor. The trade: smaller $m$ lowers $\rho$ (good) but weakens each tree (raises its bias) — so there's a sweet spot, classically $m=\sqrt p$ (classification) or $p/3$ (regression). Breiman proved that as $B\to\infty$ the generalization error *converges* (a law-of-large-numbers result over the tree randomness) — **adding more trees does not overfit a random forest**; it just converges.
 
 Why randomly hide features? If one predictor is overwhelmingly strong, ordinary bagged trees will choose it near the top again and again. The trees then inherit nearly the same structure and make correlated mistakes. Feature subsampling occasionally forces a tree to discover a different but useful route. The resulting individual tree may be slightly worse, yet the committee can be better because its members disagree productively.
@@ -100,6 +106,8 @@ Why randomly hide features? If one predictor is overwhelmingly strong, ordinary 
 The same row is eligible to be drawn $n$ times, so “a bootstrap sample has $n$ rows” does not mean it contains $n$ distinct observations. Roughly 63.2% are distinct; the rest are duplicates. For each training row, the trees that omitted it form a temporary validation ensemble. OOB scoring combines those honest predictions across rows.
 
 > **Stop and think.** You add 5,000 trees to a random forest *and* to a gradient-boosted model. One degrades on the test set; one doesn't. Which, and why? *Hint: RF averages i.i.d.-randomized trees, so by the decorrelation identity / LLN it converges to a floor — more trees never hurt. Boosting fits the loss sequentially, so each added round further reduces bias and eventually fits noise — more rounds DO overfit. That's why RF needs no early stopping and GBDT does.*
+
+<RFvsGBDTErrorCurves caption="Train and test error as you add trees to RF (blue) vs GBDT (red). RF's test error drops fast, plateaus, and stays there — more trees only ever help (they push down the (1−ρ)σ²/B term of the variance identity). GBDT's train error keeps falling toward zero, but test error dips to a minimum and then rises — because each round is a bias-reducing gradient step that eventually fits noise. The dashed vertical is where early stopping catches it. RF ships with no early-stop knob because it doesn't need one; GBDT ships with one because it does." />
 
 **Feature importance — a trap (ties to c1.1 / c1.4).** Default **impurity (Gini/MDI) importance is biased toward high-cardinality and continuous features** (more candidate cut-points → more chances to look good by chance — Strobl et al. 2007) and is inflated by overfitting (it's computed on training data). Worse, **correlated features split their importance** (two collinear predictors each get ~half), so low importance ≠ irrelevant — the same redundancy that defeats drop-column leakage detection (c1.1) and inflates VIF (c1.4). Prefer **permutation importance on held-out data** — but note it too is distorted by collinearity (permuting one of two collinear features barely hurts), so cluster correlated features and permute jointly.
 

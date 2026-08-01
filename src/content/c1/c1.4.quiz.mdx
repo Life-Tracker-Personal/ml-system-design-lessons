@@ -168,7 +168,7 @@ $$
 \text{lasso: }\frac12\lVert y-X\beta\rVert_2^2+\lambda\lVert\beta\rVert_1.
 $$
 
-Derive each solution from $\hat\beta^{\text{OLS}}=X^\top y$. Which OLS coefficient values does lasso map to exactly zero? Then explain whether lasso's ability to produce zeros depends on orthonormality, giving the general KKT/subgradient condition. Contrast this with the precise—not absolute—claim we should make about ridge and feature selection.
+Derive each solution from $\hat\beta^{\text{OLS}}=X^\top y$. Which OLS coefficient values does lasso map to exactly zero? Then answer three follow-ups: **(i) why do we start orthonormal at all — what breaks in the general case?** **(ii) does lasso's ability to produce zeros depend on orthonormality?** Give the general KKT/subgradient condition. **(iii)** Contrast with the precise—not absolute—claim we should make about ridge and feature selection.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -214,6 +214,10 @@ $$\hat\beta_j^{\text{lasso}}=\text{sign}(\hat\beta_j^{\text{OLS}})\max\!\bigl(|\
 
 Thus every OLS coefficient in the interval $[-\lambda,\lambda]$ is mapped to the number $0$—not merely to a small number. For example, with $\lambda=0.1$, OLS coefficients $0.06$ and $-0.08$ both become exactly $0$, while $0.35$ becomes $0.25$. A zero coefficient removes that feature from the fitted linear predictor, which is why lasso is described as performing feature selection.
 
+**Why start orthonormal?** Not as a modelling assumption — as an algebraic device to expose the mechanism. Under a general $X$, the quadratic $\tfrac12\lVert y-X\beta\rVert^2$ has the Hessian $X^\top X$, which is a full (non-diagonal) matrix; the RSS contours in $\beta$-space are stretched, tilted ellipses (see the figure in the lesson), and the coefficients are *coupled* — changing $\beta_j$ changes the optimal $\beta_k$. Orthonormality (or any other assumption that makes $X^\top X$ a positive multiple of the identity) diagonalizes that quadratic, so the objective decouples into $p$ independent scalar problems in $(\beta_j - \hat\beta_j^{\text{OLS}})^2$. Each 1D subproblem has a closed form, and it's from those closed forms — $\hat\beta_j^{\text{OLS}}/(1+\lambda)$ and soft-thresholding — that the ridge/lasso contrast becomes visible on a page. In the general case the *geometric* story (corner-touching, dead zones) still holds, but no per-coordinate formula exists because the coordinates are coupled through the residual.
+
+<RegularizationBalls caption="The geometry that survives without orthonormality. Ellipses (blue) are RSS contours around β̂ᴼᴸˢ — round only under orthonormal design, tilted otherwise. Orange: the L1 diamond has corners on the axes; a typical ellipse hits a corner, so β₂ = 0. The L2 disc is smooth; a typical ellipse touches at a generic interior direction, so both coefficients stay nonzero. The corner-touching mechanism is fully general — orthonormality is only what makes the closed form clean." />
+
 **The zero-producing mechanism is general.** Orthonormality gives the simple soft-threshold formula; it is not required for sparsity. For a general $X$, let $r=y-X\hat\beta$ at the lasso solution. The KKT/subgradient condition is
 
 $$
@@ -234,10 +238,11 @@ So if feature $j$'s remaining correlation with the residual is not strong enough
 - Show why RSS rewrites as distance from OLS only under $X^\top X=I$
 - Ridge: $\hat\beta_j^{\text{OLS}}/(1+\lambda)$ (proportional shrinkage; nonzero input stays nonzero)
 - Lasso: soft-threshold $\text{sign}\cdot\max(|\cdot|-\lambda,0)$; the entire interval $[-\lambda,\lambda]$ maps to 0
+- **Why orthonormal:** decouples $X^\top X$ so the quadratic separates into per-coordinate problems; the general case is coupled through the residual and has no per-coordinate closed form
 - Orthonormality gives the closed form but is not required for lasso sparsity
 - General KKT condition: zero is optimal when $|x_j^\top r|\le\lambda$, jointly with the other coefficients
 - Precise ridge claim: smooth L2 has no sparsity mechanism and is generally dense, though accidental zeros are possible
-- Bonus: L1-ball corners vs round L2-ball geometry
+- L1-ball corners vs round L2-ball geometry (see the figure)
 
 </details>
 

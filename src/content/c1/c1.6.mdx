@@ -54,6 +54,8 @@ $$\min_{w,b}\ \tfrac12\|w\|^2 \quad\text{s.t.}\quad y_i(w^\top x_i+b)\ge 1\ \ \f
 
 We maximize the *geometric* margin (the functional margin $y_i f(x_i)$ can be inflated for free by rescaling $w$ — only $/\|w\|$ makes it scale-invariant).
 
+<SVMMarginDiagram caption="The canonical SVM picture. Solid line: the decision hyperplane. Dashed lines: the two margin planes at wᵀx + b = ±1, separated by width 2/‖w‖. Amber circles: the support vectors — the only points that sit on the margin planes and the only points whose removal would change the boundary. Maximizing 2/‖w‖ (equivalently minimizing ½‖w‖²) is just the algebraic version of 'push the two dashed lines as far apart as you can while every point stays on the correct side.'" />
+
 ### Soft margin = hinge loss + L2 regularization
 
 Real data isn't separable. Introduce slack $\xi_i\ge0$ and penalize it (Cortes & Vapnik 1995):
@@ -90,6 +92,10 @@ $$f(x)=\sum_i\alpha_i y_i\,K(x_i,x)+b$$
 
 **The RBF kernel is infinite-dimensional.** Factor $K(x,x') = e^{-\gamma\|x\|^2}e^{-\gamma\|x'\|^2}\exp(2\gamma x^\top x')$ and expand the cross term $\exp(2\gamma x^\top x')=\sum_{k\ge0}\frac{(2\gamma)^k(x^\top x')^k}{k!}$ — every polynomial degree $0,1,2,\dots$ appears, so the feature map $\phi$ has infinitely many coordinates. You *cannot* materialize $\phi(x)$; you only ever evaluate the scalar $K$. **This is the whole point of the trick** — it buys an infinite-dimensional boundary at the cost of an $n\times n$ Gram matrix, not an infinite feature vector.
 
+*Concretely:* RBF's implicit feature vector has one coordinate for every polynomial degree — and every mixed monomial within each degree — a countably infinite total. You couldn't write it down if you wanted to; the dual formulation lets you avoid ever having to.
+
+<KernelLift1Dto2D caption="The kernel trick in one glance. Left: 1D data with red points inside [-1, 1] and blue points outside. No linear boundary (a single threshold) separates them — you'd need two thresholds, and linear classifiers can't do 'both'. Right: the same points lifted to (x, x²) via ϕ(x) = (x, x²). Blue points sit above y = 1; red below. Now one linear boundary (the horizontal line y = 1) does the job. Kernels let you do this without ever computing ϕ — inner products in the lifted space are the kernel." />
+
 **The two knobs, in bias-variance terms.** Large $C$ penalizes slack harder → harder margin, fits training data closely → *less* regularization, higher variance (overfit). Large RBF $\gamma$ → each point's influence is very local → a wiggly boundary, high variance. Tune them jointly by cross-validation.
 
 > **Stop and think.** Someone proposes "just compute $\phi(x)$ for the RBF kernel and run a linear SVM on it — same thing, simpler." Why is this impossible, and what's the practical cost you pay *instead* by staying in the dual? *Hint: $\phi$ has infinitely many coordinates, so it can't be stored; the price is the $n\times n$ Gram matrix and $O(n^2)$–$O(n^3)$ training — which is exactly why kernel SVMs don't scale to big data.*
@@ -108,6 +114,8 @@ Common metrics: Euclidean ($L_2$), Manhattan ($L_1$), Minkowski (general $p$), *
 
 Small $k$ → flexible, low bias, **high variance** ($k=1$ memorizes the training set: zero training error, a jagged boundary). Large $k$ → smoother, **high bias, low variance** ($k=n$ predicts the global majority/mean — maximal underfit). The optimal $k$ is intermediate, chosen by cross-validation, and grows with $n$. A useful framing: kNN regression is **local averaging with an adaptive bandwidth** (the radius to the $k$-th neighbor) — the variable-bandwidth cousin of Nadaraya–Watson kernel regression. Its variance scales like $\sigma^2/k$, its bias grows with $k$.
 
+<kNNBoundaries caption="k=1 vs k=15 decision boundaries on the same noisy 2D scatter. Left (k=1): the boundary follows every noise point exactly — zero training error, a jagged and unstable partition — high variance. Right (k=15): the boundary is smooth and ignores small pockets — some training points end up on the 'wrong' side but the classifier generalizes better — high bias. This is the whole bias-variance dial, made picture-shaped." />
+
 ### How good can it be? Cover–Hart
 
 A classic result (Cover & Hart 1967): as $n\to\infty$, the 1-nearest-neighbor error $R$ is bounded in terms of the Bayes error $R^\star$:
@@ -123,6 +131,8 @@ So **1-NN's asymptotic error is at most twice the optimal** — half the achieva
 Here's the catch. In high dimensions, distances **concentrate**: for a query against $n$ points, the ratio of the farthest to the nearest distance tends to 1. Beyer et al. (1999) make this precise — under mild conditions the ratio of farthest to nearest distance converges to 1 (for the formal variance-ratio statement, ask an AI assistant; an interviewer won't ask you to reproduce it).
 
 Intuition: $\|x-x'\|^2=\sum_{j=1}^d(x_j-x_j')^2$ is a sum of $d$ i.i.d. terms, so its mean grows like $d$ but its standard deviation like $\sqrt{d}$ — the coefficient of variation shrinks like $1/\sqrt{d}$, and all pairwise distances bunch together. "Nearest" stops being meaningfully nearest. This is *why* high-dimensional kNN needs either low **intrinsic** dimension (cluster structure) or learned low-dimensional embeddings.
+
+<DistanceConcentration caption="Pairwise distances for 100 uniform points in the unit cube of dimension d, normalized so the mean distance is 1. Each bar is [min, max]/mean. At d=2 the bar spans a wide range — nearest is clearly nearer than farthest. As d grows, the bar collapses: at d=1000 every pair sits within a few percent of the mean, so 'nearest neighbor' loses information — that's Beyer's concentration theorem, made a visual." />
 
 ### kNN at scale: approximate nearest neighbors
 
