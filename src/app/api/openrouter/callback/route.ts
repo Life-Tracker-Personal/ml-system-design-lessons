@@ -32,12 +32,16 @@ export async function GET(req: NextRequest) {
 <html><head><title>Connecting…</title></head>
 <body><script>
   var code = ${encoded};
-  if (window.opener) {
+  if (window.opener && window.opener !== window) {
+    // Popup flow: hand the code to the opener and close.
     window.opener.postMessage({ type: "openrouter-code", code: code }, window.location.origin);
+    window.close();
   } else {
-    localStorage.setItem("or-pending-code", code);
+    // Same-tab flow (the default): return to the settings page with the code.
+    // window.close() cannot close a tab the script did not open, so redirect
+    // instead — the /settings page performs the exchange on load.
+    window.location.replace("/settings?or_code=" + encodeURIComponent(code));
   }
-  window.close();
 </script>
 <p>Connected! You can close this tab.</p>
 </body></html>`;
