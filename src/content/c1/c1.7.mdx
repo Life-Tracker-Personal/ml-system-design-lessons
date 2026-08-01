@@ -46,11 +46,13 @@ $$J=\sum_{j=1}^{k}\sum_{x_i\in C_j}\lVert x_i-\mu_j\rVert_2^2$$
 
 **Picking $k$ is not optimization.** $J(k)$ is **monotonically non-increasing** ($J(n)=0$) — a finer partition can always replicate a coarser one and split — so minimizing inertia trivially returns $k=n$ (the exact analogue of $R^2$ rising with features, c1.4). You need a complexity-aware selector: the **elbow** (heuristic kink), the **silhouette** $s(i)=\frac{b(i)-a(i)}{\max(a(i),b(i))}\in[-1,1]$ (peak of the mean), or the **gap statistic** (Tibshirani 2001 — the only one with a principled null: compare $\log W_k$ to its expectation under uniform reference data).
 
+<KMeansVoronoi caption="Left: k-means recovers three well-separated blobs. Its cell edges are perpendicular bisectors between centroid pairs — always straight lines, so the regions are always convex polygons. Right: the same algorithm on two nested rings fails badly — it slices each ring in half rather than separating inner from outer, because 'convex Voronoi cells' can't wrap around a hole. This is precisely why the Stop-and-think below points at DBSCAN or spectral clustering." />
+
 ## Part 2 — Gaussian mixtures and EM
 
 > **Goal — replace hard assignments with soft, probabilistic ones, and reveal k-means as a special case.**
 
-A GMM models density as $p(x)=\sum_{j=1}^k \pi_j\,\mathcal{N}(x\mid\mu_j,\Sigma_j)$. **EM** (Dempster, Laird & Rubin 1977) alternates:
+A GMM models density as $p(x)=\sum_{j=1}^k \pi_j\,\mathcal{N}(x\mid\mu_j,\Sigma_j)$. *In one sentence:* softmax over Gaussian likelihoods, then re-fit each Gaussian on its softly-weighted points — repeat. **EM** (Dempster, Laird & Rubin 1977) alternates:
 
 - **E-step (responsibilities):** $\gamma_{ij}=\dfrac{\pi_j\,\mathcal{N}(x_i\mid\mu_j,\Sigma_j)}{\sum_\ell \pi_\ell\,\mathcal{N}(x_i\mid\mu_\ell,\Sigma_\ell)}$.
 - **M-step (weighted MLE):** $N_j=\sum_i\gamma_{ij}$; $\pi_j=N_j/n$; $\mu_j=\frac1{N_j}\sum_i\gamma_{ij}x_i$; $\Sigma_j=\frac1{N_j}\sum_i\gamma_{ij}(x_i-\mu_j)(x_i-\mu_j)^\top$.
@@ -58,6 +60,8 @@ A GMM models density as $p(x)=\sum_{j=1}^k \pi_j\,\mathcal{N}(x\mid\mu_j,\Sigma_
 **EM never decreases the likelihood.** For any $q_i$, Jensen gives $\log p(x_i)\ge\sum_z q_i(z)\log\frac{p(x_i,z)}{q_i(z)}=:\text{ELBO}$, with gap exactly $\text{KL}(q_i\,\|\,p(z\mid x_i))$. The E-step sets $q_i=p(z\mid x_i)$ (KL $=0$, ELBO touches $\log p$); the M-step raises the ELBO. So $\log$-likelihood is monotone non-decreasing — converging to a *local* max (the likelihood is non-concave, and is even **unbounded**: a component collapsing onto one point sends $\sigma\to0$, likelihood $\to\infty$ — hence `reg_covar`).
 
 **k-means is hard-EM of a GMM.** Fix $\Sigma_j=\varepsilon I$, equal $\pi_j$. The responsibility $\gamma_{ij}=\frac{\exp(-\lVert x_i-\mu_j\rVert^2/2\varepsilon)}{\sum_\ell\exp(-\lVert x_i-\mu_\ell\rVert^2/2\varepsilon)}$ is a softmax with temperature $\varepsilon$; as $\varepsilon\to0^+$ it collapses to a **hard indicator** of the nearest centroid. The E-step becomes the assign step, the M-step becomes the centroid mean, and $-2\varepsilon\log p\to$ WCSS. **This single fact names all three k-means assumptions:** $\Sigma_j=\varepsilon I$ ⇒ *isotropic (spherical)* clusters; *shared* $\varepsilon$ ⇒ *equal spread*; equal $\pi_j$ + squared distance ⇒ biased toward *equal-size* clusters. A full-covariance GMM relaxes all three (elliptical, unequal, soft) — and, being a likelihood model, it can pick $k$ by **BIC/AIC**, which bare k-means cannot.
+
+<GmmVsKmeansContours caption="Same data, two clusterings. Left: k-means's hard, straight-line boundary miscolors points along the seam where two elongated clusters interpenetrate — spherical Voronoi can't wrap around a tilted ellipse. Right: a full-covariance GMM fits an elliptical iso-density contour to each component and assigns points softly by responsibility, so the boundary follows the actual density geometry. All three k-means assumptions (spherical, shared spread, equal size) show up here as things the GMM lets you relax." />
 
 > **Stop and think.** Run k-means with the *correct* $k=2$ on two concentric rings. Why does it fail even with perfect initialization, and which methods succeed? *Hint: k-means partitions space by straight-line perpendicular bisectors (a Voronoi tessellation), so it can only carve convex regions — it will slice each ring in half rather than separate inner from outer. It's the spherical-cluster assumption (from the GMM limit) breaking. DBSCAN (density-connected) or spectral clustering (which clusters in a graph/affinity space) recover the rings.*
 
@@ -69,11 +73,17 @@ A GMM models density as $p(x)=\sum_{j=1}^k \pi_j\,\mathcal{N}(x\mid\mu_j,\Sigma_
 
 **Agglomerative (hierarchical)** clustering merges the closest clusters bottom-up, producing a dendrogram you can cut at any height. Linkage choice matters: **single** (min distance — chains, bridges noise), **complete** (max — compact, outlier-sensitive), **average**, and **Ward** (merge that minimizes the increase in WCSS — the agglomerative analogue of k-means, requires Euclidean; sklearn's default).
 
+<LinkageDendrogram caption="A dendrogram encodes the entire merge history — you don't pre-commit to k, you cut horizontally at whatever height gives the granularity you want (two labeled cuts here yield 4 clusters and 2 clusters respectively). The inset shows how linkage choice reshapes the picture on the same points: single-linkage chains merge along thin bridges (a noise point can rope two real clusters together), while Ward keeps clusters compact but insists on Euclidean-friendly shapes." />
+
 ## Part 4 — Nonlinear embeddings: t-SNE and UMAP
 
 > **Goal — visualize high-dimensional structure by preserving *neighborhoods* — and learn exactly which features of the picture are real.**
 
+*In plain English:* t-SNE and UMAP turn "who your neighbors are" into a probability distribution — one from the high-dim data, one from the low-dim layout — and shove the layout around until those two distributions agree. Neighbor lists are the data; the actual distances are thrown away.
+
 **t-SNE** (van der Maaten & Hinton 2008) converts pairwise distances into neighbor probabilities $p_{ij}$ (Gaussian, with a per-point bandwidth set by **perplexity** = effective neighbor count, typically 5–50), builds low-dim affinities $q_{ij}$ from a **Student-t (Cauchy)** kernel, and minimizes $\text{KL}(P\,\|\,Q)$. The heavy t-tail fixes the **crowding problem** (in 2-D there isn't room to honor all moderate high-dim distances), but it also means *a given affinity maps to no fixed display distance.* **UMAP** (McInnes et al. 2018) builds a fuzzy-neighbor graph and minimizes a fuzzy-set binary cross-entropy, optimized with **negative sampling** (the real source of its speed). A common myth says t-SNE "lacks repulsion" and that UMAP's repulsion buys it global structure — but *both* objectives' gradients have attractive *and* repulsive terms (Böhm et al. 2022), and UMAP's apparent global-structure edge is largely an **initialization** artifact: with matched PCA/spectral init the two are comparable (Kobak & Linderman 2021). That's exactly why PCA-init is now the t-SNE default.
+
+<TsnePerplexitySweep caption="The SAME two-cluster input at four perplexity values. Perplexity 2 shatters the data into many tiny clumps that look like real sub-clusters (they aren't). Perplexity 5 shows partial separation. Perplexity 30 recovers the two clusters cleanly. Perplexity 100 washes them into one blob. Since none of these is 'wrong', trust nothing about cluster count, size, or gap from a single t-SNE run — sweep the parameter and check against your original-space data." />
 
 **What you must NOT read off these plots** (Wattenberg et al., *Distill* 2016):
 - **Axes are meaningless** — the objective is invariant to rotation/reflection/translation/scale of the output.
