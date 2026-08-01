@@ -59,6 +59,8 @@ $$-\log \prod_i p_\text{noise}(r_i) = -\sum_i \log p_\text{noise}(r_i)$$
 
 So if $p_\text{noise}$ is Gaussian, $\log p_\text{noise}(r) = -r^2 / (2\sigma^2) + \text{const}$, and you're minimizing $\sum r_i^2$ — that's MSE. If $p_\text{noise}$ is Laplace, $\log p_\text{noise}(r) = -|r|/b + \text{const}$, and you're minimizing $\sum |r_i|$ — that's MAE. **The choice of loss is the choice of noise distribution.** Every regression loss in this lesson is a special case of this template.
 
+<NoiseModelToLoss caption="loss = −log p(noise). A Gaussian noise model's negative log-density is the parabola you minimize as MSE; a Laplace model's is the V you minimize as MAE. Laplace's heavier tails make its loss grow only linearly, so it stops bending the fit to chase outliers — the whole robustness story in one picture." />
+
 > **Stop and think.** If the noise distribution is something else entirely — say, Student-$t$ with $\nu$ degrees of freedom — what loss would MLE prescribe? *Hint:* $-\log p_\nu(r) = \frac{\nu + 1}{2}\log(1 + r^2/\nu) + \text{const}$. This is "robust regression" and we'll meet a numerical cousin (log-cosh) below.
 
 ## Mean squared error (MSE)
@@ -261,6 +263,8 @@ This is the loss that, minimized, gives a regression model predicting the **$q$-
 - Asymmetric error costs — under-predicting demand may be 3× worse than over-predicting; quantile loss handles this naturally.
 
 **Special case $q = 0.5$:** $\rho_{0.5}(r) = 0.5 |r|$ — half of MAE. So minimizing pinball at $q = 0.5$ is equivalent to minimizing MAE, and you recover the median predictor.
+
+<QuantilePinball caption="Pinball loss ρ_q(r) at q = 0.1, 0.5, 0.9. The two arms carry slopes q (right) and 1−q (left), so over- and under-prediction are priced differently; its minimizer is the q-th conditional quantile of Y∣X. At q = 0.5 the arms are symmetric — it is ½·MAE, recovering the median." />
 
 ### log-cosh
 
