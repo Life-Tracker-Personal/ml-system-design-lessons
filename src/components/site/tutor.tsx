@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
 import {
   MessageCircleIcon,
   SendIcon,
@@ -13,7 +12,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import { ask } from "@/lib/llm/client";
+import { ask, clearHistory } from "@/lib/llm/client";
 import { OpenRouterError } from "@/lib/llm/openrouter";
 import { loadSettings } from "@/lib/llm/settings";
 import { cn } from "@/lib/utils";
@@ -72,27 +71,50 @@ function failureHint(err: unknown): string {
   return `**The request failed:** ${detail}\n\nCheck your connection and OpenRouter settings (gear icon, top right), then try again.`;
 }
 
-// "/c/c1/c1.4" → "lesson c1.4", "/c/c1/c1.4/quiz" → "the quiz for lesson c1.4"
-function pageContext(pathname: string): string | null {
-  const m = pathname.match(/^\/c\/[^/]+\/([^/]+?)(\/quiz)?\/?$/);
-  if (!m) return null;
-  const title =
-    typeof document !== "undefined" ? document.title.split(" · ")[0] : "";
-  const page = m[2] ? `the quiz for lesson ${m[1]}` : `lesson ${m[1]}`;
-  return title ? `${page} ("${title}")` : page;
+// Superseded: the tutor now receives the current lesson's FULL text as
+// grounding context (src/lib/llm/context.ts), not just its id and title.
+
+/** Transcript + session id, so the conversation survives a page reload. */
+const TRANSCRIPT_KEY = "llm-transcript";
+
+function loadTranscript(): { sessionId?: string; messages: Message[] } {
+  try {
+    const raw = localStorage.getItem(TRANSCRIPT_KEY);
+    if (!raw) return { messages: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      sessionId: parsed.sessionId ?? undefined,
+      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+    };
+  } catch {
+    return { messages: [] };
+  }
+}
+
+function saveTranscript(sessionId: string | undefined, messages: Message[]) {
+  try {
+    localStorage.setItem(
+      TRANSCRIPT_KEY,
+      JSON.stringify({ sessionId, messages: messages.slice(-40) }),
+    );
+  } catch {
+    /* quota exceeded — best-effort */
+  }
 }
 
 function TutorPanel({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const pathname = usePathname();
   const sessionRef = useRef<string | undefined>(undefined);
-  const sentContextRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Restore the previous conversation when the panel opens.
   useEffect(() => {
+    const saved = loadTranscript();
+    sessionRef.current = saved.sessionId;
+    if (saved.messages.length > 0) setMessages(saved.messages);
     inputRef.current?.focus();
   }, []);
 
@@ -107,21 +129,19 @@ function TutorPanel({ onClose }: { onClose: () => void }) {
     setInput("");
     setMessages((m) => [...m, { role: "user", content: query }]);
     setBusy(true);
-    const context = pageContext(pathname);
-    const fullQuery =
-      context && !sentContextRef.current
-        ? `(The reader is currently on: ${context})\n\n${query}`
-        : query;
     try {
-      const result = await ask(fullQuery, sessionRef.current);
-      if (!result.isError) {
-        sessionRef.current = result.sessionId;
-        sentContextRef.current = true;
-      }
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", content: result.text, isError: result.isError },
-      ]);
+      // Grounding in the current lesson's text is injected inside ask() —
+      // see src/lib/llm/context.ts.
+      const result = await ask(query, sessionRef.current);
+      if (!result.isError) sessionRef.current = result.sessionId;
+      setMessages((m) => {
+        const next: Message[] = [
+          ...m,
+          { role: "assistant", content: result.text, isError: result.isError },
+        ];
+        saveTranscript(sessionRef.current, next);
+        return next;
+      });
     } catch (err) {
       setMessages((m) => [
         ...m,
@@ -134,8 +154,13 @@ function TutorPanel({ onClose }: { onClose: () => void }) {
 
   const clear = useCallback(() => {
     setMessages([]);
+    clearHistory(sessionRef.current);
     sessionRef.current = undefined;
-    sentContextRef.current = false;
+    try {
+      localStorage.removeItem(TRANSCRIPT_KEY);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   return (
