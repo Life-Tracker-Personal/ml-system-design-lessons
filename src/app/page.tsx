@@ -82,9 +82,11 @@ export default async function HomePage() {
 
         <div className="space-y-3">
           {lessons.map((lesson, i) => (
-            <Link
+            // Not a <Link> wrapper: the card holds a second link (Quiz), and
+            // anchors can't nest. The title link is "stretched" over the card
+            // via ::after so the whole card still opens the lesson.
+            <div
               key={lesson.id}
-              href={`/c/c1/${lesson.id}`}
               className="group relative flex items-center gap-4 rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 sm:gap-5 sm:p-5"
             >
               <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-accent font-mono text-base font-semibold text-accent-foreground tabular-nums">
@@ -97,7 +99,12 @@ export default async function HomePage() {
                   </span>
                 </div>
                 <h3 className="mt-0.5 text-[1.05rem] font-semibold tracking-tight">
-                  {lesson.title}
+                  <Link
+                    href={`/c/c1/${lesson.id}`}
+                    className="after:absolute after:inset-0 after:content-['']"
+                  >
+                    {lesson.title}
+                  </Link>
                 </h3>
                 {lesson.subtitle && (
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -105,15 +112,22 @@ export default async function HomePage() {
                   </p>
                 )}
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                 {lesson.estimatedMinutes && (
                   <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
                     {lesson.estimatedMinutes} min
                   </span>
                 )}
+                {/* z-10 keeps this above the stretched title link. */}
+                <Link
+                  href={`/c/c1/${lesson.id}/quiz`}
+                  className="relative z-10 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/8 hover:text-foreground"
+                >
+                  Quiz
+                </Link>
                 <ArrowRightIcon className="size-4 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-primary" />
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       </main>
