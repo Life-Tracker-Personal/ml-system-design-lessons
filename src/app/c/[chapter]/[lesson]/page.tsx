@@ -4,6 +4,7 @@ import { ArrowLeftIcon, ArrowRightIcon, ClockIcon } from "lucide-react";
 import { getLesson, getQuiz, listLessons } from "@/lib/lessons";
 import { MdxContent } from "@/components/mdx/mdx-content";
 import { Toc } from "@/components/lesson/toc";
+import { LessonMobileNav } from "@/components/lesson/lesson-nav";
 import { SiteHeader } from "@/components/site/site-header";
 import { ReadingProgress } from "@/components/site/reading-progress";
 import { extractToc } from "@/lib/toc";
@@ -44,6 +45,14 @@ export default async function LessonPage({
 
       <div className="mx-auto flex w-full max-w-6xl flex-1 justify-center gap-14 px-6 py-12 lg:py-16">
         <div className="w-full min-w-0 max-w-[720px]">
+          <LessonMobileNav
+            chapter={chapter}
+            lesson={lesson}
+            hasQuiz={!!quiz}
+            prev={prev}
+            next={next}
+            items={toc}
+          />
           <header className="mb-10">
             <p className="text-xs font-semibold tracking-[0.12em] text-primary uppercase">
               Chapter {data.meta.chapter}
@@ -145,7 +154,14 @@ export default async function LessonPage({
 
         <aside className="hidden w-[220px] shrink-0 lg:block">
           <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto pb-8">
-            <Toc items={toc} />
+            <Toc
+              chapter={chapter}
+              lesson={lesson}
+              hasQuiz={!!quiz}
+              prev={prev}
+              next={next}
+              items={toc}
+            />
           </div>
         </aside>
       </div>
