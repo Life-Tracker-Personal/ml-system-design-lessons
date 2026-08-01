@@ -81,11 +81,15 @@ $\log \text{softmax}(z)_k = z_k - \operatorname{logsumexp}(z)$, and $\operatorna
 
 **2. Convexity.** For a linear model, BCE is convex in the weights; sigmoid + MSE is *non-convex* (a sigmoid composed with a quadratic), so it can trap optimization in bad local minima even in the simplest setting.
 
+<ClassificationLossCurves caption="Loss vs margin m = y·f(x). 0-1 (gray step) is what you actually want to minimize but has zero gradient everywhere. Hinge (red, previewing c1.6's SVM) is convex, kicks in below m=1, and vanishes on the safe side. Logistic (blue) is CE's margin form — always strictly positive, with a gradient that stays useful even for confidently-wrong points. Sigmoid+MSE (amber, dashed) saturates in both tails — the vanishing-gradient failure argued above, now visible as flat regions where the curve stops descending." />
+
 ### Cross-entropy is a *proper scoring rule*
 
 > **Goal — establish the precise reason CE is a good training loss and accuracy is not.**
 
 Hold $x$ fixed and ask which constant forecast $q$ minimizes the expected loss $\mathbb{E}_{y\sim p}[-\log q_y]$. By Gibbs' inequality ($\text{KL}(p\,\|\,q)\ge 0$, equality iff $q=p$), the unique minimizer is $q = p$, the **true conditional distribution**. A loss with this property is a *strictly proper scoring rule*. Accuracy/0-1 loss is *not* proper — many different probability forecasts produce the same accuracy, so optimizing accuracy doesn't pin down the right probabilities, and its gradient is zero almost everywhere. That is the rigorous version of "use cross-entropy to train, accuracy to report."
+
+*In plain English:* a proper scoring rule is one whose optimal forecast is *telling the truth* — no constant lie wins in expectation. If the true positive rate is 30%, the forecast that minimizes CE in expectation is exactly 0.30; hedging up or down loses on average. Accuracy is not like this: forecasting "0.51" and "0.99" score identically on every example the model would call positive.
 
 ## Calibration: the part everyone skips
 
@@ -96,6 +100,8 @@ CE's minimizer is the true posterior — *in the limit of infinite data and a co
 Tools to know:
 
 - **Reliability diagram.** Bin predictions by confidence, plot empirical accuracy vs. mean confidence; the diagonal is perfect calibration.
+
+<ReliabilityDiagram caption="Reliability diagram: predicted confidence (x) vs empirical accuracy (y). The dashed diagonal is perfect calibration. Modern nets (red) sag below the diagonal on the high-confidence bins — a 0.95 prediction is only ~0.82 accurate; that's the 'overconfident' Guo et al. signature. Temperature scaling (blue) is a one-parameter post-hoc fix that snaps the curve back onto the diagonal without changing the argmax — so the accuracy number is unchanged and the probabilities are usable." />
 - **Expected Calibration Error (ECE).** $\text{ECE} = \sum_b \frac{|B_b|}{N}\,\bigl|\,\text{acc}(B_b) - \text{conf}(B_b)\,\bigr|$. Caveat worth stating in an interview: ECE is sensitive to the binning scheme and only measures *top-label* calibration — class-wise ECE or the Brier score are more robust.
 - **Brier score** $= \frac1N\sum_n \|q_n - y_n\|^2$ — MSE on probabilities, itself a proper scoring rule. It splits cleanly into a **calibration** term and a **discrimination** term (plus an irreducible base-rate term) — for the formal reliability–resolution–uncertainty (Murphy) decomposition, ask an AI assistant; an interviewer won't.
 - **Temperature scaling** (Guo 2017). Post-hoc, learn a single scalar $T>0$ and predict $\text{softmax}(z/T)$, fitting $T$ by minimizing validation NLL. $T>1$ softens overconfidence. **It cannot change accuracy** — dividing all logits by a positive constant preserves the argmax — so it's a free calibration fix that never costs you decisions.
@@ -119,6 +125,8 @@ Define $p_t = q$ if $y=1$ else $1-q$ (the probability assigned to the *true* cla
 $$\text{FL}(p_t) = -\alpha_t\,(1 - p_t)^{\gamma}\,\log(p_t)$$
 
 The **modulating factor** $(1-p_t)^\gamma$ shrinks the loss on easy examples; $\gamma$ (paper default **2**) is the focusing parameter; at $\gamma = 0$ focal loss *is* $\alpha$-balanced CE. Quantify it: with $\gamma = 2$, an example at $p_t = 0.9$ is down-weighted by $(0.1)^2 = 0.01$ — **100×** — and at $p_t \approx 0.968$ by **1000×**, while a hard example at $p_t = 0.1$ is barely touched ($(0.9)^2 \approx 0.81$). Focal loss let RetinaNet solve the ~1:1000 foreground/background imbalance of dense detection, hitting **36.0 AP vs. 32.8** for the best online-hard-example-mining baseline.
+
+<FocalDownweighting caption="Focal loss vs CE, as a function of the true-class probability p_t. CE (γ=0) treats a p_t=0.9 example (already confident and correct) the same weight as a p_t=0.1 example (hard). Focal's (1−p_t)^γ multiplier flattens the easy-side almost to zero: at γ=2 the p_t=0.9 point falls to 1% of its CE loss (100× down-weighting) and p_t≈0.968 falls to 0.1% (1000×), while p_t=0.1 keeps 81% of its weight. That's how you free the ~1:1000 foreground/background imbalance in dense detection: hard examples still drive learning, easy ones stop dominating." />
 
 ### Class-balanced loss (Cui et al., CVPR 2019)
 

@@ -56,6 +56,7 @@ Inside the core sections, every lesson must hit all four:
 - **Quantified, not vibes.** Replace "MSE is sensitive to outliers" with the computation: *999 residuals ≈1 plus one ≈100 → outlier is 9.1% of the gradient under MSE vs 0.1% under MAE.* Pick concrete numbers and units; do the arithmetic in-text.
 - **Named real-world grounding.** At least one real incident or system, by name: CheXNet, Roberts et al. 2021, the Kaggle Mercedes-Benz leak, XGBoost's `reg:absoluteerror`. Generic "in practice…" is not grounding.
 - **Stats / quant-research lens (where applicable).** When a topic has a statistics backbone — distributions & noise models, estimators (bias/variance/consistency/BLUE), OLS, PCA, hypothesis testing, calibration — surface the angle a quant-research / hedge-fund / research-lab interviewer probes: *what is the estimator, what's its sampling distribution, which assumption breaks, what's the MLE/Bayesian view.* (Explicit user preference; especially distributions, PCA, OLS.)
+- **Figures.** Every claim a working ML engineer would sketch on a whiteboard gets an inline SVG figure. See §11 — this is a hard bar, not a nice-to-have.
 
 ---
 
@@ -128,6 +129,7 @@ estimatedMinutes: 45
 - `<Quiz id="N"> … </Quiz>` — the quiz-question card. Quiz file only.
 - `<DeepDive title="…"> … </DeepDive>` — collapsible accordion for optional depth that would otherwise break flow. Underused so far; good for tangents a curious reader wants but that aren't core. (Note: it's a client component — keep its children to plain MDX/markdown + math.)
 - `<details><summary>…</summary> … </details>` — raw HTML, used for the quiz model-answer reveal.
+- **Figure components** — inline server-rendered SVG (no client JS, no charting library). Existing set: `LossChart` (loss & gradient curves), `OLSFit`, `Sigmoid`, `RegularizationBalls`, `ShrinkageCurves`, `PCARotation`, plus per-lesson visuals under `src/components/mdx/*-figures.tsx`. See §11 for when and how to add more.
 
 **Rendering pipeline:** `next-mdx-remote/rsc` with `remark-gfm` (tables, strikethrough), `remark-math` + `rehype-katex` (math), `rehype-slug` (auto heading IDs → in-page anchor links like `#refresher-…` work).
 
@@ -194,6 +196,57 @@ Before considering a lesson + quiz done:
 - [ ] **Plain-English-first** ordering throughout; intuition precedes every equation.
 - [ ] Every section / sub-section / worked example **opens with a 1–2 sentence goal statement** (big-picture-first, `**Goal — …**`).
 - [ ] Where the topic has a statistics backbone (distributions, estimators, OLS, PCA, testing, calibration), the **stats/quant-research angle** is surfaced.
+- [ ] **At least 2–4 inline SVG figures** at the points where a working ML engineer would sketch on a whiteboard (§11). Each has a caption tying it to the surrounding claim.
 - [ ] All **library claims are version-accurate** with the mechanism named (§7); primary sources cited.
 - [ ] **No unescaped `<`/`>`** outside math/code; links and anchors resolve; frontmatter matches the schema.
 - [ ] Forward-references (e.g. to `c1.10`) and the `id` sort order are consistent (§9).
+
+---
+
+## 11. Figures & visual explanations (hard bar)
+
+**A picture is 1000× better than math.** Lessons in this course must include inline SVG figures for any concept where a working ML engineer would sketch on a whiteboard. Math-only prose fails the pre-ship checklist regardless of how good the derivations are.
+
+### When to add a figure — the whiteboard test
+
+Ask, section by section: *if I were teaching this at a whiteboard, would I draw something here?* If yes, that idea gets a figure. Common triggers:
+
+- A geometric object (line, plane, boundary, contour, ball, cone, hyperplane, ellipse, cluster)
+- A partition of feature space (tree splits, k-means Voronoi, class regions)
+- A curve family compared across regimes (loss, gradient, sigmoid, ROC/PR, shrinkage, learning curve, bias-variance)
+- A probability distribution shape (Gaussian bells, GMM contours, class-conditional densities)
+- A pipeline/flow with a temporal or ordinal axis (leakage timeline, CV folds, boosting rounds)
+- A before-and-after (raw vs standardized, imbalanced vs resampled, uncalibrated vs recalibrated)
+
+Aim for **2–4 figures per lesson at minimum.** A lesson without visuals is a draft, not a shipped lesson.
+
+### Technical conventions
+
+- **Server-rendered SVG only.** No client JS, no chart library, no `use client` on figure components. Everything is a React server component emitting `<svg>` directly. Runtime pipeline (`next-mdx-remote/rsc`) doesn't ship these components' JS to the browser at all.
+- **Deterministic.** Never call `Math.random()` or `new Date()` — Next.js will complain about hydration, and (more importantly) our workflow harness bans them. Use the seeded Mulberry32 rng in `src/components/mdx/figure-helpers.tsx`. Same seed → same figure across every build.
+- **Shared helpers.** `figure-helpers.tsx` exports `rng(seed)`, `gauss(rng)`, `figureFrame({W, H, ariaLabel, caption, children})`, and axis-label / gridline helpers. Import from there; don't duplicate.
+- **Theme-aware structural marks.** Gridlines, axes, tick labels use the design-system classes (`text-border`, `text-foreground`, `text-muted-foreground`, `fill-muted-foreground`, `bg-card`) so both light and dark modes work. Never hard-code light/dark hex colors on structural elements.
+- **Distinct series hues.** For data series (curves, categories, points), use the shared palette so figures read as one system: `#dc2626` red (the star / attention), `#2563eb` blue (the neutral / reference), `#d97706` amber (the third / warning), `#6b7280` gray (dashed / OLS baseline). These read on both backgrounds.
+- **Aspect ratio + width.** Fixed `viewBox` around 560×340 (loss/curve figures) or 560×300 (compact), rendered via `className="h-auto w-full"` so they scale to card width.
+- **Accessibility.** Every `<svg>` gets `role="img"` and an `aria-label` that describes the picture in one sentence.
+- **Caption.** Every figure has a `figcaption` tying it to the surrounding claim — what the reader should *take away*, not just what they see.
+
+### File organization
+
+- `src/components/mdx/figure-helpers.tsx` — shared primitives (`rng`, `gauss`, `figureFrame`, curve-path builders, ellipse helpers).
+- `src/components/mdx/<topic>-figures.tsx` — one file per topic (`regression-figures.tsx`, `tree-figures.tsx`, `kernel-figures.tsx`, `clustering-figures.tsx`, `probabilistic-figures.tsx`, `validation-figures.tsx`, `metrics-figures.tsx`, `imbalance-figures.tsx`, `data-figures.tsx`, `classification-figures.tsx`).
+- Each figure is a named export (PascalCase); wire it into `mdx-content.tsx`'s `components` prop before referencing it in MDX.
+- Reuse across lessons where the visual applies — e.g. `ReliabilityDiagram` is shared by c1.3 / c1.8 / c1.10 / c1.11.
+
+### Placement in MDX
+
+Figures sit between prose paragraphs — never at the top of a section (open with the goal sentence first) and never immediately after the section heading. Place each figure directly *after* the sentence that names the object it depicts, so caption + figure + surrounding text tell one continuous story. One figure per concept; don't stack two figures back-to-back without at least a sentence between them.
+
+### What NOT to do
+
+- ❌ Screenshot a static image from a paper (rots, isn't theme-aware, adds a network request, and CSP blocks external image hosts).
+- ❌ Animated / interactive / draggable figures (this is a static-site experience; client JS is a maintenance and CSP burden).
+- ❌ 3D projections (they read badly on a phone and rarely earn the visual complexity).
+- ❌ Hard-code light-mode colors on structural marks (breaks dark mode).
+- ❌ Ship a figure without a caption (the caption is where the *teaching* happens).
+- ❌ Use `Math.random`, `new Date()`, `Date.now()` — non-deterministic, breaks reproducible builds.

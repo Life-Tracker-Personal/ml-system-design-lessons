@@ -71,6 +71,8 @@ $$\operatorname{RSS}(\beta_0,\beta_1)=\sum_{i=1}^n (y_i-\beta_0-\beta_1x_i)^2$$
 
 **Ordinary least squares chooses the line with the smallest residual sum of squares.** Squaring does three useful things: it prevents cancellation, penalizes large misses heavily, and produces a smooth convex objective with a closed-form optimum. It also makes OLS sensitive to outliers; that is the price of the choice.
 
+<OLSFit caption="OLS on 40 simulated points from y = 1 + 0.6x + noise. The red line is the fit; the gray verticals are the residuals eᵢ = yᵢ − ŷᵢ. OLS chooses the line that minimizes the sum of the squared vertical gaps — not the perpendicular distances, and not the raw signed gaps (which would cancel)." />
+
 For one centered predictor, the slope has an especially intuitive form:
 
 $$\hat\beta_1=\frac{\sum_i(x_i-\bar x)(y_i-\bar y)}{\sum_i(x_i-\bar x)^2}=\frac{\operatorname{Cov}(x,y)}{\operatorname{Var}(x)}$$
@@ -295,6 +297,8 @@ $$\log\frac{p(x)}{1-p(x)}=x^\top\beta$$
 
 Logistic regression is linear in **log-odds**, not in probability. A one-unit increase in $x_j$, holding other features fixed, adds $\beta_j$ to log-odds and multiplies odds by $e^{\beta_j}$. It does not add a constant amount to probability: the probability change is largest near $p=0.5$ and small near 0 or 1.
 
+<Sigmoid caption="The sigmoid squashes the linear score η = xᵀβ into a probability in (0,1). The decision boundary xᵀβ = 0 corresponds exactly to p = 0.5. Read the flat tails as the source of vanishing gradients for very confident scores — and, later, as the reason perfect separation lets β run to infinity: the curve keeps getting steeper at zero without ever reaching a maximum." />
+
 Model the log-odds as linear: $\text{logit}(p(x)) = x^\top\beta$, i.e. $p(x) = \sigma(x^\top\beta)$. The Bernoulli log-likelihood is $\ell(\beta) = \sum_i[y_i\log p_i + (1-y_i)\log(1-p_i)]$ — the negative of this is **binary cross-entropy** (c1.3). The score and Hessian are
 
 $$\nabla\ell = X^\top(y - p), \qquad \nabla^2\ell = -X^\top W X,\quad W=\text{diag}(p_i(1-p_i))$$
@@ -341,6 +345,8 @@ The $+\lambda I$ lifts small eigenvalues away from zero. The inverse therefore c
 
 Geometrically, ridge asks for the lowest-RSS contour that touches a round L2 ball. The smooth boundary rarely touches an axis, so exact zeros are rare.
 
+<RegularizationBalls caption="The one picture that answers 'why does lasso zero coefficients but ridge doesn't?' Blue: the RSS contours are ellipses centred on β̂ᴼᴸˢ (they're circles only when features are orthogonal — see the note below). Orange: the penalty ball. The regularized solution is where the smallest RSS ellipse first touches the ball. Left: the L1 diamond has corners on the axes; a typical ellipse hits a corner, so β₂ = 0. Right: the L2 disc is smooth; a typical ellipse touches at a generic interior direction, so both coefficients stay nonzero. The corner is the mechanism — nothing about orthonormality is needed to see it." />
+
 ### Lasso: spend a limited coefficient budget
 
 **Lasso (L1)** solves
@@ -349,13 +355,19 @@ $$\min_\beta\ \frac12\lVert y-X\beta\rVert^2+\lambda\lVert\beta\rVert_1$$
 
 The L1 constraint has diamond-shaped corners on the coordinate axes. An expanding RSS contour often touches a corner, making one or more coefficients exactly zero. Lasso therefore performs estimation and feature selection together.
 
-There is no general closed form because $|\beta_j|$ is nondifferentiable at zero; coordinate descent and LARS are standard solvers. With orthonormal columns, the contrast is transparent:
+There is no general closed form because $|\beta_j|$ is nondifferentiable at zero; coordinate descent and LARS are standard solvers.
+
+> **Why orthonormal, and why doesn't anyone talk about the general case?** The reason we specialize to $X^\top X = I$ is not a modelling assumption — it's an algebraic trick to *see* the mechanism. Under a general design, RSS is a coupled quadratic in $\beta$: the elliptical RSS contours are stretched and tilted (as in the figure above), and moving $\beta_j$ changes what the optimal $\beta_k$ should be. Orthonormality diagonalizes $X^\top X$, so RSS decouples into $p$ independent scalar problems in $(\beta_j - \hat\beta_j^{\text{OLS}})^2$, and each 1D subproblem has a closed form. The sparsity picture (corner-touching) is fully general — but the tidy $\hat\beta_j^{\text{OLS}}/(1+\lambda)$ and soft-thresholding formulas only survive in the decoupled case. The general case *is* handled by the KKT subgradient condition below; it just doesn't reduce to a per-coordinate formula because the coefficients are coupled through the residual. This is exactly why textbook derivations start orthonormal: they're the shortest path to the mechanism, not the story about your actual data.
+
+With orthonormal columns, the contrast is transparent:
 
 $$\hat\beta_j^{\text{ridge}}=\frac{\hat\beta_j^{\text{OLS}}}{1+\lambda}$$
 
 $$\hat\beta_j^{\text{lasso}}=\operatorname{sign}(\hat\beta_j^{\text{OLS}})\max\left(|\hat\beta_j^{\text{OLS}}|-\lambda,0\right)$$
 
 Ridge proportionally shrinks; lasso **soft-thresholds**, subtracting a fixed amount and setting weak coefficients exactly equal to zero. Here “exactly zero” means $\hat\beta_j=0$, so feature $j$ contributes $x_j\hat\beta_j=0$ to every prediction—the fitted model has excluded that feature.
+
+<ShrinkageCurves lambda={0.6} caption="Estimated coefficient as a function of its OLS value, under an orthonormal design and λ = 0.6. Dashed gray: OLS (identity). Blue: ridge shrinks every coordinate proportionally — the line tilts down but never touches zero for a nonzero input. Red: lasso subtracts λ, then clips to zero — every OLS coefficient in the shaded [−λ, λ] band gets snapped exactly to 0. That flat interval is the 'dead zone' the L1 kink creates; ridge has no analogue." />
 
 **Orthonormality is only what makes the closed form simple.** Lasso can produce exact-zero coefficients for a general design matrix too. Let $r=y-X\hat\beta$ be the residual at the lasso optimum. Its KKT/subgradient condition for feature $j$ is
 
@@ -468,6 +480,8 @@ PCA rotates to those directions:
 - Later PCs continue the same rule, each orthogonal to those before it.
 
 PCA does not initially “delete features.” It creates a new orthogonal coordinate system. Dimensionality reduction happens only when we keep the first $m$ component scores and discard the rest.
+
+<PCARotation caption="A correlated 2D cloud with the two principal directions overlaid. PC1 points along the direction of largest projected variance; PC2 is orthogonal to it and captures what's left. Arrow lengths scale with the sample standard deviations along each axis, so the length ratio is the story: nearly all the spread lives on PC1. Keeping only PC1 replaces two correlated features with one uncorrelated summary — cheap compression, but 'high variance ≠ predictive of y', which is why PCR is target-blind." />
 
 Why keep high-variance directions? For a fixed number of linear dimensions, they minimize squared reconstruction error. The discarded variance is exactly the information lost under that geometric criterion. But reconstruction of $X$ is not prediction of $y$—the crucial limitation.
 
