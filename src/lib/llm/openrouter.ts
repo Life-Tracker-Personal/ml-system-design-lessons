@@ -1,3 +1,5 @@
+import { parseUsage, type Usage } from "./usage";
+
 const AUTH_URL = "https://openrouter.ai/auth";
 const KEYS_URL = "https://openrouter.ai/api/v1/auth/keys";
 const CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -89,6 +91,7 @@ export interface ChatMessage {
 export interface ChatResponse {
   text: string;
   model: string;
+  usage?: Usage;
 }
 
 export async function chat(
@@ -102,7 +105,9 @@ export async function chat(
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ model, messages }),
+    // usage.include asks OpenRouter to report real token counts AND the
+    // dollar cost of the generation in the response body.
+    body: JSON.stringify({ model, messages, usage: { include: true } }),
   });
 
   if (!resp.ok) {
@@ -126,5 +131,6 @@ export async function chat(
   return {
     text: data.choices[0].message.content,
     model: data.model ?? model,
+    usage: parseUsage(data.usage),
   };
 }
