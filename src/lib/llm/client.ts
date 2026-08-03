@@ -1,5 +1,6 @@
 import { loadSettings } from "./settings";
 import { chat as openrouterChat, type ChatMessage } from "./openrouter";
+import type { Usage } from "./usage";
 import {
   detectLessonRef,
   fetchBookContext,
@@ -16,6 +17,8 @@ export interface AskResult {
   sessionId: string;
   model?: string;
   isError: boolean;
+  /** Token counts + cost for this response (OpenRouter mode only). */
+  usage?: Usage;
 }
 
 /* ------------------------------------------------------------------ */
@@ -139,6 +142,7 @@ async function askOpenRouter(
     sessionId: sid,
     model: result.model,
     isError: false,
+    usage: result.usage,
   };
 }
 
