@@ -13,6 +13,8 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { ask, clearHistory } from "@/lib/llm/client";
+import { UsageFooter, SpendHeader } from "./usage-footer";
+import { sumUsage, type Usage } from "@/lib/llm/usage";
 import { OpenRouterError } from "@/lib/llm/openrouter";
 import { loadSettings } from "@/lib/llm/settings";
 import { cn } from "@/lib/utils";
@@ -21,6 +23,8 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   isError?: boolean;
+  usage?: Usage;
+  model?: string;
 }
 
 export function TutorWidget() {
@@ -123,6 +127,8 @@ function TutorPanel({ onClose }: { onClose: () => void }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, busy]);
 
+  const sessionUsage = sumUsage(messages.map((m) => m.usage));
+
   const send = useCallback(async () => {
     const query = input.trim();
     if (!query || busy) return;
@@ -137,7 +143,13 @@ function TutorPanel({ onClose }: { onClose: () => void }) {
       setMessages((m) => {
         const next: Message[] = [
           ...m,
-          { role: "assistant", content: result.text, isError: result.isError },
+          {
+            role: "assistant",
+            content: result.text,
+            isError: result.isError,
+            usage: result.usage,
+            model: result.model,
+          },
         ];
         saveTranscript(sessionRef.current, next);
         return next;
@@ -172,10 +184,13 @@ function TutorPanel({ onClose }: { onClose: () => void }) {
       <div className="relative flex h-[80dvh] w-full flex-col overflow-hidden rounded-t-xl border border-border bg-popover shadow-xl sm:h-[min(600px,calc(100dvh-6rem))] sm:w-[400px] sm:rounded-xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <MessageCircleIcon className="size-4 text-primary" />
-            Tutor
-          </h2>
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <MessageCircleIcon className="size-4 text-primary" />
+              Tutor
+            </h2>
+            <SpendHeader sessionUsage={sessionUsage} />
+          </div>
           <div className="flex items-center gap-1">
             {messages.length > 0 && (
               <button
@@ -230,6 +245,7 @@ function TutorPanel({ onClose }: { onClose: () => void }) {
                 >
                   {m.content}
                 </ReactMarkdown>
+                <UsageFooter usage={m.usage} model={m.model} />
               </div>
             ),
           )}
