@@ -212,15 +212,60 @@ This makes the levers visible: less outcome noise, more observations, and a wide
 
 ### The $t$-statistic: signal measured in noise units
 
-Suppose the null hypothesis is $H_0:\beta_j=0$. The raw coefficient alone cannot tell us how much evidence the data provide. An estimate of $0.5$ is compelling if its SE is $0.05$ and weak if its SE is $2$. Standardize the distance from the hypothesized value:
+> **Slower lane.** This subsection and the two after it assume less background than the rest of the lesson: if "sampling distribution" and "null hypothesis" are words you have nodded along to without ever pinning down, start here.
+
+**The question a $t$-statistic answers is "is this number big?" — and the whole trick is that "big" is meaningless until you say *big compared to what*.**
+
+Suppose you fit sales against ad spend across $n=12$ stores and get a slope of $\hat\beta_1 = 4.2$: each extra \$1k of ads is associated with \$4.2k more sales. Is that real, or did the fit just chase noise?
+
+You cannot answer from $4.2$ alone. Run the same experiment in a parallel universe — 12 *different* stores drawn from the same population — and you would get a different number: maybe $3.6$, maybe $5.1$. The slope is a random quantity, because the sample is random. The spread of those hypothetical re-runs is exactly what the standard error estimates. So:
+
+- If $\operatorname{SE}(\hat\beta_1) = 1.5$, re-runs would routinely land anywhere from about $1$ to $7$. A slope of $4.2$ is a meaningful distance from zero.
+- If $\operatorname{SE}(\hat\beta_1) = 6.0$, re-runs would scatter from $-8$ to $+16$. The same $4.2$ is now indistinguishable from a fluke.
+
+The $t$-statistic just makes that comparison explicit. It measures the estimate in standard-error units — it converts "\$4.2k per \$1k" into "how many noise-widths from zero":
 
 $$t_j=\frac{\hat\beta_j-\beta_{j,0}}{\operatorname{SE}(\hat\beta_j)}$$
 
-For the common null $\beta_{j,0}=0$, this is estimate divided by SE. A $t$ of $3$ means the estimate sits three estimated standard errors from zero. Under the classical Normal-error model and the null,
+Here $\beta_{j,0}$ is the value the **null hypothesis** proposes — the boring claim you are trying to rule out, almost always "this predictor does nothing," $\beta_{j,0}=0$. With that null, the formula is just estimate ÷ SE:
+
+$$t_1 = \frac{4.2}{1.5} = 2.8 \qquad\text{versus}\qquad t_1 = \frac{4.2}{6.0} = 0.7$$
+
+Same slope, same business story, opposite verdicts. A $t$ of $2.8$ says the estimate sits nearly three noise-widths above zero, which random sampling rarely manages by accident. A $t$ of $0.7$ says it sits well inside the range noise produces all the time.
+
+Two things a $t$-statistic is *not*. It is not a measure of effect size — a huge $t$ can accompany an economically trivial slope, if $n$ is large enough to pin down a tiny number precisely. And it is not evidence of causality; it is a statement about one coefficient inside one assumed model.
+
+#### Why the reference curve is Student's $t$, not a Normal
+
+Under the classical model the standardised estimate follows
 
 $$t_j\sim t_{n-p}$$
 
-We use a $t$ rather than a standard Normal because $\sigma$ was estimated. The $t$ distribution has heavier tails to reflect that extra uncertainty; it approaches the Normal as degrees of freedom grow.
+and the reason it is a $t$ rather than a standard Normal is worth understanding, because it is a stock interview question.
+
+If we somehow *knew* the true noise level $\sigma$, then $(\hat\beta_j-\beta_j)/\operatorname{SE}$ would be exactly standard Normal — a known constant in the denominator just rescales a Normal. But we do not know $\sigma$. We estimate it from the same small sample, as $\hat\sigma^2=\operatorname{RSS}/(n-p)$, and that estimate is itself noisy.
+
+So the denominator wobbles too. Formally the statistic has the shape
+
+$$t = \frac{Z}{\sqrt{V/\nu}},\qquad Z\sim\mathcal{N}(0,1),\quad V\sim\chi^2_\nu \ \text{independent of } Z$$
+
+Dividing a Normal by a random, sometimes-too-small denominator produces occasional large values that a fixed denominator never would. Those extra large values are precisely the $t$ distribution's heavier tails — it is the price of not knowing $\sigma$.
+
+<TvsNormalTails />
+
+**Properties worth carrying into an interview.**
+
+- **Symmetric and centred at zero**, like the Normal, and bell-shaped — the difference is entirely in the tails, not the location.
+- **Heavier tails, lower peak.** More probability sits far from zero, so the same cutoff captures less area.
+- **One parameter: degrees of freedom $\nu = n-p$** — the sample size minus the coefficients you spent estimating the fit.
+- **Variance is $\nu/(\nu-2)$ for $\nu>2$** — always greater than the Normal's $1$, and it *blows up* as $\nu\to2$. For $\nu\le2$ the variance is infinite, and at $\nu=1$ the $t$ is the Cauchy distribution, which has no mean at all.
+- **It converges to the standard Normal as $\nu\to\infty$.** By $\nu\approx30$ the two are close enough that the distinction rarely changes a decision.
+
+That convergence is what licenses the familiar "$|t|$ above $2$ means significant" shortcut — and it also shows when the shortcut lies:
+
+<TCriticalVsDf />
+
+With $\nu=10$, a $t$ of exactly $2.0$ gives a two-sided $p$ of $0.073$: *not* significant at 5%, despite clearing the folk threshold. You would need $|t|>2.23$. At $\nu=1$ you would need $|t|>12.7$. The rule of thumb is a large-sample convenience, not a law — which is why the ad-spend example above, with $\nu=12-2=10$ and $t=2.8$, is genuinely significant ($p=0.019$) while a $t$ of $2.0$ from the same study would not have been.
 
 ### The $p$-value: a probability under the null, not of the null
 
@@ -229,6 +274,14 @@ For a two-sided test, the $p$-value is
 $$p=\Pr\left(|T_{n-p}|\ge |t_{\text{observed}}|\mid H_0\right)$$
 
 It asks: **if the true coefficient were the null value and the model assumptions held, how often would random sampling produce a $t$-statistic at least this extreme?**
+
+Concretely: draw the curve of $t$-values the null would generate, mark where your $t$ landed, and shade everything at least that far out. The shaded area *is* the $p$-value.
+
+<PValueAsArea />
+
+Read the picture in the order the logic runs. You start by *assuming* the null — the curve is what the world looks like if $\beta$ really is zero. Your observed $t$ is one draw. If it lands in the fat middle, the null explains your data comfortably. If it lands out in a thin tail, then either the null is true and you got unlucky, or the null is wrong. The $p$-value only quantifies the first branch: how unlucky you would have had to be. It never tells you the probability of the second.
+
+That asymmetry is the source of nearly every misreading below.
 
 It is not:
 
@@ -259,6 +312,43 @@ $$t=0.30/0.10=3.0$$
 The estimate is three SEs from zero, producing a small two-sided $p$-value and an approximate 95% interval $0.30\pm1.96(0.10)=[0.10,0.50]$ in a large sample. The conclusion is not “the factor definitely matters.” It is: conditional on the model, this sample is inconsistent with a zero loading, and values around $0.10$ to $0.50$ remain compatible with the data.
 
 Now imagine adding a nearly duplicate factor. The point estimate might remain $0.30$, but its SE could jump to $0.40$. Then $t=0.75$ and the interval crosses zero. The observed association did not disappear; our ability to assign it uniquely to this factor did. That is multicollinearity, developed below.
+
+### Six perturbations: what actually moves in the regression table
+
+Interviewers love this family of questions because each one isolates a different part of the machinery, and because the intuitive answer is wrong about half the time. The pattern to internalise: **manipulations that add no new information leave the point estimates alone and corrupt the uncertainty.**
+
+| Manipulation | Slopes $\hat\beta$ | Intercept | $R^2$ | Standard errors | $t$-stats | Unbiased / BLUE? |
+|---|---|---|---|---|---|---|
+| Add a pure-noise predictor | ~unchanged | ~unchanged | weakly **↑** (never ↓) | **↑** | **↓** | Yes, but less efficient |
+| Duplicate a predictor column | **not identified** | unchanged | unchanged | **∞ / undefined** | undefined | Sum is estimable; individuals are not |
+| Duplicate every row | **exactly unchanged** | unchanged | **exactly unchanged** | **× ≈ 1/√2** | **× ≈ √2** | Unbiased, but inference invalid |
+| Duplicate one observation | **changes** | changes | changes | change | change | Unbiased; SE understated |
+| Regress $x$ on $y$ instead | $\rho\,\sigma_x/\sigma_y$ (not $1/\hat\beta$) | changes | **same $\rho^2$** | change | same $t$ for $H_0$ of no relation | Answers a different question |
+| Orthogonal (total) least squares | between the two OLS lines | changes | n/a | n/a | n/a | Not scale-invariant |
+
+**1. Adding a pure-noise predictor.** $R^2$ can only go up, never down — the old fit is still available to the optimiser, so RSS cannot increase. That makes plain $R^2$ useless for model selection. Adjusted $R^2$ has a crisp rule that is worth memorising: **it increases if and only if the new variable's $|t|$ exceeds $1$** — a much lower bar than significance. The other coefficients stay unbiased (including an irrelevant regressor does not violate exogeneity), but they lose precision: you spend a degree of freedom and, unless the noise column happens to be exactly orthogonal to the rest in-sample, you inflate their variance. Estimates honest, $t$-stats quieter.
+
+**2. Duplicating a predictor column.** Now $X$ has two identical columns, $X^\top X$ is singular, and there is no unique $\hat\beta$: if $(\beta_1,\beta_2)$ fits, so does $(\beta_1+c,\ \beta_2-c)$ for any $c$. What *is* pinned down is the column space, so the fitted values, residuals, RSS and $R^2$ are all completely unchanged. Only the attribution breaks. What software returns depends on the solver: a pseudoinverse (`numpy.linalg.lstsq`, scikit-learn) returns the minimum-norm solution, which splits the coefficient **equally** between the twins; R's `lm()` drops one and reports `NA`. Ridge also splits it equally — with an $L^2$ penalty, $(\beta/2,\beta/2)$ costs strictly less than $(\beta,0)$. Lasso, whose penalty is indifferent between those splits, has a genuinely non-unique solution and typically picks one arbitrarily. The estimable quantity throughout is the **sum** $\beta_1+\beta_2$; that combination is unbiased, and only it has a finite standard error.
+
+**3. Duplicating every row.** Stack the dataset on top of itself. Both $X^\top X$ and $X^\top y$ exactly double, and the factor of two cancels: $\hat\beta$ is **identical**, to the last digit. TSS and RSS both double, so $R^2$ is identical too. But the variance formula sees $2n$ observations: $\operatorname{Var}(\hat\beta)$ picks up $(2X^\top X)^{-1}$, and
+
+$$\frac{\operatorname{SE}_{\text{doubled}}}{\operatorname{SE}_{\text{original}}}=\sqrt{\frac{n-p}{2n-p}}\ \xrightarrow[n\to\infty]{}\ \frac{1}{\sqrt2}$$
+
+so every standard error shrinks by about $30\%$ and every $t$-statistic inflates by about $\sqrt2$. Nothing was learned; the model merely counted the same evidence twice. The estimates stay unbiased, but the inference is fraudulent, because the errors of duplicated rows are perfectly correlated — the independence assumption behind the SE formula is gone. **This is the cleanest illustration of the whole section: point estimates survive fake data, uncertainty does not.** (It is also why clustered standard errors exist: repeated measurements on the same entity are a softer version of the same problem.)
+
+**4. Duplicating a single observation.** Different beast. Copying one row is exactly **weighted least squares with weight 2 on that point**, so it *does* move the fit — toward that observation. How far depends on leverage: duplicating a point sitting at the centre of the $x$ cloud barely moves the line, while duplicating a high-leverage point can visibly tilt it. Everything in the table changes. The estimate remains unbiased (any fixed set of weights preserves unbiasedness given exogeneity), but if the row is a *copy* rather than a genuinely new draw, the standard errors are again understated.
+
+> **Stop and think.** Duplicating *all* rows leaves $\hat\beta$ untouched, yet duplicating *one* row changes it. Reconcile these. *Hint: uniform reweighting rescales the normal equations by a constant that cancels; non-uniform reweighting changes their relative weighting, which is a different optimisation problem.*
+
+**5. Regressing $x$ on $y$ instead of $y$ on $x$.** The two slopes are
+
+$$\hat\beta_{y\sim x}=\rho\,\frac{\sigma_y}{\sigma_x},\qquad \hat\beta_{x\sim y}=\rho\,\frac{\sigma_x}{\sigma_y},\qquad\text{so}\qquad \hat\beta_{y\sim x}\cdot\hat\beta_{x\sim y}=\rho^2$$
+
+The second slope is **not** the reciprocal of the first — it equals the reciprocal only when $\rho^2=1$, i.e. a perfect fit. Since $\rho^2\le1$, each line is *flatter* than inverting the other would suggest. That gap is regression to the mean, and it has a mechanical cause: OLS minimises vertical distances, so swapping the roles of the axes minimises horizontal distances instead — a different objective, hence a different line. Both lines do pass through $(\bar x,\bar y)$, and both report the same $R^2=\rho^2$. The lesson for practice: "which variable goes on the left" is a modelling decision about what you want to predict, not a symmetric description of association.
+
+**6. Orthogonal regression, and why PCA is a third answer.** If neither variable is naturally the response — both are noisy measurements of something — you can minimise *perpendicular* distance instead. That is **total least squares**, and its solution is the **first principal component** of the joint $(x,y)$ cloud. Its slope lies between the $y\sim x$ line and the inverted $x\sim y$ line. It is consistent under symmetric errors-in-variables, where OLS suffers the attenuation bias derived earlier. The catch is that perpendicular distance mixes the two axes' units, so **TLS is not scale-invariant**: rescale $x$ from dollars to cents and the fitted line changes, whereas OLS slopes simply rescale in the obvious way. Standardise first, or do not use it.
+
+Do not confuse that with **principal component regression**, which is a different procedure with a different purpose: project $X$ onto its top-$k$ principal components and regress $y$ on those. PCR is a variance-reduction method — biased, but stabilising when predictors are collinear, since it discards exactly the low-variance directions that inflate $\operatorname{Var}(\hat\beta)$. Its known weakness is that the components are chosen using $X$ alone, so a low-variance direction that happens to carry all the signal about $y$ gets thrown away; partial least squares exists to fix precisely that.
 
 ### When the usual standard error is wrong
 

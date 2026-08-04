@@ -62,6 +62,11 @@ import {
   ThresholdShiftEquivalence,
   CalibrationHarm,
 } from "./imbalance-figures";
+import {
+  TvsNormalTails,
+  TCriticalVsDf,
+  PValueAsArea,
+} from "./inference-figures";
 
 export function MdxContent({ source }: { source: string }) {
   return (
@@ -106,6 +111,9 @@ export function MdxContent({ source }: { source: string }) {
         SmoteLeakageSplit,
         ThresholdShiftEquivalence,
         CalibrationHarm,
+        TvsNormalTails,
+        TCriticalVsDf,
+        PValueAsArea,
         Quiz,
       }}
       options={{
