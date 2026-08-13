@@ -2,11 +2,11 @@
 lessonId: c1.4
 chapter: 1
 title: Quiz — Linear & logistic regression
-description: 12 conceptually difficult questions on OLS, MLE, Gauss-Markov, regularization, VIF, perfect separation, and PCA.
-estimatedMinutes: 45
+description: 13 conceptually difficult questions on OLS, MLE, Gauss-Markov, regularization, VIF, perfect separation, PCA, and errors-in-variables.
+estimatedMinutes: 50
 ---
 
-These 12 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
+These 13 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
 
 <Quiz id="1">
 
@@ -406,6 +406,123 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 
 </Quiz>
 
+<Quiz id="13">
+
+**Q13 · must-know. Noise in $y$ is harmless; noise in $x$ is not.** The true model is $y=\beta x+\epsilon$.
+
+**(a)** You observe $y^{obs}=y+u$ rather than $y$, where $u$ is mean-zero with $\mathbb E[u\mid x]=0$. Say what happens to the OLS slope and, separately, to its standard error.
+
+**(b)** Now the response is clean but the predictor is not: you observe $x^{obs}=x+u$, with $u$ mean-zero and independent of both $x$ and $\epsilon$. Derive $\operatorname{plim}\hat\beta$ from $\operatorname{Cov}(x^{obs},y)\big/\operatorname{Var}(x^{obs})$. Explain in one sentence of geometry why the answer comes out the way it does, and name precisely which OLS assumption (a) preserves and (b) destroys.
+
+**(c)** In practice $x$ is latent and $\sigma_u^2$ is not handed to you. Design an estimator of the attenuation factor from observable data alone.
+
+**(d)** Instantiate (c) for a trading signal $s^{obs}_{i,t}=s^{true}_{i,t}+u_{i,t}$ regressed on future returns, where the true signal is unobservable — concretely, a news-sentiment alpha.
+
+**(e)** Does collecting more data fix any of this?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Noise in the response is absorbed by the error term.** Substitute $y^{obs}=y+u$ into the true model:
+
+$$y^{obs}=\beta x+\underbrace{(\epsilon+u)}_{\textstyle \epsilon'}$$
+
+The measurement noise merges into a new error term $\epsilon'$. Exogeneity survives: $\mathbb E[\epsilon'\mid x]=\mathbb E[\epsilon\mid x]+\mathbb E[u\mid x]=0$. Nothing on the *right-hand side* moved, so the estimator is untouched in expectation — $\hat\beta$ stays **unbiased and consistent**.
+
+What you pay is precision. $\operatorname{Var}(\epsilon')=\sigma_\epsilon^2+\sigma_u^2$, and since
+
+$$\operatorname{SE}(\hat\beta)=\frac{\sigma_{\epsilon'}}{\sqrt{\textstyle\sum_i (x_i-\bar x)^2}}$$
+
+the standard error **inflates**, $t$-statistics shrink, confidence intervals widen, and $R^2$ falls. The regression table gets quieter but stays honest — the same trade you get from adding an irrelevant regressor.
+
+**(b) Noise in the predictor lands in the regressor *and* the error, and the shared $u$ couples them.** Compute the two pieces of the population slope. The numerator, using independence of $u$ from both $x$ and $\epsilon$:
+
+$$\operatorname{Cov}(x^{obs},y)=\operatorname{Cov}(x+u,\ \beta x+\epsilon)=\beta\underbrace{\operatorname{Cov}(x,x)}_{\sigma_x^2}+\underbrace{\operatorname{Cov}(x,\epsilon)}_{0}+\beta\underbrace{\operatorname{Cov}(u,x)}_{0}+\underbrace{\operatorname{Cov}(u,\epsilon)}_{0}=\beta\sigma_x^2$$
+
+The denominator, again by independence:
+
+$$\operatorname{Var}(x^{obs})=\operatorname{Var}(x+u)=\sigma_x^2+\sigma_u^2$$
+
+Hence
+
+$$\boxed{\ \operatorname{plim}\hat\beta=\frac{\operatorname{Cov}(x^{obs},y)}{\operatorname{Var}(x^{obs})}=\beta\,\frac{\sigma_x^2}{\sigma_x^2+\sigma_u^2}\ }$$
+
+**Why this is attenuation *toward zero*.** The multiplier $\lambda=\sigma_x^2/(\sigma_x^2+\sigma_u^2)$ lies in $(0,1]$, so $|\operatorname{plim}\hat\beta|<|\beta|$ while the **sign is preserved**. The limits are the sanity check: $\sigma_u^2\to0$ gives $\lambda\to1$ (recover $\beta$); $\sigma_u^2\to\infty$ gives $\lambda\to0$ — the estimate collapses to *zero specifically*, not to some other wrong number. Concretely, noise variance equal to signal variance ($\sigma_u^2=\sigma_x^2$) means $\lambda=\tfrac12$: you measure **half** the true effect, no matter how much data you have.
+
+**The geometry, in one sentence:**
+
+> Measurement noise increases horizontal variation in the observed predictor without increasing its covariance with $y$, so the fitted relationship gets diluted.
+
+The numerator of the slope is untouched at $\beta\sigma_x^2$ while the denominator grows by $\sigma_u^2$ — you are spreading the same rise over a wider run, and the line flattens.
+
+**Which assumption breaks.** Rewrite the *feasible* regression in terms of what you actually run. Since $x=x^{obs}-u$,
+
+$$y=\beta x+\epsilon=\beta x^{obs}+\underbrace{(\epsilon-\beta u)}_{\textstyle \nu}, \qquad \operatorname{Cov}(x^{obs},\nu)=\operatorname{Cov}(x+u,\ \epsilon-\beta u)=-\beta\sigma_u^2\neq0$$
+
+That is the whole asymmetry, and it is the sentence to say out loud in an interview: **in (a) the noise appears only in the error term, which was already assumed orthogonal to the regressor; in (b) the same $u$ appears in the regressor *and* in the error, so it manufactures a correlation between them.** (a) preserves exogeneity; (b) destroys it — this is textbook **endogeneity**, and OLS is not merely biased but *inconsistent*.
+
+**(c) Two independent measurements of the same latent quantity identify the signal variance.** The trick is that you never need $x$ itself — you need two noisy looks at it. Suppose
+
+$$x^{(1)}=x+u_1,\qquad x^{(2)}=x+u_2$$
+
+with $u_1,u_2$ mean-zero, independent of each other and of $x$. Then every cross term vanishes:
+
+$$\operatorname{Cov}\!\left(x^{(1)},x^{(2)}\right)=\operatorname{Var}(x)+\underbrace{\operatorname{Cov}(x,u_2)}_{0}+\underbrace{\operatorname{Cov}(u_1,x)}_{0}+\underbrace{\operatorname{Cov}(u_1,u_2)}_{0}=\sigma_x^2$$
+
+**The covariance between independent replicates isolates the persistent signal variance; their disagreement is the measurement noise.** Since $\operatorname{Var}(x^{(1)})=\sigma_x^2+\sigma_{u_1}^2$ is directly observable, the **reliability ratio** is estimable with no knowledge of the latent $x$:
+
+$$\lambda=\frac{\sigma_x^2}{\sigma_x^2+\sigma_u^2}=\frac{\operatorname{Cov}\!\left(x^{(1)},x^{(2)}\right)}{\operatorname{Var}\!\left(x^{(1)}\right)},\qquad \beta_{\text{naive}}=\lambda\beta \implies \hat\beta_{\text{corrected}}=\frac{\hat\beta_{\text{naive}}}{\hat\lambda}$$
+
+When the two replicates have equal noise variance, $\lambda$ is simply $\operatorname{Corr}(x^{(1)},x^{(2)})$ — the classical test–retest reliability.
+
+**The cleaner equivalent: use one replicate as an instrument for the other.** $x^{(2)}$ is correlated with $x^{(1)}$ (they share $x$) but uncorrelated with the equation error (since $u_2\perp\epsilon,u_1$), which is exactly the definition of a valid instrument. The IV estimator lands on $\beta$ with no correction factor at all:
+
+$$\hat\beta_{IV}=\frac{\operatorname{Cov}\!\left(x^{(2)},y\right)}{\operatorname{Cov}\!\left(x^{(2)},x^{(1)}\right)}=\frac{\beta\sigma_x^2}{\sigma_x^2}=\beta$$
+
+Other routes to the same missing information: a **validation subsample** where the true $x$ is recorded; a **known $\sigma_u^2$** from instrument specifications (then divide by $\hat\lambda$ directly, or run SIMEX); a **known error-variance ratio** between the two axes (Deming / total-least-squares regression — the [orthogonal-regression case in the lesson](/c/c1/c1.4)); or **averaging $K$ replicates**, which shrinks the noise to $\sigma_u^2/K$ and pushes $\lambda\to1$ — a partial fix that never quite arrives.
+
+**(d) The quant version: split the evidence, not the sample.** You regress forward returns on $s^{obs}_{i,t}=s^{true}_{i,t}+u_{i,t}$ and get an attenuated loading — your measured IC understates the true relationship by the factor $\lambda$. Because $s^{true}$ is unobservable, manufacture the replicates by splitting the *raw evidence* the signal is computed from:
+
+1. For each stock-date, **randomly split that day's news articles into two disjoint groups**.
+2. Compute the sentiment score independently on each group, giving $s^{(1)}=s+u_1$ and $s^{(2)}=s+u_2$ — same latent sentiment, independent article-sampling noise.
+3. Across many stock-dates, $\operatorname{Cov}\!\left(s^{(1)},s^{(2)}\right)=\operatorname{Var}(s^{true})$: the **persistent cross-replicate covariance is the real signal**, and everything by which the halves disagree is noise.
+4. Compare that against $\operatorname{Var}\!\left(s^{(1)}\right)$ to get reliability, then de-attenuate.
+
+Two details that separate a strong answer:
+
+- **Half-sample correction.** Each half is built from half the articles, so it carries roughly *twice* the noise of the production signal. The half-sample reliability therefore understates the real one; correct with Spearman–Brown, $\lambda_{\text{full}}=2\lambda_{\text{half}}/(1+\lambda_{\text{half}})$.
+- **Independence is the load-bearing assumption, and it is the one that fails.** If both halves inherit a common upstream source — the same wire story reprinted by ten outlets, two vendors both reselling the same feed — then $\operatorname{Cov}(u_1,u_2)\neq0$, the covariance picks up shared noise, and you will conclude your signal is *cleaner* than it is. Also compute the covariance in the units you trade (cross-sectionally demeaned per date), or a common market-wide drift masquerades as signal.
+
+**Other market analogues of the same construction:** two independent data vendors scoring the same fundamental; two model estimates trained on disjoint subsamples or different seeds; splitting the trade tape / order book into odd–even trades or two disjoint sampling grids; multiple analysts' estimates of the same earnings number.
+
+**Challenge the standard story — attenuation is an *inference* problem, not automatically a *prediction* problem.** If $s^{obs}$ is the signal you will actually have at trade time, then the attenuated coefficient is the *correct* one: OLS gives the best linear predictor of returns given the noisy input you will really observe, and de-attenuating it would systematically over-bet. The bias matters when you want the structural $\beta$ (how much true sentiment moves returns), when you are **ranking signals of unequal data quality** against each other, or when you are pricing whether better data is worth buying. Conflating those two questions is the standard mistake.
+
+**(e) No — and this is the point of the question.**
+
+$$\boxed{\text{More observations do not eliminate classical errors-in-variables bias.}}$$
+
+As $n\to\infty$, $\hat\beta$ converges to $\lambda\beta$, not to $\beta$. The estimator is **inconsistent**, not merely noisy, so more data buys you an ever-tighter confidence interval centred on the wrong number — eventually one that excludes the truth with arbitrarily high confidence. Nothing in the regression output flags it: the residuals look fine, the $t$-statistic is large, the diagnostics pass. Fixing it requires **additional information or assumptions about the measurement process** — a replicate, an instrument, a validation sample, or a known noise variance — and no amount of the same mismeasured data supplies that.
+
+**Bonus (the multivariate escalation).** The clean $\lambda$ formula is a *simple*-regression result. With several regressors and classical error in $x_1$ only, the attenuation is governed by the **residual** variance of $x_1$ after projecting out the other predictors, $\sigma_{r_1}^2/(\sigma_{r_1}^2+\sigma_u^2)$ — so collinearity makes the attenuation strictly **worse**, because it shrinks the numerator. Worse still, the *correctly measured* coefficients also become inconsistent, with a sign that depends on the correlation structure and can go either way. Once two or more regressors are mismeasured, there is no attenuation guarantee at all.
+
+**Rubric:**
+- (a) $y^{obs}$ folds into $\epsilon'=\epsilon+u$; exogeneity intact → $\hat\beta$ unbiased *and* consistent; only $\operatorname{Var}(\epsilon')=\sigma_\epsilon^2+\sigma_u^2$ grows → SEs inflate, $t$ shrinks, $R^2$ falls
+- (b) Derives $\operatorname{Cov}(x+u,y)=\beta\sigma_x^2$ and $\operatorname{Var}(x+u)=\sigma_x^2+\sigma_u^2$ with every cross term justified by independence
+- (b) Lands $\operatorname{plim}\hat\beta=\beta\sigma_x^2/(\sigma_x^2+\sigma_u^2)$; identifies $\lambda\in(0,1]$ ⇒ shrunk toward zero, sign preserved; checks both limits
+- (b) Geometric statement: noise adds horizontal spread without adding covariance → denominator grows, numerator does not → line flattens
+- (b) States the asymmetry as the mechanism: in (a) $u$ enters only the error; in (b) $u$ enters regressor *and* error, giving $\operatorname{Cov}(x^{obs},\nu)=-\beta\sigma_u^2\neq0$ → endogeneity → inconsistency
+- (c) $\operatorname{Cov}(x^{(1)},x^{(2)})=\sigma_x^2$ from independent replicates; reliability $\hat\lambda=\operatorname{Cov}(x^{(1)},x^{(2)})/\operatorname{Var}(x^{(1)})$; de-attenuate via $\hat\beta_{\text{naive}}/\hat\lambda$
+- (c) Bonus: recognizes one replicate is a valid **instrument** for the other and that IV hits $\beta$ exactly; names validation subsample / known $\sigma_u^2$ / Deming as alternatives
+- (d) Proposes splitting the raw evidence (articles per stock-date) into two independent groups; cross-replicate covariance = signal variance, disagreement = noise
+- (d) Bonus: Spearman–Brown half-sample correction; flags shared-upstream-source violation of independence; cross-sectional demeaning; names other replicate constructions (vendors, seeds, tape splits, analysts)
+- (d) Separates inference from prediction: the attenuated slope is *optimal* for trading the noisy signal; the bias bites for structural estimates and cross-signal comparison
+- (e) States inconsistency explicitly — $n\to\infty$ tightens around $\lambda\beta$; no diagnostic reveals it; the fix requires outside information, not more rows
+- Bonus: multivariate case — attenuation set by the *residualized* variance (worse under collinearity), clean coefficients contaminated with indeterminate sign
+
+</details>
+
+</Quiz>
+
 ## Rapid-fire: OLS, inference & the quant gauntlet
 
 1. **Regress both ways.** You regress $y$ on $x$, then $x$ on $y$. Derive both slopes in terms of $\rho$, $\sigma_x$, $\sigma_y$. Show their product is $\rho^2$, state when the two slopes are equal, and explain why the second slope is *not* the reciprocal of the first even though the algebra of the fitted line suggests it should be.
@@ -415,7 +532,7 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 5. **Frisch–Waugh–Lovell.** Prove that the multiple-regression coefficient $\hat\beta_j$ equals the slope from regressing the *residualized* $y$ on the *residualized* $x_j$ (both residualized on the other predictors). Then use FWL to *derive* the VIF: show $\text{Var}(\hat\beta_j) = \sigma^2 / \|\tilde x_j\|^2$ where $\tilde x_j$ is that residual, and extract the $1/(1-R_j^2)$ factor.
 6. **Omitted-variable bias, exactly.** You omit $x_2$ from $y = \beta_1 x_1 + \beta_2 x_2 + \varepsilon$. Derive the bias of $\hat\beta_1$ in terms of $\beta_2$ and the auxiliary regression of $x_2$ on $x_1$, and use the formula to predict the *direction* of the bias in a concrete case. State the two conditions under which omission is harmless — and reconcile with the quant experience "my alpha vanished when I added an industry factor."
 7. **The sign flips on you.** Adding a control variable flips the sign of your main coefficient. Construct a small concrete example where this happens, and then defend an answer to the harder question: which sign should you believe, and what extra knowledge does the answer depend on?
-8. **Measurement-error asymmetry.** Classical mean-zero noise in the *response* leaves the slope unbiased; the same noise in the *predictor* does not: derive the attenuation $\text{plim}\,\hat\beta = \beta \cdot \sigma_x^2/(\sigma_x^2 + \sigma_u^2)$. Why does one preserve exogeneity and the other destroy it — and what does the asymmetry predict for a regression of returns on a noisily-measured signal, when both your signal and your target are estimated quantities?
+8. **When attenuation is the wrong prediction.** Q13 derives the classical result — mismeasure $x$ and the slope shrinks toward zero by the reliability ratio. Break it twice. (a) In a multiple regression with classical error in $x_1$ *only*, show the attenuation is governed by the variance of $x_1$ *after residualizing on the other predictors*, so collinearity makes it strictly worse — then explain why the perfectly measured coefficients also become inconsistent, and why their bias has no guaranteed sign. (b) Berkson error reverses the roles: $x = x^{obs} + u$ with $u \perp x^{obs}$, as when every name in a bucket is assigned the bucket mean. Show OLS stays unbiased here, and state exactly what distinguishes the two error structures — then decide which one better describes a signal you have winsorized and bucketed into deciles.
 9. **Leverage vs residual vs influence.** Define leverage $h_{ii}$, its bounds, and its average $p/n$. Construct (a) a point with an enormous residual but negligible influence on $\hat\beta$, and (b) a high-leverage point whose residual is tiny precisely *because* it has dragged the fit to itself — and explain why residual-based outlier screening misses (b). How does Cook's distance $\propto r_i^2\, h_{ii}/(1-h_{ii})^2$ combine the two?
 10. **The dummy-variable trap.** One-hot encode all $k$ levels of a categorical *and* keep the intercept: the design matrix is exactly rank-deficient. Explain the mechanism, then say what a pseudoinverse-based solver returns in that case, and what adding a ridge penalty changes about the answer.
 11. **Does big $n$ cure collinearity?** Argue from $\text{Var}(\hat\beta_j) \approx \frac{\sigma^2}{n\,\widehat{\text{Var}}(x_j)}\cdot\text{VIF}_j$ that multicollinearity is "just" a sample-size problem for inference: at fixed VIF, SEs still shrink at the $1/\sqrt n$ rate. So when is $\text{VIF}=50$ fatal, when is it irrelevant, and what does that say about rules of thumb like "VIF above 10 is serious"?
