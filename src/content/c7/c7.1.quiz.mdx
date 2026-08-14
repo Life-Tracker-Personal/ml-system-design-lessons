@@ -1,0 +1,307 @@
+---
+lessonId: c7.1
+chapter: 7
+title: Quiz — The techniques that solve most problems
+description: Seven questions on state equations, indicators, base rates, and gambler's ruin.
+estimatedMinutes: 70
+---
+
+These seven questions test whether you can run the four machines cold, not whether you remember the four punchlines. Work each one on paper before opening the answer. The rapid-fire section at the bottom stands alone and is the part to drill out loud.
+
+<Quiz id="1">
+
+**Q1. HHT versus HTH.** (a) Derive the expected number of fair-coin flips until the pattern HHT first appears, showing the state equations. (b) Do the same for HTH. (c) Both patterns have probability $1/8$ in any fixed window of three flips, so explain in mechanical terms why the two answers differ. (d) Give the rule that produces both answers without solving a system.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) HHT.** The state is the length of the longest suffix of the flips so far that is a prefix of the target. States: $0$, $H$, $HH$. Let $E_s$ be expected remaining flips.
+
+From $HH$: T finishes, H leaves you in $HH$.
+
+$$E_{HH} = 1 + \tfrac12 \cdot 0 + \tfrac12 E_{HH} \Rightarrow E_{HH} = 2$$
+
+From $H$: H advances to $HH$, T gives suffix "HT" which shares no prefix with HHT, so you fall back to $0$.
+
+$$E_H = 1 + \tfrac12 E_{HH} + \tfrac12 E_0 = 2 + \tfrac12 E_0$$
+
+From $0$: H advances, T stays.
+
+$$E_0 = 1 + \tfrac12 E_H + \tfrac12 E_0$$
+
+Substituting, $E_0 = 1 + \tfrac12(2 + \tfrac12 E_0) + \tfrac12 E_0 = 2 + \tfrac34 E_0$, so $E_0 = 8$.
+
+**(b) HTH.** States $0$, $H$, $HT$.
+
+$$E_{HT} = 1 + \tfrac12 \cdot 0 + \tfrac12 E_0, \qquad E_H = 1 + \tfrac12 E_H + \tfrac12 E_{HT}, \qquad E_0 = 1 + \tfrac12 E_H + \tfrac12 E_0$$
+
+The key line is $E_H$: from state $H$, another H does **not** send you back, because that new H is itself a valid first character. From $HT$, a tail gives suffix "TT" and drops you to $0$.
+
+The third equation gives $E_0 = 2 + E_H$. Then $E_{HT} = 1 + \tfrac12(2+E_H) = 2 + \tfrac12 E_H$. Substituting into the second, $E_H = 1 + \tfrac12 E_H + \tfrac12(2 + \tfrac12 E_H) = 2 + \tfrac34 E_H$, so $E_H = 8$ and $E_0 = 10$.
+
+**(c) Why they differ.** Self-overlap. HTH has a proper suffix ("H") that is also a proper prefix. So a failed attempt is often already one character into the next attempt, which means occurrences of HTH cluster: once you see one, another is cheap. The long-run rate of occurrences is the same $1/8$ per position for both patterns, but if occurrences arrive in clusters then the gaps between clusters must be longer to keep the rate fixed. Longer gaps mean a longer expected wait from a cold start. HHT has no proper suffix that is a prefix, so its occurrences are spread evenly and the wait is the naive $8$.
+
+A cleaner way to say it: the naive $1/8$ argument computes the *rate*, and the expected first-passage time is not the reciprocal of the rate unless the occurrences are non-clustering.
+
+**(d) Conway's leading-number rule.** The expected wait is $\sum_k 2^k$ over every $k$ such that the last $k$ characters of the pattern equal the first $k$. HHT: only $k=3$ works, so $8$. HTH: $k=3$ and $k=1$ both work, so $8+2=10$. HHH: $k=1,2,3$, so $2+4+8=14$, which matches $2^{n+1}-2$ for $n=3$.
+
+**Rubric:**
+- States defined as matched-suffix length, not "number of heads seen"
+- Both systems written correctly, especially the fallback lines
+- $E[\mathrm{HHT}]=8$ and $E[\mathrm{HTH}]=10$
+- Explanation names self-overlap and connects clustering to longer gaps at fixed rate
+- Correctly rejects "probability $1/8$ per window so the answer is 8"
+- Conway rule stated and applied to at least two patterns
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. Linearity without independence.** (a) Prove $E[X+Y]=E[X]+E[Y]$ from the definition and point at the exact step where independence would have been needed but was not. (b) Compute the expected number of distinct faces seen in 10 rolls of a fair die, the expected number of fixed points in a uniform random permutation of $n$ cards, and the expected number of adjacent HH pairs in $n$ fair flips. (c) For each, say precisely how the indicators are dependent. (d) Name one quantity in these same problems that you cannot get this way.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Proof.** Expectation is a sum over sample points weighted by probability:
+
+$$E[X+Y] = \sum_\omega P(\omega)\big(X(\omega)+Y(\omega)\big) = \sum_\omega P(\omega)X(\omega) + \sum_\omega P(\omega)Y(\omega) = E[X]+E[Y]$$
+
+The only move is splitting a finite sum, which is distributivity of multiplication over addition. Nothing about the joint distribution $P(X=x, Y=y)$ was factored. Independence would be needed to write $P(X=x,Y=y)=P(X=x)P(Y=y)$, and that factorization never appears. It is required for $E[XY]=E[X]E[Y]$ and for $\text{Var}(X+Y)=\text{Var}(X)+\text{Var}(Y)$, since the general variance carries a $2\,\text{Cov}(X,Y)$ term.
+
+**(b) Three computations.**
+
+Distinct faces in 10 rolls. Let $I_j = 1$ if face $j$ ever appears. $P(I_j=1) = 1-(5/6)^{10} = 1-0.1615 = 0.8385$.
+
+$$E = 6 \times 0.8385 = 5.03$$
+
+Fixed points. Let $I_j=1$ if card $j$ sits in position $j$. By symmetry $P(I_j=1)=1/n$, so $E = n \cdot \tfrac1n = 1$, independent of $n$.
+
+Adjacent HH pairs. Let $I_j=1$ if flips $j$ and $j+1$ are both heads, for $j=1,\dots,n-1$. Each has probability $1/4$, so $E = (n-1)/4$.
+
+**(c) How the indicators are dependent.**
+
+- Distinct faces: negatively dependent. Conditioning on seeing many 3s uses up rolls, making other faces less likely to appear. Formally $P(I_2=1 \mid I_1=1)$ is less than $P(I_2=1)$.
+- Fixed points: negatively dependent for the same combinatorial reason, and $I_1$ through $I_n$ cannot all be free. Knowing $n-1$ of them forces the last.
+- Adjacent HH: positively dependent and overlapping. $I_j$ and $I_{j+1}$ share flip $j+1$, so $P(I_{j+1}=1 \mid I_j=1) = 1/2$ rather than $1/4$. Non-adjacent indicators are independent.
+
+None of this changes the expectations above.
+
+**(d) What you cannot get.** Variance, and any probability of the form "at least one" or "exactly $k$". For adjacent HH pairs the variance needs the covariance of overlapping indicators, which requires the joint. For fixed points the probability of zero fixed points is the derangement calculation, roughly $1/e$, and no linearity argument produces it. Getting a max, like the expected longest head run, also requires more than indicators. This is the correct place to say "linearity gives me the mean cheaply, and only the mean cheaply".
+
+**Rubric:**
+- Proof written as a sum over outcomes, not hand-waved
+- Explicit statement that the joint was never factored
+- All three numbers right: $5.03$, $1$, $(n-1)/4$
+- Correct sign and mechanism of dependence in each case
+- Names a quantity outside the reach of the technique, with a reason
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Base rates and the deployed classifier.** A disease affects 1 in 10,000 people. A test is 99% accurate in both directions. (a) Compute the probability that a person who tests positive is sick, using natural frequencies, then again in odds form. (b) A colleague reports "the test is 99% accurate, so a positive means you are 99% likely to be sick". Name that error and state the two conditional probabilities being confused. (c) Your team ships a fraud classifier with 99% sensitivity and 99% specificity into a stream where 1 in 10,000 transactions is fraud. It was validated on a balanced dataset. Predict what the ops team will report in week one, and give the number that would have predicted it during validation.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Natural frequencies.** Take 1,000,000 people. Sick: 100, of whom 99 test positive. Healthy: 999,900, of whom 1% test positive, which is 9,999.
+
+$$P(\text{sick} \mid +) = \frac{99}{99+9999} = \frac{99}{10098} \approx 0.0098$$
+
+About 1%. Odds form: prior odds $1:9999$, likelihood ratio $0.99/0.01 = 99$, posterior odds $99:9999$, which is about $1:101$, so roughly $1\%$.
+
+The intuition to say out loud: the false-positive pool is drawn from a group 10,000 times larger, so a 1% error rate on the big group still produces 100 times more positives than the entire sick population contains.
+
+**(b) The error.** Prosecutor's fallacy, or inverting the conditional. The test's accuracy is $P(+ \mid \text{sick}) = 0.99$. The question asks for $P(\text{sick} \mid +)$. These are related by Bayes and differ by the prior odds, which here are extreme.
+
+**(c) The deployed classifier.** Same arithmetic. Per million transactions: 100 fraud, 99 caught; 999,900 legitimate, 9,999 flagged. The alert queue is 10,098 items per million transactions and 99% of it is legitimate. The ops team will report that the alerts are worthless, and both statements will be true at once: the model is 99% accurate and 99% of its alerts are wrong.
+
+The number that predicts this is **precision at the deployed base rate**, equivalently PR-AUC or precision at the review budget $k$, measured on a stream with the real class ratio, not on the balanced validation set. Balanced-set metrics answer a different question. The fixes are a threshold set from the cost ratio on calibrated probabilities, reporting precision at the actual review capacity, and evaluating on unresampled holdout data.
+
+**Rubric:**
+- Correct answer near $0.0098$, with the natural-frequency table
+- Odds form shown as prior odds times likelihood ratio
+- Names prosecutor's fallacy and writes both conditionals explicitly
+- Recognizes the fraud case is the identical computation
+- Says precision at the true base rate is the missing validation metric, and that rebalancing during validation is what hid it
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. The jar of coins, all four follow-ups.** A jar holds 1000 coins: 999 fair and 1 double-headed. You draw one uniformly at random. (a) You flip 10 heads in a row. What is the probability you hold the double-headed coin? (b) What is the probability the next flip is heads? (c) You instead observe 9 heads in 10 flips. Now what is the posterior? (d) For general $n$ heads in a row, write the posterior and find where it crosses one half. Explain why that crossing point is where it is.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Prior odds double-headed to fair are $1:999$. Likelihood ratio for 10 heads is $1 \big/ (1/2)^{10} = 1024$. Posterior odds $1024:999$.
+
+$$P(\text{DH} \mid 10H) = \frac{1024}{1024+999} = \frac{1024}{2023} \approx 0.506$$
+
+**(b)** Do not commit to a hypothesis. Average over the posterior:
+
+$$P(\text{next}=H) = 0.506 \times 1 + 0.494 \times \tfrac12 = 0.506 + 0.247 = 0.753$$
+
+The two wrong answers are $1$ (collapsing to the more likely hypothesis) and $0.5$ (ignoring the evidence entirely).
+
+**(c)** Zero. The double-headed coin cannot produce a tail, so $P(\text{9 heads in 10} \mid \text{DH}) = 0$. The likelihood ratio is $0$, so the posterior odds are $0$ no matter how strong the rest of the evidence looks. This is the question interviewers use to check whether you compute a likelihood or pattern-match on "lots of heads means biased coin".
+
+**(d)** After $n$ heads in a row the posterior odds are $2^n : 999$, so
+
+$$P(\text{DH} \mid nH) = \frac{2^n}{2^n + 999}$$
+
+This exceeds $1/2$ exactly when $2^n > 999$, which first happens at $n=10$ since $2^9=512$ and $2^{10}=1024$. The crossing is at $n=10$ because the likelihood ratio doubles per flip and must climb from $1$ to the prior odds against, $999$. Each heads is one bit of evidence; the prior costs you $\log_2 999 \approx 9.96$ bits, so it takes 10 flips to pay for it. That framing generalizes: with $m$ fair coins, the crossing is at $n \approx \log_2 m$.
+
+**Rubric:**
+- Odds form, not a full Bayes fraction rebuilt from scratch
+- $1024/2023 \approx 0.506$
+- Next flip $0.753$, computed by averaging over the posterior
+- Recognizes 9-of-10 gives posterior exactly $0$, with the reason
+- General form $2^n/(2^n+999)$ and the crossing at $n=10$
+- Bonus: the bits framing, likelihood ratio doubling against $\log_2$ of the prior odds
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Gambler's ruin, both halves.** You start with 20 dollars, your opponent with 80. Each round you win a dollar with probability $p$ and lose one with probability $q=1-p$. Play until someone is broke. (a) Set up and solve the difference equation for your probability of reaching 100, for fair $p=1/2$ and for general $p$. (b) Evaluate at $p=0.49$ and comment. (c) Set up and solve the expected-duration equation for the fair case and evaluate. (d) Explain why the boundary conditions for the two problems differ.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Absorption probability.** Let $P_i$ be the probability of reaching $N=100$ from $i$ dollars. Condition on one round:
+
+$$P_i = p P_{i+1} + q P_{i-1}, \qquad P_0=0,\ P_N=1$$
+
+Write $d_i = P_i - P_{i-1}$. Using $p+q=1$, the recurrence rearranges to $p(P_{i+1}-P_i) = q(P_i-P_{i-1})$, so $d_{i+1} = (q/p) d_i$. The gaps form a geometric sequence.
+
+Fair case, $q/p=1$: all gaps equal, $P_i$ is linear, and the boundaries force $P_i = i/N$. Here $20/100 = 20\%$.
+
+Biased case: sum the geometric gaps and normalize with $P_N=1$:
+
+$$P_i = \frac{1-(q/p)^i}{1-(q/p)^N}$$
+
+**(b) At $p=0.49$.** $q/p = 0.51/0.49 = 1.0408$. Then $(1.0408)^{20} \approx 2.23$ and $(1.0408)^{100} \approx 54.6$, so
+
+$$P = \frac{1-2.23}{1-54.6} = \frac{-1.23}{-53.6} \approx 0.023$$
+
+A 1% edge against you takes a 20% chance down to 2.3%, roughly a factor of nine. The reason is that $(q/p)^N$ in the denominator grows exponentially in the opponent's depth, so the deeper pocket wins the moment there is any drift. This is the casino's entire business model, and in trading terms it is why finite bankroll plus small negative edge is fatal even though each individual bet is nearly fair.
+
+**(c) Expected duration.** Let $T_i$ be expected rounds to absorption, $T_0 = T_N = 0$.
+
+$$T_i = 1 + p T_{i+1} + q T_{i-1}$$
+
+At $p=q=1/2$ this rearranges to $T_{i+1} - 2T_i + T_{i-1} = -2$, a constant second difference. So $T_i = -i^2 + a + bi$. $T_0=0$ gives $a=0$; $T_N=0$ gives $b=N$. Hence
+
+$$T_i = i(N-i) = 20 \times 80 = 1600 \text{ rounds}$$
+
+Worth saying out loud: a 20% win probability coexists with 1600 expected rounds. The walk wanders a long time before it is absorbed, and the expected duration is maximized at the midpoint.
+
+**(d) Boundary conditions.** $P$ is a probability of hitting the top, so it is $0$ at the bottom and $1$ at the top: $P_0=0$, $P_N=1$. $T$ is a remaining time, and both ends are absorbing, so it is $0$ at both: $T_0=T_N=0$. The $P$ recurrence has no additive constant because no time is being counted; the $T$ recurrence has the $+1$ because one round elapses per step. Mixing these up is the standard error.
+
+**Rubric:**
+- Correct first-step recurrences for both quantities
+- Gap substitution or equivalent to solve the general case
+- $i/N$ and the $(q/p)$ formula both stated
+- $20\%$, $2.3\%$, $1600$ all correct
+- Second-difference argument for $T_i = i(N-i)$
+- Clear statement of why one has a $+1$ and different boundaries
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. State design and symmetry collapse.** (a) An ant sits at a vertex of a cube and each step walks to a uniformly random adjacent vertex. Find the expected number of steps to reach the opposite vertex, and justify the state reduction you use. (b) Explain why this is gambler's ruin in disguise. (c) A candidate solving the HHT problem defines states by "number of heads seen so far". Explain concretely what goes wrong, and state the general property a state variable must have.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Ant on a cube.** Eight vertices, but the only thing that matters is graph distance $d$ from the start, which takes values $0,1,2,3$. The cube is vertex-transitive and the three neighbors of any vertex are interchangeable with respect to distance, so all vertices at the same distance behave identically.
+
+Transitions: from $d=0$ all three neighbors are at $d=1$. From $d=1$, one neighbor is the start ($d=0$) and two are at $d=2$. From $d=2$, two neighbors are at $d=1$ and one is the target at $d=3$.
+
+$$T_0 = 1 + T_1, \qquad T_1 = 1 + \tfrac13 T_0 + \tfrac23 T_2, \qquad T_2 = 1 + \tfrac23 T_1$$
+
+Substituting, $T_1 = 1 + \tfrac13(1+T_1) + \tfrac23(1+\tfrac23 T_1) = 2 + \tfrac79 T_1$, so $\tfrac29 T_1 = 2$, $T_1 = 9$, and $T_0 = 10$.
+
+**(b) Why it is gambler's ruin.** After the collapse it is a random walk on the line $\lbrace 0,1,2,3 \rbrace$ with a reflecting boundary at $0$ and an absorbing boundary at $3$, biased: probability $2/3$ of moving up and $1/3$ of moving down. That is exactly the difference-equation setup, with the reflecting end replacing one absorbing end. The same machinery answers hexagon walks, walks on a complete graph, and "expected steps to return to start".
+
+**(c) Bad state definition.** "Number of heads seen so far" is not a sufficient statistic for the future. Two sequences with the same head count can be in different positions relative to the pattern. After HTH you have two heads and your matched suffix is "H"; after THH you also have two heads and your matched suffix is "HH", one flip from finishing. The expected remaining time is different in those two situations, so the quantity $E[\text{remaining} \mid \text{heads so far}]$ is not well defined and the equations you write will be inconsistent. Worse, they often still have a solution, so you get a confident wrong number.
+
+The general property: the state must make the process **Markov** in that state, meaning the conditional distribution of the future given the state does not depend on any further history. For pattern waiting, the right state is the length of the longest suffix of the observed sequence that is also a prefix of the target. That is exactly the failure function from Knuth-Morris-Pratt string matching, which is not a coincidence.
+
+**Rubric:**
+- $T_0 = 10$ with the three equations shown
+- Justifies collapsing by symmetry, not just asserting it
+- Identifies the reflecting-plus-absorbing biased walk structure
+- Gives a concrete two-sequence counterexample for the bad state
+- States the Markov requirement, and names matched-suffix length as the right state
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. The martingale shortcut and its limits.** (a) Define a martingale, then derive both gambler's ruin results using optional stopping. (b) A gambler proposes doubling his bet after every loss on a fair coin, claiming a guaranteed profit. Use the same theorem to explain where the argument breaks. (c) State when you would present the martingale derivation in an interview versus the difference equation.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Definition and derivations.** A process $M_n$ is a martingale with respect to the information available at time $n$ if $E[M_{n+1} \mid \mathcal{F}_n] = M_n$. In words: knowing everything up to now, the expected next value is the current value.
+
+In a fair game your fortune $S_n$ is a martingale. The optional stopping theorem says that if $\tau$ is a stopping time and suitable conditions hold (bounded $\tau$, or bounded $M$, or bounded increments with $E[\tau]$ finite), then $E[M_\tau] = M_0$. Here $S$ is bounded between $0$ and $N$, so:
+
+$$i = E[S_\tau] = N \cdot P_i + 0 \cdot (1-P_i) \Rightarrow P_i = \frac{i}{N}$$
+
+For the duration use $M_n = S_n^2 - n$, which is a martingale because $E[S_{n+1}^2 \mid S_n] = S_n^2 + 1$ for a symmetric plus-or-minus-one step. So $E[S_\tau^2] - E[\tau] = i^2$, and since $S_\tau$ is $N$ with probability $i/N$ and $0$ otherwise,
+
+$$E[\tau] = N^2 \cdot \frac{i}{N} - i^2 = i(N-i)$$
+
+**(b) The doubling strategy.** Bet 1; if you lose, bet 2, then 4, and so on. The first win recovers all losses plus 1. The fortune process is still a martingale, so if optional stopping applied, the expected final fortune would equal the starting fortune, contradicting a guaranteed profit of 1.
+
+The resolution is that the theorem's conditions fail. The stopping time is finite with probability 1 and $E[\tau]$ is finite, but the process is unbounded below: to survive $k$ losses you must be able to stake $2^k - 1$. The strategy assumes infinite credit and unlimited time. With a real bankroll $B$, the walk hits the constraint after about $\log_2 B$ losses, and the small probability of that ruin exactly cancels the many small wins. The expected profit is zero, or negative once there is any house edge.
+
+The production version of this: any strategy whose backtest shows a small steady gain and a rare enormous loss looks like a martingale violation, and usually is one. Check whether the loss tail is bounded before believing the mean.
+
+**(c) When to use which.** Lead with the difference equation, because it shows you can solve the problem from first principles and it generalizes to the biased case and to duration without needing a new martingale. Then offer the optional-stopping version as a 30-second check. Doing it in the other order risks the interviewer thinking you memorized a trick, and it leaves you stuck if they perturb the problem in a way that breaks the martingale you named.
+
+**Rubric:**
+- Correct definition of martingale as a conditional expectation
+- Both derivations, including naming $S_n^2 - n$
+- States at least one sufficient condition for optional stopping
+- Correctly locates the doubling flaw in unbounded stakes, not in the arithmetic
+- Sensible interview strategy, difference equation first
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: probability techniques
+
+These 14 questions stand alone, so you can drill this section without reading anything above it. Each should take 2 to 5 minutes to answer out loud, with arithmetic done in your head or on one line of scratch paper. They are picked for how often they get asked, not for how interesting they are.
+
+1. **Expected flips to HHT** Flip a fair coin until you see H, H, T in a row. Give the expected number of flips, and show the state equations you used. Then say what the answer is for HTH and why the two differ.
+2. **Three heads in a row** Expected flips until you see three heads in a row. Then give the formula for $n$ heads in a row and sanity-check it at $n=1$ and $n=2$.
+3. **Coupon collector** Roll a fair die until every face has appeared. Expected number of rolls? Give the exact value and a fast approximation you could produce for $n=50$ without a calculator.
+4. **Distinct faces in ten rolls** Roll a fair die 10 times. Expected number of distinct faces seen. State why the indicators you use are dependent and why that does not matter.
+5. **Does linearity need independence** Your interviewer asks whether linearity of expectation requires the variables to be independent. Answer, justify in one or two sentences, and name what independence is actually needed for.
+6. **Fixed points in a shuffle** Shuffle $n$ cards uniformly. Expected number of cards that land in their original position. Explain why the answer does not depend on $n$, and say what changes if they ask for the probability that zero cards match.
+7. **Rare disease positive test** A disease affects 1 in 10,000. A test is 99% accurate in both directions. You test positive. Probability you are sick? Do it in natural frequencies out loud.
+8. **The jar of coins** 999 fair coins and 1 double-headed coin. You draw one and flip 10 heads. Probability it is the double-headed coin? Then: probability the next flip is heads?
+9. **Nine heads out of ten** Same jar, but now you observe 9 heads in 10 flips rather than 10 in a row. What is the posterior probability that you hold the double-headed coin, and why?
+10. **Gambler's ruin, fair** You have 20 dollars, your opponent has 80, you bet one dollar per round on a fair coin until someone is broke. Probability you take all 100, and expected number of rounds?
+11. **Gambler's ruin with an edge** Same setup, but each round you win with probability 0.49. Roughly what happens to your chance of reaching 100? Give the formula and the rough magnitude, and explain in one sentence why a 1% edge matters so much.
+12. **Ant on a cube** An ant walks from one corner of a cube to a uniformly random adjacent corner each step. Expected steps to reach the diagonally opposite corner? Say how you reduce eight vertices to a handful of states.
+13. **Ninety-nine percent accurate, ninety-nine percent wrong** You ship a fraud model with 99% sensitivity and 99% specificity into a stream where 1 in 10,000 transactions is fraud. What does the alert queue look like in week one, and which offline metric should have caught this before launch?
+14. **Adjacent pairs** Flip a fair coin $n$ times. Expected number of positions where two heads appear back to back. Then say what you would need in order to compute the variance, and why that is a genuinely harder problem.

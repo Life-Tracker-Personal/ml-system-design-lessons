@@ -1,0 +1,215 @@
+---
+lessonId: c6.3
+chapter: 6
+title: Quiz — Statistical rigor in evals
+description: Sample size, paired comparison, bootstrap intervals, multiple comparisons, and online A/B tests for model evaluation.
+estimatedMinutes: 45
+---
+
+These questions test whether you can tell a real improvement from noise. Most candidates can name a metric. Far fewer can say how many examples they need before the number means anything, and that gap is what gets probed.
+
+<Quiz id="1">
+
+**Q1. The two-point gap.** Two models are scored on the same 100 eval items. Model A passes 70%, model B passes 72%. Your teammate wants to ship B.
+
+**(a)** Treating the two scores as independent samples, compute the standard error of the difference and the 95% confidence interval on the gap. What do you conclude?
+
+**(b)** How many items per model would you need to call a true 2-point difference significant at 80% power and two-sided $\alpha = 0.05$?
+
+**(c)** The items are shared between the two models. Explain why that changes the analysis, and in which direction.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** With $p_A = 0.70$ and $p_B = 0.72$ on $n = 100$ each,
+
+$$\mathrm{SE}(\hat p_B - \hat p_A)=\sqrt{\frac{0.7(0.3)}{100}+\frac{0.72(0.28)}{100}}=\sqrt{\frac{0.21+0.2016}{100}}=0.0642$$
+
+So $z = 0.02/0.0642 = 0.31$ and the 95% interval on the gap is $2 \pm 12.6$ points, running from about $-10.6$ to $+14.6$. The data are entirely consistent with B being *worse*. You have learned nothing about which model is better.
+
+**(b)** Using $(z_{\alpha/2}+z_\beta)^2=(1.96+0.84)^2=7.85$,
+
+$$n=\frac{7.85\,[\,p_A(1-p_A)+p_B(1-p_B)\,]}{\Delta^2}=\frac{7.85\times0.4116}{0.0004}\approx 8{,}078$$
+
+About eight thousand items per model. Small differences are expensive, and this is the number nobody wants to hear.
+
+**(c)** Shared items make this a **paired** comparison, and the unpaired calculation above is throwing away most of your power. Item difficulty is a large shared source of variance: a hard item tends to be failed by both models, an easy one passed by both. Pairing cancels that shared component. What matters is only the **discordant** items, the ones where exactly one model succeeds. The paired test is strictly more powerful, often dramatically so, and it is free because you already ran both models on the same set.
+
+**Rubric:**
+- (a) Computes SE of the difference correctly as $0.0642$, not the SE of a single proportion
+- (a) States the interval spans zero and concludes the comparison is uninformative
+- (b) Uses the $(z_{\alpha/2}+z_\beta)^2 = 7.85$ form and lands near 8,000 per arm
+- (c) Recognizes shared items means paired, names item difficulty as the shared variance being cancelled
+- (c) Says pairing increases power, and that only discordant pairs carry information
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. How big does the eval set need to be?** Your team has a 200-item golden set and asks you to size it properly.
+
+**(a)** Derive the sample-size rule from the confidence-interval half-width $w$ for a proportion, and state the pocket version when you have no prior on $p$.
+
+**(b)** What does 200 items actually buy you, in points of resolution?
+
+**(c)** Your PM asks for 1% precision. What does that cost, and what would you tell them?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The 95% half-width is $w = 1.96\sqrt{p(1-p)/n}$. Inverting,
+
+$$n \ge \left(\frac{1.96}{w}\right)^2 p(1-p)$$
+
+Since $p(1-p)$ is maximized at $p = 0.5$ where it equals $0.25$, the worst case gives $n \approx (1.96)^2(0.25)/w^2 \approx 1/w^2$. That is the pocket rule: **1% precision needs about 10,000 items, 3% needs about 1,100.**
+
+**(b)** At $n = 200$ and $p = 0.7$, $\mathrm{SE} = \sqrt{0.21/200} = 0.032$, so the half-width is about $\pm 6.3$ points on a single model's score. For *comparing* two models unpaired it is worse, roughly $\pm 9$ points on the gap. A 200-item set cannot resolve anything smaller than about a 10-point difference.
+
+**(c)** Going from 3% to 1% is a factor of three tighter, and the rule is quadratic, so it costs **nine times** the data: roughly 1,100 items to about 10,000. The honest answer to the PM is that the precision is affordable only if labels are cheap or automatic. The better move is usually to change the question rather than pay for it: use a paired design to get the same power for far fewer items, or accept a coarser gate and rely on online measurement for the fine distinctions.
+
+**Rubric:**
+- (a) Derives $n \ge (1.96/w)^2 p(1-p)$ and identifies $p(1-p) \le 0.25$
+- (a) States the $n \approx 1/w^2$ pocket rule with a worked instance
+- (b) Computes the actual resolution of 200 items, roughly ±6 points single-model
+- (c) Names the quadratic cost explicitly: 3× tighter is 9× the data
+- (c) Offers pairing or online measurement instead of just buying data
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Bootstrap when there is no formula.** Your headline metric is mean NDCG@10 over 500 queries, and there is no closed-form standard error for it.
+
+**(a)** Describe the bootstrap procedure concretely, including what you resample and how many times.
+
+**(b)** What exactly are you resampling over, and what happens if you get that wrong?
+
+**(c)** Give one situation where the naive bootstrap gives a misleadingly narrow interval.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Resample **queries** with replacement to build a new set of the same size $n = 500$, recompute mean NDCG@10 on that resample, and repeat $B$ times, typically 1,000 to 10,000. The 2.5th and 97.5th percentiles of the resulting distribution of the statistic give a 95% percentile interval. No distributional assumption about NDCG is needed.
+
+**(b)** You resample over the **unit of independence**, which here is the query, not the individual retrieved document. Resampling documents within queries would treat the 10 results for one query as 10 independent observations, badly understating variance and producing an interval that is far too narrow. The general rule: resample whatever you would be willing to call an independent draw from the population you want to generalize to.
+
+**(c)** Any clustering you ignore. If your 500 queries actually come from 50 users with 10 queries each, and behavior is correlated within a user, then the effective sample size is closer to 50 than 500 and the naive query-level bootstrap is too narrow. The fix is a **cluster bootstrap**: resample users, and take all of a user's queries with them. The same problem appears with multiple eval items generated from the same source document, or repeated runs of the same prompt.
+
+**Rubric:**
+- (a) Resample with replacement to the same size, recompute the statistic, 1,000+ times, take percentiles
+- (b) Identifies the query as the independence unit and explains why document-level resampling understates variance
+- (c) Names clustering and prescribes the cluster bootstrap, resampling the outer unit
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. The model is stochastic.** Your system runs at temperature 0.7, so the same prompt does not give the same answer twice. You have budget for 1,000 generations total.
+
+**(a)** Do you evaluate 1,000 distinct items once each, or 100 items ten times each? Justify it in terms of variance.
+
+**(b)** Someone proposes setting temperature to 0 for evals. What does that buy and what does it cost?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** There are two variance components: **between-item** variance from the items themselves, and **within-item** variance from sampling the model. For estimating a population mean, item diversity almost always dominates, so 1,000 distinct items is the better allocation. Repeating the same 100 items ten times reduces only the within-item component while leaving you with an item sample of 100, which caps your precision no matter how many repeats you buy. The exception is when you specifically want to measure **consistency** or flakiness, where repeats are the whole point, or when items are extremely expensive to obtain relative to generations.
+
+**(b)** Temperature 0 removes within-item sampling noise, so runs are repeatable and a regression suite gives the same answer twice. That is genuinely valuable for a CI gate. The cost is that you are no longer evaluating the system you actually ship. Greedy decoding can have systematically different quality from sampled decoding, and you lose all visibility into variance across runs, which is exactly the thing that produces user-visible flakiness. A reasonable split is temperature 0 for the deterministic regression gate, and production settings with repeats for the quality measurement you actually report.
+
+**Rubric:**
+- (a) Decomposes into between-item and within-item variance
+- (a) Chooses breadth, and explains that a small item pool caps precision regardless of repeats
+- (a) Names the exception: measuring consistency itself
+- (b) Repeatability for gating versus evaluating a system you do not ship
+- (b) Proposes using both rather than choosing one
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Twelve metrics, eight slices.** You report 12 metrics across 8 user segments and find 5 comparisons significant at $p < 0.05$.
+
+**(a)** How many are you expecting by chance alone if nothing changed?
+
+**(b)** Describe two corrections and when each is appropriate.
+
+**(c)** Your colleague says corrections are too conservative and will hide real wins. Give the strongest version of their argument, and then say what you would actually do.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** $12 \times 8 = 96$ comparisons. Under a global null at $\alpha = 0.05$ you expect about $96 \times 0.05 = 4.8$ false positives. Five "significant" results is exactly what pure noise produces. The finding is uninformative as reported.
+
+**(b)** **Bonferroni** tests each at $\alpha/m$, controlling the family-wise error rate, the probability of *any* false positive. It is right when a single false positive is costly, such as a ship/no-ship gate. **Benjamini-Hochberg** controls the false discovery rate, the expected proportion of false positives among the things you flag. It is right for exploratory screening where you will follow up on hits anyway and can tolerate some being wrong.
+
+**(c)** The strongest version of their argument: with 96 correlated comparisons, Bonferroni's $\alpha = 0.0005$ has almost no power to detect a real effect, so you will systematically miss true improvements and the team will stop trusting the process. That is a real cost, and correlation between metrics means the correction is genuinely too harsh.
+
+What I would actually do: **pre-register one primary metric** and one primary slice as the decision rule, and treat the other 95 as exploratory and uncorrected but explicitly labeled as such. That gives full power on the decision that matters and preserves the exploratory value without pretending the exploration is confirmatory. Anything promoted out of the exploratory set gets confirmed on fresh data.
+
+**Rubric:**
+- (a) Computes 96 comparisons and about 4.8 expected false positives; concludes 5 is noise
+- (b) Bonferroni controls FWER, BH controls FDR, with a correct use case for each
+- (c) Steelmans the objection properly, naming power loss under correlated metrics
+- (c) Lands on pre-registering a primary metric with exploratory results labeled as such
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. Peeking.** Your online A/B test is powered for two weeks. On day 3 the treatment is up 4% with $p = 0.03$ and someone wants to call it.
+
+**(a)** What is wrong with stopping now?
+
+**(b)** What is the actual false-positive rate if you check daily for 14 days and stop at the first $p < 0.05$?
+
+**(c)** Name two ways to make early stopping legitimate.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The fixed-horizon $p$-value assumes you look **once**, at the pre-planned sample size. Repeated looks give the random walk of the test statistic many chances to cross the threshold, so the nominal 5% no longer describes the procedure you actually ran. Early crossings are also biased upward in effect size: conditional on stopping early because the estimate was extreme, the estimate is extreme. So you will both over-declare wins and overstate their size.
+
+**(b)** With 14 daily looks the false-positive rate inflates to roughly **25-30%**, depending on correlation between looks. Somewhere between a quarter and a third of null experiments will produce a "significant" result at some point if you keep checking.
+
+**(c)** **Sequential testing** with an alpha-spending function (O'Brien-Fleming, Pocock) allocates the total $\alpha$ across the planned looks, using a very strict boundary early and a near-nominal one at the end. **Always-valid inference** based on confidence sequences or mixture sequential probability ratio tests, which is what several commercial experimentation platforms implement, gives intervals valid at every time point so you can genuinely look continuously. A third option is a Bayesian posterior with a pre-committed decision rule, though that needs its own discipline about priors.
+
+**Rubric:**
+- (a) Fixed-horizon $p$-values assume a single look; repeated looks inflate error
+- (a) Mentions the winner's-curse effect-size bias, not just the error rate
+- (b) Gives a concrete inflated rate around 25-30% for daily looks over two weeks
+- (c) Names alpha-spending or always-valid/confidence-sequence methods specifically
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: statistical rigor in evals
+
+These 15 questions stand alone. Each should take 2 to 5 minutes to answer out loud. They are chosen for how often they come up when someone has to defend an eval result.
+
+1. **Two points on a hundred items.** Model B scores 72% against A's 70% on 100 shared eval items and your teammate wants to ship. Compute the interval on that gap and say what you actually know. What is the smallest difference a 100-item set can resolve?
+2. **How many examples.** Derive the sample size needed for a $\pm w$ confidence interval on a pass rate, and give the pocket version when you have no prior on $p$. Roughly how many items for 1% precision, and for 3%?
+3. **Why tightening is so expensive.** Your PM wants to go from 3% precision to 1%. Explain in one line why that is nine times the data and not three, and what you would offer instead of just buying more labels.
+4. **Paired beats unpaired.** You ran both models on the same items. Explain what pairing cancels, why only the discordant items carry information, and roughly how much power it buys. Which test would you actually run for a binary pass/fail?
+5. **Bootstrap the thing with no formula.** Your metric is mean NDCG@10 and there is no closed-form standard error. Walk through the bootstrap. What exactly do you resample, and what goes wrong if you resample at the wrong level?
+6. **Clustered data.** Your 500 eval queries come from 50 users. Why is your interval too narrow, and what is the fix?
+7. **Items or runs.** Your system runs at temperature 0.7 and you have budget for 1,000 generations. Do you do 1,000 items once or 100 items ten times? Justify it in terms of which variance component you are attacking, and say when the other answer is right.
+8. **Temperature 0 for evals.** Someone proposes evaluating at temperature 0 so results are repeatable. What does that buy, what does it cost, and would you do it?
+9. **Ninety-six comparisons.** You report 12 metrics across 8 slices and find 5 significant at $p<0.05$. How many did you expect by chance? Bonferroni or Benjamini-Hochberg, and why does the choice depend on what the number is for?
+10. **The peeking problem.** Your two-week test crosses $p<0.05$ on day 3. What is wrong with stopping, roughly what is the true false-positive rate if you check daily, and what makes early stopping legitimate?
+11. **Minimum detectable effect.** Before launching an experiment, how do you compute the smallest effect you could detect at your traffic level? What do you do when the MDE comes back larger than any plausible real effect?
+12. **Variance reduction.** Explain CUPED in plain terms: what it uses, why it works, and roughly what it buys you. What has to be true about your pre-period data for it to help at all?
+13. **The average hid the cohort.** Your headline metric is flat but you suspect a segment regressed. How do you look without turning it into a fishing expedition, and what would you pre-commit to before running the analysis?
+14. **The judge is noisy too.** Your eval uses an LLM judge with about 85% agreement against human labels. How does judge noise enter your confidence interval, and does it bias the *comparison* between two models or just add variance? Does the answer change if both models are judged by the same judge?
+15. **Defend the gate.** You have to pick the eval-set size for a CI gate that blocks deploys. Walk through how you would choose $n$, what regression you are willing to miss, and how you would explain to a skeptical engineer why their 200-item set is not enough.
