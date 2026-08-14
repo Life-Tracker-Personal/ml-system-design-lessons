@@ -17,7 +17,7 @@ These eight questions ask you to derive the results from the lesson rather than 
 
 **(a)** Multiply $x_t = \phi x_{t-1} + \varepsilon_t$ by $x_{t-k}$ and take expectations. Because $\varepsilon_t$ is independent of everything dated $t-k$ or earlier, the cross term dies and $\gamma_k = \phi\gamma_{k-1}$. Dividing by $\gamma_0$ gives $\rho_k = \phi^k$. At $\phi = 0.6$ the ACF is $0.6, 0.36, 0.216, 0.130, \dots$, geometric and never exactly zero.
 
-The PACF at lag 2 is the last coefficient in the order-2 linear predictor. The Yule-Walker system is $\rho_1 = \phi_{21} + \phi_{22}\rho_1$ and $\rho_2 = \phi_{21}\rho_1 + \phi_{22}$, which solves to
+The PACF at lag 2 is the last coefficient in the order-2 linear predictor. Matching the correlations that predictor implies against $\rho_1$ and $\rho_2$ gives two equations in the two coefficients, the pair known as the Yule-Walker system: $\rho_1 = \phi_{21} + \phi_{22}\rho_1$ and $\rho_2 = \phi_{21}\rho_1 + \phi_{22}$, which solves to
 
 $$
 \phi_{22} = \frac{\rho_2 - \rho_1^2}{1 - \rho_1^2}
@@ -128,9 +128,9 @@ and $\rho_k = 0$ for $k \ge 2$. A sharp $-0.5$ at lag 1 that appeared only after
 
 **(b)** Directional autocorrelation is a tradable signal. A lag-1 autocorrelation of $0.2$ in a liquid index is a trivial trend rule, so capital arrives, the trade gets crowded, and the autocorrelation is pushed back toward zero. Near-zero return autocorrelation is an equilibrium produced by people trying to exploit it, not a law of nature. Volatility clustering has no equally cheap arbitrage. Knowing tomorrow will be a big day does not tell you which direction it will be big in, and the instruments that trade variance directly carry their own costs and risk premia, so the pattern is not competed away. Persistence in the magnitude survives precisely because it is hard to monetise directly.
 
-**(c)** Uncorrelated is a statement about the first moment only. Zero covariance between $r_t$ and $r_{t-k}$ says nothing about the covariance between $r_t^2$ and $r_{t-k}^2$. So returns are uncorrelated but clearly not independent, because independence would force every function of the series to be uncorrelated, squares included. This is the single most consequential distinction in the lesson. A risk system that reads zero autocorrelation as independence will size positions with an i.i.d. variance rule and be most wrong exactly during clustered high-volatility weeks, which is when being wrong costs the most.
+**(c)** Uncorrelated is a statement about the first moment only. Zero covariance between $r_t$ and $r_{t-k}$ says nothing about the covariance between $r_t^2$ and $r_{t-k}^2$. So returns are uncorrelated but clearly not independent, because independence would force every function of the series to be uncorrelated, squares included. It is the distinction that costs the most money when it is missed. A risk system that reads zero autocorrelation as independence will size positions with an i.i.d. variance rule and be most wrong exactly during clustered high-volatility weeks, which is when being wrong costs the most.
 
-**(d)** Ljung-Box on the squared returns, or on the squared residuals after fitting whatever mean model you use: $Q = T(T+2)\sum_{k=1}^{m}\rho_k^2/(T-k)$, compared against $\chi^2_m$. Equivalently Engle's LM test, which regresses $r_t^2$ on its own lags and tests joint significance. Also plot the ACF of $|r_t|$, which usually shows the pattern more strongly than the squares because it is less dominated by the largest few observations.
+**(d)** Ljung-Box on the squared returns, or on the squared residuals after fitting whatever mean model you use: $Q = T(T+2)\sum_{k=1}^{m}\rho_k^2/(T-k)$, where $m$ is the number of lags tested and $\rho_k$ is the sample autocorrelation at lag $k$, compared against $\chi^2_m$. Equivalently Engle's LM test, which regresses $r_t^2$ on its own lags and tests joint significance. Also plot the ACF of $|r_t|$, which usually shows the pattern more strongly than the squares because it is less dominated by the largest few observations.
 
 **Rubric:**
 - Computes $\pm 0.039$ explicitly and rules the $0.02$ insignificant
@@ -225,9 +225,9 @@ $$
 \kappa = \frac{E[r_t^4]}{(E[r_t^2])^2} = 3\,\frac{E[\sigma_t^4]}{(E[\sigma_t^2])^2} = 3\left(1 + \frac{\mathrm{Var}(\sigma_t^2)}{(E[\sigma_t^2])^2}\right)
 $$
 
-using $E[X^2] = \mathrm{Var}(X) + (EX)^2$ on $X = \sigma_t^2$. The bracket is at least 1, with equality only if the variance is constant, so $\kappa \ge 3$ always. Note this is a property of any scale mixture of normals, not of GARCH in particular. The intuition is that mixing a narrow bell with a wide one puts more mass in the far tails and more in the centre than either bell alone, which is exactly what excess kurtosis measures. So the conditional distribution can be perfectly Gaussian while the unconditional one is not.
+using $E[X^2] = \mathrm{Var}(X) + (EX)^2$ on $X = \sigma_t^2$. The bracket is at least 1, with equality only if the variance is constant, so $\kappa \ge 3$ always. This is a property of any scale mixture of normals, not of GARCH in particular. The intuition is that mixing a narrow bell with a wide one puts more mass in the far tails and more in the centre than either bell alone, which is exactly what excess kurtosis measures. So the conditional distribution can be perfectly Gaussian while the unconditional one is not.
 
-**(b)** With $s = \alpha+\beta$, working through $E[\sigma_t^4]$ gives
+**(b)** Write $s = \alpha+\beta$. Substituting $r_{t-1}^2 = \sigma_{t-1}^2 z_{t-1}^2$ into the recursion, squaring it and taking expectations gives a fixed-point equation in $E[\sigma_t^4]$, and solving that yields
 
 $$
 \kappa = \frac{3(1-s^2)}{1 - s^2 - 2\alpha^2}
@@ -264,7 +264,7 @@ finite only when $s^2 + 2\alpha^2$ is less than 1. Here $s = 0.98$, $s^2 = 0.960
 
 **(c)** First, EWMA has nothing to estimate. $\lambda = 0.94$ is a fixed convention, so the number is reproducible across desks, cannot be overfit, and does not silently change when you refit. GARCH parameters wander when the sample window moves, and a volatility model whose output jumps because you refit is operationally painful. Second, for a one-day horizon the two barely differ, since GARCH at $\alpha+\beta = 0.98$ is nearly IGARCH anyway. If every downstream consumer wants one-day risk, you are adding estimation risk and code complexity for a difference that rounds away. The general rule worth saying out loud is that the simpler model wins ties, and you need to name the specific horizon where it stops being a tie.
 
-**(d)** Do not report $0.995$ as a finding about the market. A near-unit-root persistence estimate on daily equity data is a warning light. The two competing explanations are that volatility genuinely has a 138-day half-life, or that there is an unmodelled break in the volatility level, a shift from a calm regime to a turbulent one inside your sample, which the model can only accommodate by driving persistence toward 1. Structural breaks systematically inflate estimated persistence, and this is well known.
+**(d)** Do not report $0.995$ as a finding about the market. A near-unit-root persistence estimate on daily equity data is a warning light. The two competing explanations are that volatility genuinely has a 138-day half-life, or that there is an unmodelled break in the volatility level, a shift from a calm regime to a turbulent one inside your sample, which the model can only accommodate by driving persistence toward 1. Structural breaks systematically inflate estimated persistence.
 
 The honest answer is that you cannot distinguish them from a single in-sample fit. A slow mean-reverting process and a level shift produce nearly the same likelihood. What you do instead is get more information: refit on rolling subsamples and see whether $\hat\omega$ and $\bar\sigma^2$ are stable or jump between periods, split at a candidate break date and test, or fit a model that allows a break or a regime, such as a Markov-switching or component GARCH specification, and compare. If subsample estimates of $\bar\sigma^2$ differ by a factor of two, it is a break. If they agree and persistence is high in every subsample, it is genuine persistence. Refusing to pick until you have run that check is the correct answer, not a dodge.
 

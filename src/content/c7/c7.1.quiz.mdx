@@ -64,7 +64,7 @@ A cleaner way to say it: the naive $1/8$ argument computes the *rate*, and the e
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a) Proof.** Expectation is a sum over sample points weighted by probability:
+**(a) Proof.** Expectation is a sum over sample points weighted by probability, where $\omega$ runs over the individual outcomes of the experiment, $P(\omega)$ is the probability of outcome $\omega$, and $X(\omega)$ is the value $X$ takes on it:
 
 $$E[X+Y] = \sum_\omega P(\omega)\big(X(\omega)+Y(\omega)\big) = \sum_\omega P(\omega)X(\omega) + \sum_\omega P(\omega)Y(\omega) = E[X]+E[Y]$$
 
@@ -120,7 +120,7 @@ The intuition to say out loud: the false-positive pool is drawn from a group 10,
 
 **(c) The deployed classifier.** Same arithmetic. Per million transactions: 100 fraud, 99 caught; 999,900 legitimate, 9,999 flagged. The alert queue is 10,098 items per million transactions and 99% of it is legitimate. The ops team will report that the alerts are worthless, and both statements will be true at once: the model is 99% accurate and 99% of its alerts are wrong.
 
-The number that predicts this is **precision at the deployed base rate**, equivalently PR-AUC or precision at the review budget $k$, measured on a stream with the real class ratio, not on the balanced validation set. Balanced-set metrics answer a different question. The fixes are a threshold set from the cost ratio on calibrated probabilities, reporting precision at the actual review capacity, and evaluating on unresampled holdout data.
+The number that predicts this is **precision at the deployed base rate**, equivalently PR-AUC, the area under the precision-recall curve, or precision at the review budget $k$, meaning the top $k$ alerts your reviewers can actually work through, measured on a stream with the real class ratio, not on the balanced validation set. Balanced-set metrics answer a different question. The fixes are a threshold set from the cost ratio on calibrated probabilities, reporting precision at the actual review capacity, and evaluating on unresampled holdout data.
 
 **Rubric:**
 - Correct answer near $0.0098$, with the natural-frequency table
@@ -258,9 +258,9 @@ The general property: the state must make the process **Markov** in that state, 
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a) Definition and derivations.** A process $M_n$ is a martingale with respect to the information available at time $n$ if $E[M_{n+1} \mid \mathcal{F}_n] = M_n$. In words: knowing everything up to now, the expected next value is the current value.
+**(a) Definition and derivations.** A process $M_n$ is a martingale with respect to the information available at time $n$, written $\mathcal{F}_n$ for that accumulated information, if $E[M_{n+1} \mid \mathcal{F}_n] = M_n$. In words: knowing everything up to now, the expected next value is the current value.
 
-In a fair game your fortune $S_n$ is a martingale. The optional stopping theorem says that if $\tau$ is a stopping time and suitable conditions hold (bounded $\tau$, or bounded $M$, or bounded increments with $E[\tau]$ finite), then $E[M_\tau] = M_0$. Here $S$ is bounded between $0$ and $N$, so:
+In a fair game your fortune $S_n$ after $n$ rounds is a martingale. A stopping time $\tau$ is a rule for when to quit that depends only on what has already happened, never on the future. The optional stopping theorem says that if $\tau$ is a stopping time and suitable conditions hold (bounded $\tau$, or bounded $M$, or bounded increments with $E[\tau]$ finite), then $E[M_\tau] = M_0$: no quitting rule turns a fair game into a profitable one. Here $S$ is bounded between $0$ and $N$, so:
 
 $$i = E[S_\tau] = N \cdot P_i + 0 \cdot (1-P_i) \Rightarrow P_i = \frac{i}{N}$$
 
