@@ -107,6 +107,8 @@ $$\frac{1}{n-1}X^\top X=V\Lambda V^\top$$
 
 Same $V$ in both lines, which is the point of calling them equivalent. One route factors the data matrix; the other factors the covariance matrix; both hand back the same set of directions.
 
+The divisor is $n-1$ rather than $n$ because centering with the sample mean uses up one degree of freedom, so $\frac{1}{n-1}X^\top X$ is the unbiased sample covariance while $\frac1nX^\top X$ is the maximum-likelihood version, smaller by a factor $(n-1)/n$. The choice moves nothing PCA reports as a direction: scaling a matrix by a positive constant leaves its eigenvectors where they are and multiplies every eigenvalue by that same constant, so principal directions and explained-variance ratios come out identical either way, and only the absolute eigenvalues differ. `numpy.cov` divides by $n-1$ by default, and scikit-learn's PCA reports `explained_variance_` on the same convention.
+
 The columns $v_j$ of $V$ are the **loadings** or principal directions. The new feature values are the **scores** $z_j=Xv_j=d_ju_j$. The eigenvalue $\lambda_j=d_j^2/(n-1)$ is the variance captured by component $j$, so its explained-variance ratio is
 
 $$\frac{d_j^2}{\sum_kd_k^2}$$
@@ -129,9 +131,9 @@ The whole hierarchy below comes from one idea: **repeated linear transformations
 
 Let
 
-$$C=\frac{1}{n}X^\top X$$
+$$C=\frac{1}{n-1}X^\top X$$
 
-be the covariance matrix. (The $1/n$ here in place of the $1/(n-1)$ used above rescales every eigenvalue by the same constant and moves no direction, so nothing in this section depends on the choice.) The first principal component solves
+be the covariance matrix. The first principal component solves
 
 $$\max_{\lVert v\rVert=1} v^\top Cv$$
 
@@ -391,9 +393,9 @@ That is the core of **Lanczos**: use repeated $Cq$ operations to discover the sm
 
 One more thing to delete, and it is the biggest object in the room.
 
-Recall $C=\frac1nX^\top X$. Lanczos only ever needs the *action* of $C$ on a vector, never $C$ itself. And
+Recall $C=\frac1{n-1}X^\top X$. Lanczos only ever needs the *action* of $C$ on a vector, never $C$ itself. And
 
-$$Cv=\frac1nX^\top Xv=\frac1nX^\top(Xv)$$
+$$Cv=\frac1{n-1}X^\top Xv=\frac1{n-1}X^\top(Xv)$$
 
 The parentheses are the whole trick. Multiply by $X$ first to get a short vector, then multiply that by $X^\top$.
 
