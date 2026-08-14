@@ -33,13 +33,13 @@ Say it in two phases, because interviewers listen for both.
 
 Now attach the failure to each stage. Barnett et al. (2024), *Seven Failure Points When Engineering a RAG System*, is a useful checklist here because it was written from three deployed systems rather than from a blog:
 
-1. **Missing content.** The answer is nowhere in the index. Parsing dropped the table, or the document was never ingested. No amount of reranking helps.
-2. **Missed top-ranked.** The chunk is indexed and retrieved at rank 37, and you kept 5.
-3. **Not in context after consolidation.** Retrieved, then dropped by a truncation, dedupe or context budget.
-4. **Not extracted.** The chunk is in the prompt and the model missed it or answered from priors.
+1. **Missing content.** The answer is nowhere in the index. Parsing dropped the table, or the document was never ingested. Reranking cannot help.
+2. **Missed top-ranked.** The chunk is retrieved at rank 37 and you kept 5.
+3. **Not in context after consolidation.** Retrieved, then dropped by truncation, dedupe or the context budget.
+4. **Not extracted.** It is in the prompt and the model answered from its priors.
 5. **Wrong format.** You asked for a table and got prose.
 6. **Incorrect specificity.** Too general or too narrow for what was asked.
-7. **Incomplete.** Half the answer, because the query needed evidence from two documents and you retrieved one.
+7. **Incomplete.** Half the answer, because the query needed two documents and you retrieved one.
 
 Failures 1 through 3 are retrieval or plumbing. Failures 4 through 7 are generation or query understanding. That split is the whole diagnostic frame.
 
@@ -105,9 +105,9 @@ $$
 \text{NDCG@5} = 2.324 / 4.131 = 0.563
 $$
 
-Which metric you optimize is a product decision. Recall@k is the one that matters at the retrieval stage feeding a reranker, because anything outside the top 50 is unrecoverable. MRR matters when one correct chunk suffices. NDCG matters when several chunks contribute and their order matters.
+Which metric you optimize is a product decision. Recall@k is what matters at the stage feeding a reranker, because anything outside the top 50 is unrecoverable. MRR matters when one correct chunk suffices. NDCG matters when several chunks contribute and their order counts.
 
-**Chunk-level metrics are the ones that actually drive work.** Log, per query, which chunk IDs were retrieved and which the generator cited. Aggregate over a week and two populations appear. Chunks never retrieved by any query are dead weight, usually a parsing or chunking bug. Chunks retrieved constantly and cited almost never are noise: they sit near the centroid of the embedding space and crowd out real evidence. Both are fixable at index time, and neither shows up in a corpus-level average.
+**Chunk-level metrics drive the actual work.** Log, per query, which chunk IDs were retrieved and which the generator cited. Aggregate over a week and two populations appear. Chunks never retrieved are dead weight, usually a parsing or chunking bug. Chunks retrieved constantly and cited almost never are noise: they sit near the centroid of the embedding space and crowd out real evidence. Both are fixable at index time, and neither shows up in a corpus-level average.
 
 ## Part 5 — Measuring generation, and validating the judge
 

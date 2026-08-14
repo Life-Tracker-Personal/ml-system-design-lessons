@@ -1,0 +1,415 @@
+---
+lessonId: c4.1
+chapter: 4
+title: Quiz — How agents actually work
+description: The loop, tool schemas, the cost and reliability arithmetic, and the incident questions interviewers actually open with.
+estimatedMinutes: 35
+---
+
+These eight questions test whether you can reason about the orchestrator/model boundary from scratch, which is exactly what the agentic-design round grades. Most of them are scenario-shaped on purpose: real interviewers do not ask "what is an agent", they ask "your agent does this badly, fix it". Answer out loud first, in plain language, then check. The rapid-fire section at the bottom stands on its own and needs nothing from up here.
+
+<Quiz id="1">
+
+**Q1. Termination is two mechanisms, not one.**
+
+**(a)** Name the two ways the loop in the lesson can end, say which one is a guarantee and which is a probability, and give the two directions in which the probabilistic one fails.
+
+**(b)** An interviewer asks "how do you stop an agent running forever?" List the caps you would enforce and put an actual number on each, for a customer-support agent with a 30-second p95 latency target.
+
+**(c)** Caps stop a runaway but they waste the whole budget first. Design a detector that catches a stuck agent early. Say exactly what you hash and what you do when it fires.
+
+**(d)** A tool returns `{"status": "pending"}`. The agent calls it 14 times and then hits the step cap. Whose bug is this, and what is the fix that is not "add a cap"?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The model terminates by choosing not to call a tool. That is a soft signal: a sampled decision that can be wrong. The orchestrator terminates by exhausting a budget, which is a hard guarantee because it is a `for step in range(MAX_STEPS)` in code you wrote.
+
+The soft signal fails in both directions. **False stop:** the model declares the task done when it did half of it, usually because the last tool result was ambiguous and it read the ambiguity as success. **No stop:** the model keeps calling tools because nothing in the trace tells it the goal is reached. Both are why you never rely on the model's judgment alone.
+
+**(b)** Say numbers, not categories. For a support agent at p95 30 s:
+
+- Max steps: 8. If a support answer needs more than 8 tool calls, it needs a human.
+- Max wall clock: 25 s, checked before each model call, leaving headroom for the final response.
+- Max cumulative input tokens: 60k per task, checked before each model call, not after.
+- Max spend: a per-task cent ceiling derived from the token cap, and a per-user daily ceiling so one abusive session cannot drain the budget.
+- Max calls per single tool: 3, so one flaky tool cannot consume the whole step budget.
+
+Every cap is enforced in the orchestrator before dispatching, and every breach produces a structured failure the product can handle (escalate to human) rather than an exception into a 500.
+
+**(c)** Hash `(tool_name, canonical_json(args))` on every call, canonical meaning sorted keys and normalized numbers so `{"a":1,"b":2}` and `{"b":2,"a":1}` collide. Keep a counter per hash. Three identical calls means the agent is not working, it is reflexively retrying something whose result it cannot act on.
+
+When it fires, do not just kill the run. Inject a system-level observation that names the situation ("you have called `get_order` with these exact arguments three times and received the same result; do not call it again, either use the result or tell the user you cannot complete this"), and give it one more turn. If the next call hashes the same, terminate and surface the state. A weaker variant that also works: detect when the last $k$ observations are byte-identical, which catches the case where the args vary trivially but nothing changes.
+
+**(d)** It is the tool's bug, and secondarily the tool description's. `pending` tells the model a fact about the world but nothing about what to do next, so the model's most plausible continuation is to look again. The fix is to make tool results carry the next action explicitly: return `{"status": "pending", "retry_after_s": 60, "guidance": "do not poll; tell the user it is processing and end the turn"}`. Tool outputs are prompt text. Write them for a reader who will act on them, not for a log.
+
+The general form of this lesson: an agent loops forever mostly when its environment gives it no way to tell progress from no-progress. Caps are the seatbelt, not the fix.
+
+**Rubric:**
+- Names soft versus hard termination and gets both failure directions of the soft one, not just the runaway.
+- Gives concrete numbers for at least four cap types and says the check happens *before* the model call.
+- Hash is over tool name plus canonicalized args, and the response is a corrective observation before a kill, not only a kill.
+- (d) blames the tool contract, not the model. Answering "add a max-steps cap" to (d) is the failure this question exists to catch.
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. The token bill, derived and then attacked.**
+
+**(a)** The chat API is stateless. Derive total input tokens over $n$ turns with a fixed prefix $p_0$ and $a$ tokens appended per turn. Say in one sentence which term is the dangerous one and why.
+
+**(b)** Compute it for $p_0 = 3000$, $a = 700$, $n = 12$. Then for $n = 24$. Convert both to dollars at \$3 per million input tokens.
+
+**(c)** Prompt caching and history compaction each attack one term. Map each to its term and say what each one buys you as a multiplier.
+
+**(d)** A teammate adds `Current time: {now}` to the top of the system prompt so the agent knows the date. What did that cost, and what is the fix?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Turn $k$ re-sends everything so far: the prefix plus $k-1$ turns of accumulated history.
+
+$$
+T_{\text{in}} = \sum_{k=1}^{n}\bigl(p_0 + (k-1)a\bigr) = n\,p_0 + a\,\frac{n(n-1)}{2}
+$$
+
+The first term is linear in $n$ and boring. The second is quadratic, and it is the one that decides whether a long-horizon agent is affordable, because doubling the turn count roughly quadruples it.
+
+**(b)** At $n = 12$:
+
+$$
+12(3000) + 700\cdot\frac{12\cdot 11}{2} = 36{,}000 + 46{,}200 = 82{,}200
+$$
+
+At \$3 per million that is \$0.247 per task. The conversation only ever *contained* $12 \times 700 = 8400$ tokens of content; you paid for roughly ten times that because of re-sends.
+
+At $n = 24$:
+
+$$
+24(3000) + 700\cdot\frac{24\cdot 23}{2} = 72{,}000 + 193{,}200 = 265{,}200
+$$
+
+which is \$0.796. Doubling the turns multiplied the bill by 3.2, and the ratio approaches 4 as the quadratic term dominates.
+
+**(c)** **Prompt caching** attacks $n\,p_0$. The system prompt plus tool schemas is byte-identical on every turn, so it can be written to a cache once and re-read at roughly a tenth of the input price. In the example that turns 36,000 tokens of prefix into an effective ~6,600, cutting the bill by about a third at $n=12$ and less at higher $n$, since the prefix term is the smaller one by then.
+
+**Compaction and context editing** attack $a\,n(n-1)/2$. Summarize or drop old tool results once the history crosses a threshold, so the per-turn history stops growing linearly. Capping history at $H$ tokens turns the quadratic into a linear $nH$ beyond the crossover, which is the only thing that makes $n = 50$ survivable.
+
+The order matters: caching is a config change, compaction is a design change that can lose information. Do caching first.
+
+**(d)** It broke the cache. Caching keys on an exact prefix match, so a timestamp that changes between turns invalidates the cached prefix on every single turn and you pay full price for $p_0$ forever, plus the cache-write premium. Silent, and it shows up as a cost regression with no functional symptom.
+
+The fix: the volatile value goes in the *last* message, or into a `get_current_time` tool, never in the cached prefix. General rule: everything above the cache breakpoint must be a pure function of the deployment, not of the request.
+
+**Rubric:**
+- Writes the sum and evaluates it to $n p_0 + a n(n-1)/2$, and identifies the quadratic term as the risk.
+- Both arithmetic results correct, with the observation that the paid tokens vastly exceed the content tokens.
+- Maps caching to the linear term and compaction to the quadratic term, not vaguely to "cost".
+- (d) identifies exact-prefix cache invalidation, and moves the volatile value below the cached section.
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Why long agents fail even when every step is good.**
+
+**(a)** With independent per-step success $p$, write end-to-end success for $n$ steps and evaluate at $p = 0.95$, $n = 10$ and $n = 20$.
+
+**(b)** You are asked for 90% end-to-end over 10 steps. What per-step reliability does that require? Comment on how that number feels next to the one in (a).
+
+**(c)** You have a fixed engineering budget. Argue for which lever is cheaper: reducing $n$ or raising $p$. Give two concrete ways to do each.
+
+**(d)** The independence assumption is wrong in a real agent. Give one way failures are positively correlated and one way the model is *not* really a fresh Bernoulli trial each step, and say which direction each pushes the estimate.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** $P(\text{success}) = p^n$.
+
+$$
+0.95^{10} = 0.599, \qquad 0.95^{20} = 0.358
+$$
+
+A per-step reliability that sounds excellent produces a 40% task failure rate at ten steps and a coin flip that lands wrong two times in three at twenty.
+
+**(b)** $p = 0.9^{1/10} = 0.9895$, so about 99% per step. The gap between "95%, sounds great" and "99%, genuinely hard" is the entire difficulty of shipping agents, and it is why demos work and production does not.
+
+**(c)** Reducing $n$ is almost always cheaper, because success is exponential in $n$ and only linear-ish in your effort on $p$. Going from 10 steps to 6 at $p = 0.95$ takes you from 0.599 to 0.735 with no model work at all. Concrete ways: merge chatty tools into one that does the whole sub-task (one `lookup_order_full` instead of three calls), and pre-load into the prompt anything the agent would otherwise fetch on turn one.
+
+Raising $p$ is worth doing where it is structurally cheap rather than by prompt-tweaking. Concrete ways: tighten schemas with enums and required fields so a whole class of argument errors becomes impossible, and make tools return actionable errors so a failed step is *retried into success* instead of counting as a failure. That second one is subtle and is the good answer: recoverable steps change the base $p$ of the exponent, so it is worth more than it looks.
+
+**(d)** Correlated failures: a stale or wrong fact enters the context at step 3 and every later step reasons from it, so one failure causes several. Conditioning: the model sees the whole trace, so a trajectory that has already gone wrong is more likely to keep going wrong, and conversely a clean trace is easier to continue. Both mean the naive $p^n$ is not a calibrated forecast.
+
+Direction: correlation makes the *distribution* of outcomes more bimodal, so $p^n$ understates the chance of a clean run and understates the chance of a total mess, while roughly tracking the mean. Say $p^n$ is a design heuristic that tells you the shape of the problem, not a number to put in an SLA, and that the real number comes from measurement.
+
+**Rubric:**
+- Gets 0.599 and 0.358 without a calculator crutch, and states the 40%-failure framing.
+- Computes $0.9^{1/10} \approx 0.99$ and names the gap as the core difficulty.
+- Argues for reducing $n$ *because success is exponential in it*, and names recoverable errors as a way to raise the base.
+- (d) does not simply say "steps aren't independent" but names a mechanism and refuses to treat $p^n$ as an SLA.
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. Tool schemas, selection, and what enforcement does not buy you.**
+
+**(a)** You are exposing a refund capability to a support agent. Write the schema and then say which parts of it are doing work the model can actually use. What belongs in the description that beginners leave out?
+
+**(b)** The catalog grows to 40 tools and selection accuracy collapses. Diagnose before you fix: what do you look at, and what are the two structural fixes?
+
+**(c)** You turn on structured-output enforcement (constrained decoding against the schema). State precisely what class of error that eliminates and what class it does not touch. Give an example of the second.
+
+**(d)** Your tool receives an `amount_cents` larger than the order total. Compare throwing an exception against returning an error result, in terms of the loop from the lesson.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)**
+
+```json
+{
+  "name": "refund_order",
+  "description": "Issue a refund for a delivered order. Use only after confirming order status is DELIVERED and the refund window is open. Do not use for cancellations of undelivered orders; use cancel_order for those.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "order_id": {"type": "string", "description": "Order ID, format ORD-XXXXXXXX"},
+      "amount_cents": {"type": "integer", "description": "Refund amount in cents, at most the order total"},
+      "reason": {"type": "string", "enum": ["damaged", "late", "wrong_item"]}
+    },
+    "required": ["order_id", "amount_cents", "reason"]
+  }
+}
+```
+
+The schema is serialized into the prompt and re-read on every turn, so it is prompt engineering wearing a JSON costume. The parts doing real work: the **enum**, which makes a hallucinated reason impossible rather than unlikely; the **format hint** in `order_id`'s description; the explicit **unit** in `amount_cents` (cents, not dollars, is the single most common wrong-argument bug in payments tools); and **required**, which stops the model from omitting a field and hoping.
+
+What beginners leave out is the *trigger condition and the boundary*. A description that says what the tool does but not when to call it, and does not say which sibling tool covers the neighbouring case, is the direct cause of most selection errors.
+
+**(b)** Diagnose first. Log tool name and arguments on every call, then look at the confusion pattern: which wrong tool is being picked for which request. If one tool absorbs everything, its description is too broad. If two tools trade places, their descriptions overlap. If the right tool is never picked, check that it is even in the context, since some setups truncate the schema block.
+
+Two structural fixes. **Merge and re-bound:** fewer tools with sharper, mutually exclusive descriptions, each naming what it is *not* for. **Dynamic tool retrieval:** keep the catalog large but retrieve only the relevant handful of schemas per request by embedding similarity or by a router, so the model is choosing among 5 rather than 40. The second also cuts $p_0$ on every turn, which is a cost win as well.
+
+The answer that reads as junior is "prompt it better".
+
+**(c)** Constrained decoding guarantees **syntactic and type validity against the schema**: you will get valid JSON, `amount_cents` will be an integer, `reason` will be one of the three enum values, required fields will be present. That is a real and large class of errors gone.
+
+It touches nothing about whether the values are *right*. The model can return `amount_cents: 4999` when the order total is 2999, or the item price instead of the order total, or a perfectly well-formed `order_id` for a different customer's order. Those are business-logic errors and no decoder can see them, because correctness is defined by your database, not by the schema.
+
+**(d)** Throwing kills the run. The loop's `execute()` raises, the request 500s, and the user gets nothing, even though the agent was one small correction away from succeeding.
+
+Returning an error result keeps the loop alive: append a `tool_result` marked as an error with a message the model can act on, such as `"amount_cents 4999 exceeds order total 2999; the maximum refundable amount is 2999"`. The next turn is very likely to correct it. This is exactly the mechanism from the reliability arithmetic: a step that fails, explains itself, and is corrected is not a failed step, so it raises the base of $p^n$.
+
+Two caveats to state, or the answer is naive. Errors must be **bounded** — count them against the step budget and against the per-tool call cap, or you have built a polite infinite loop. And errors must not **leak** — a stack trace or a raw SQL error goes into the model's context and from there potentially into the user's face, so return a curated message.
+
+**Rubric:**
+- Writes a schema with an enum, units, and a format hint, and identifies the description as prompt text read every turn.
+- Names trigger condition plus negative boundary as the missing piece.
+- Diagnoses selection failure by logging tool and args first; gives merge-and-rebound and dynamic retrieval as fixes.
+- Draws the line between schema-valid and semantically valid with a concrete example.
+- Prefers returned errors over exceptions, connects it to end-to-end reliability, and bounds the retries.
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. The boundary, and three refusals.**
+
+**(a)** For a support agent that can look up orders, issue refunds, and email customers, partition the decisions into "orchestrator code" and "model judgment". State the general rule you used.
+
+**(b)** Product wants a generic `run_sql` tool because it demos beautifully. Respond as you would in the interview.
+
+**(c)** An agent with database access dropped a production table. Design the prevention, at more than one layer.
+
+**(d)** When is an agent the wrong architecture entirely? Give the test you apply and what you build instead.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Orchestrator: retry policy and backoff, idempotency keys, all budget caps, authentication and per-user authorization on every tool call, routing on a known enum, the refund-amount ceiling, whether this action needs human approval, logging, and the final "did we actually finish" check. Model: what the customer is asking for, which tool fits an unstructured request, how to phrase the reply, and whether the retrieved evidence supports the claim.
+
+The rule: **anything deterministic, anything with a correctness guarantee, and anything with blast radius belongs in code.** The model gets the parts that genuinely require judgment over unstructured input. A useful test is to ask "would I accept this being wrong 2% of the time?" If not, it is not the model's decision. Note that authorization especially is never a prompt instruction; "only refund orders belonging to the current user" in a system prompt is not an access control system.
+
+**(b)** No, and here is the trade. A generic SQL tool has unbounded blast radius, cannot be authorized (you cannot tell from the string whether the query touches another tenant's rows), cannot be rate-limited meaningfully, cannot be made idempotent, and is a prompt-injection amplifier: any hostile text the agent reads becomes an arbitrary query. It also has the worst possible failure profile, since a subtly wrong query returns confident wrong numbers rather than an error.
+
+What I offer instead: a small set of parameterized query tools covering the real use cases, each with its own permission scope, row limits, a read-only replica, and a timeout. If the demo genuinely needs open-ended exploration, the honest version is a *proposal* tool that returns the SQL it wants to run for human approval and never executes it directly. Then close by naming what I would need to see to change my mind: an actual list of the queries product wants, which usually turns out to be six of them.
+
+**(c)** Layers, because any single one fails.
+
+1. **Capability:** the agent's database credential is read-only. This is the one that actually matters, and it makes the incident impossible rather than unlikely.
+2. **Tool surface:** no DDL tool exists. You cannot call what is not defined.
+3. **Approval:** any irreversible or high-blast-radius action returns a proposal that a human confirms, rather than executing. Gate on the action class, not on the model's own risk assessment.
+4. **Reversibility:** prefer soft deletes, staged changes, and dry-run-then-apply, so the worst case is recoverable rather than terminal.
+5. **Environment:** run tools in a sandbox with a separate credential per tool, no ambient production access.
+
+Note what is *not* on the list: telling the model to be careful. Prompt instructions are a probability, and this is a decision you need a guarantee for.
+
+**(d)** The test: can you draw the flowchart in advance? If the sequence of steps is known before you see the input, write the sequence. You get determinism, a tenth of the cost, a fraction of the latency, a real stack trace, and unit tests. An agent's only advantage is choosing the path at run time, and you pay for that with nondeterminism, token cost that grows quadratically, and a failure mode that is a transcript rather than an exception.
+
+The honest middle ground worth naming: most production "agents" are a fixed pipeline with one or two model-decided branch points. Say that out loud. Interviewers read the refusal as seniority, and reaching for the agent unprompted reads as overengineering.
+
+**Rubric:**
+- Partitions with a stated rule, and puts authorization firmly in code rather than in the prompt.
+- Refuses the SQL tool with blast radius, authorization and injection reasoning, then offers a concrete alternative rather than only saying no.
+- (c) leads with read-only credentials and covers at least three layers; explicitly rejects prompt instructions as a control.
+- (d) gives the flowchart test and names the fixed-pipeline-with-branch-points middle ground.
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. Planning, ReAct, and the cost of a plan.**
+
+**(a)** Explain ReAct in one paragraph, then say honestly what remains of it in a 2026 codebase.
+
+**(b)** Give the rule for picking a planner-executor over a single loop, in both directions.
+
+**(c)** A planner-executor produces a six-step plan. Step 1's result invalidates steps 2 through 6. Describe two failure behaviours you might observe and the design that avoids both.
+
+**(d)** For a three-step task, quantify roughly what planning costs you and what it buys. Then name the one situation where you would still plan a three-step task.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** ReAct (Yao et al., 2022) interleaves reasoning and acting: the model writes a thought, takes an action, observes the result, and the observation feeds the next thought. Its contribution was showing the two halves fail separately. Pure chain-of-thought reasoning hallucinates facts it has no way to check, and action-only prompting has no mechanism for revising a plan when the environment disagrees. Interleaving lets the trace be corrected by contact with reality.
+
+What remains: the loop shape, and that is all. Native tool calling absorbed the pattern — the model's reasoning is the Thought, the tool call is the Action, the appended tool result is the Observation — so nobody implements the paper's text format anymore. Give the paragraph, note that it is now just the default loop, and stop. Claiming to "use ReAct" as an architecture choice in 2026 signals you learned agents from a 2023 tutorial.
+
+**(b)** Plan up front when at least one of these holds: the steps are largely **independent**, so a plan lets you parallelize; the horizon is **long** enough that drift is the main risk; or a **human must approve** before anything executes, which needs a plan to approve. That last one is the strongest single reason and the one people forget.
+
+Use a single loop when each observation determines the next step, when the horizon is short, or when the branch factor is high. A plan written at step 0 was written with the least information you will ever have, and paying a model call plus a thousand tokens to produce a guess you will discard is pure overhead.
+
+**(c)** Two failure behaviours. The **stale march**: a naive executor runs steps 2 through 6 anyway because they are in the plan, producing confidently wrong work and, if any of them write, real damage. The **thrash**: a system that replans on every turn regenerates the plan constantly, has paid for planning, and behaves like a single loop with extra cost.
+
+The design that avoids both is explicit replanning triggers. Keep the plan, execute against it, and re-derive it only on a named condition: a step failed, a precondition the plan asserted turned out false, the budget forecast blew out, or the result contradicts an assumption the plan recorded. That last clause requires the planner to write down its assumptions, which is the part that makes contradiction detectable rather than a vibe.
+
+**(d)** Cost: one extra model call, on the order of a thousand output tokens, plus the plan then sitting in context on every subsequent turn, so it also feeds the quadratic term. Call it 15 to 25% overhead on a three-step task and a second or two of latency. Buys: essentially nothing, since a three-step loop discovers the same sequence for free and adapts better.
+
+The exception: when a human has to approve before execution. If step 2 charges a card or emails a customer, you need something to show a person up front, and the plan is that artifact. Approval, not accuracy, is what justifies planning a short task.
+
+**Rubric:**
+- ReAct in one paragraph with the "both halves fail alone" point, plus the honest statement that native tool calling absorbed it.
+- States the planning rule in both directions, and includes human approval as a first-class reason.
+- Names both stale-march and thrash, and lands on explicit replanning triggers with recorded assumptions.
+- (d) quantifies the overhead and identifies approval as the exception.
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Memory, and how long-term memory rots.**
+
+**(a)** Name the three places agent state can live, and give the cost model of each in one line.
+
+**(b)** "Our chatbot loses context after 10 turns." Design the fix. Say what stays verbatim, what gets summarized, and what leaves the context entirely.
+
+**(c)** Describe the mechanism by which long-term memory becomes poisoned. Be specific about the sequence of events.
+
+**(d)** Your teammate proposes fixing pollution with a relevance filter at read time. Why is that the wrong layer, and what do you do instead?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** **Context window** — the message list. Complete, ordered, immediately available, and quadratically expensive, since everything in it is re-sent on every turn. **Scratchpad** — a file or key-value store the agent reads and writes through tools. Cheap to hold, costs a tool call to retrieve, and only what it fetches enters context. **External store** — persistent across sessions, retrieved by relevance. Costs a retrieval, and is the only one that survives the session ending.
+
+Short-term is the first two. Long-term is the third. Splitting the word "memory" into these three is most of the answer to any memory question.
+
+**(b)** Keep the last $k$ turns verbatim, say 6 to 8, because recency carries the conversational thread and paraphrasing it breaks pronoun references. Maintain a **pinned facts block** near the top holding the durable, small stuff: user identity, the order in question, constraints they stated, decisions already made. Rebuild it as a structured object rather than prose, so it does not drift when rewritten. Summarize everything between the pinned block and the recent window, triggered on a token threshold rather than a turn count, since turns vary enormously in size. Push full tool outputs to the scratchpad and leave a pointer in context, so the agent can re-fetch the 30k-token file dump if it turns out to matter.
+
+The failure being fixed is usually not the model's context limit at all; it is a naive truncation that drops the oldest messages, which is exactly where the user's original goal and constraints live.
+
+**(c)** The sequence. The agent makes an inference that is not verified — "the user is on the Pro plan", deduced from something suggestive. It writes that to the store as a plain fact, with no marker distinguishing it from a confirmed one. Three sessions later it retrieves it, and retrieval strips whatever hedging existed. It reasons from it, produces a second conclusion, and writes *that* down too. Now there are two wrong facts and the second one appears to corroborate the first. Nobody can tell from the store which entries were ever grounded.
+
+**(d)** Read-time filtering ranks by relevance, and a poisoned entry is highly relevant. That is the problem: the filter's job is to surface things that match the query, and a wrong fact about the user matches queries about the user perfectly. You cannot detect wrongness by similarity.
+
+Fix the write path. **Gate writes:** persist only what a user confirmed or a tool verified, never the model's unverified inference. **Store provenance and timestamps** with every entry, so a later reader and a later human can tell confirmed from guessed. **Deduplicate and update on write** rather than appending, so a corrected fact replaces the old one instead of coexisting with it. **Decay**, so stale preferences expire rather than accumulating forever. And keep a read path that lets a user or an operator inspect and delete what is stored, because you will need it for the incident and for the privacy request.
+
+Read-time filtering is still worth having on top. It is just not a defense.
+
+**Rubric:**
+- Three tiers with distinct cost models, not "short-term and long-term".
+- (b) covers verbatim recent window, structured pinned facts, threshold-triggered summarization, and offload with pointers; notes the real bug is usually naive truncation.
+- (c) tells the sequence including the compounding second write, not just "it stores wrong things".
+- (d) states that relevance cannot detect wrongness and moves the defense to the write path with at least three concrete mechanisms.
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8. Four incidents.** Each is independent. Give the most likely cause and the first thing you would check or change.
+
+**(a)** A refund agent times out on a payment call, retries, and the customer is charged twice. The payment provider's logs show two successful charges 40 seconds apart.
+
+**(b)** The agent has 96% task success in staging and 71% in production, with no errors logged. Traces show the tool calls succeeding.
+
+**(c)** One customer request cost \$41 in model spend. Normal requests cost \$0.20.
+
+**(d)** A teammate proposes splitting the support agent into an intent agent, a lookup agent, and a response agent, arguing it will be more reliable.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Missing idempotency.** The tool treats a timeout as a failure when it is actually an unknown outcome — the charge succeeded and the response was lost. Retrying a side-effecting call without a deduplication key duplicates the effect.
+
+First change: an idempotency key derived deterministically from the task and the arguments (`task_id + order_id + amount_cents`), passed to the provider so the second call returns the first result instead of charging again. Then make the retry policy live in the orchestrator, not in the model's discretion, so an unknown-outcome call is reconciled by *querying* state before retrying rather than blindly re-issuing. And separate the three cases in the tool's return: success, definite failure, and unknown. Collapsing unknown into failure is the actual root cause, and models will retry a "failure" every time.
+
+**(b) The environments differ in a way the schema cannot see.** The usual culprits: production data is messier (real order histories with edge cases staging does not have), a downstream API returns a shape or an enum value staging never produces, or production requests are simply longer and are hitting truncation or compaction that staging never triggers. No errors logged, plus tool calls "succeeding", means the failure is semantic, not mechanical.
+
+First check: stop trusting the success flag and look at *arguments and outputs*, not just call counts. Sample 30 failing production traces and read them end to end. That is the answer to the general "your agent fails 20% of the time, how do you debug" question too — you cluster failures by where in the trajectory they diverge (wrong tool, right tool with wrong args, tool returned something the model misread, model stopped early), because those four have completely different fixes and an aggregate success rate tells you which none of them it is. Then assert on response shape inside the tool and version the tool contract, so the next silent drift is loud.
+
+**(c) No cumulative budget cap, plus the quadratic term.** One hard task looped 50 or 60 times, and input tokens grow as $a n^2/2$, so a 5× longer run is roughly a 25× bill. There is probably also a stuck loop underneath, since genuinely useful 60-step support requests are rare.
+
+First change: enforce a cumulative input-token cap in the orchestrator checked *before* each model call, and a per-task spend ceiling. Then add the repeated-call detector, alert on the tail rather than the mean of cost per task, and check whether prompt caching is on and whether anything volatile sits in the cached prefix.
+
+**(d) Push back.** Those three stages are not separable sub-tasks, they are a pipeline: each one's output is the next one's input, so nothing parallelizes and nothing is isolated. You would be paying the fixed prefix three times instead of once, adding two extra model calls of latency, and introducing a brand new failure class where one stage's output does not parse or drops a detail the next stage needed. Reliability goes *down*, not up, because you added steps to a product $p^n$.
+
+The genuine case for multi-agent is context isolation: a sub-agent that reads forty files and reports two paragraphs keeps 40,000 tokens out of the orchestrator's context. That applies to separable, read-heavy, parallelizable work like research fan-out. Anthropic's published multi-agent research write-up reported roughly 15× the tokens of a plain chat interaction, so the cost is real and should be quoted. If intent classification is genuinely a distinct concern here, make it a deterministic classifier in the orchestrator, not an agent.
+
+**Rubric:**
+- (a) names idempotency keys *and* the unknown-versus-failed distinction, and moves retry policy into the orchestrator.
+- (b) proposes reading full traces and clustering divergence points rather than staring at a success rate; identifies silent contract drift.
+- (c) connects the blowup to the quadratic term and enforces the cap before the model call, not after.
+- (d) refuses, gives the pipeline-versus-separable distinction, prices multi-agent, and offers the deterministic alternative. Accepting the proposal is the failure this question exists to catch.
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: agent mechanics
+
+These 18 questions stand on their own, so you can study this section without reading anything above it. Each should take 2 to 5 minutes out loud. They are picked for how often they get asked in the agentic-system-design round, not for how interesting they are, and almost all of them are scenario-shaped because that is how they arrive. Assume the interviewer chains "why?" two levels deeper, and assume they want a number wherever a number exists.
+
+1. **Agent versus chain** What is the difference between an agent and a simple LLM chain? Say what capability you gain and what new failure modes you take on with it.
+2. **When an agent is wrong** When is agentic architecture the wrong solution? Give the test you apply, and say what you build instead.
+3. **The boundary** For a customer-support agent, what logic belongs in the orchestrator versus the LLM? Give the rule you used to partition, and say where authorization lives.
+4. **Stopping it** How do you prevent an agent from running forever, including the case where it keeps making calls but makes no progress? Put real numbers on your caps.
+5. **Schema design** How do you design a function schema for tool calling? Walk through one concrete tool and say which parts of the schema the model can actually use.
+6. **Wrong tool** Your agent has 40 tools and keeps picking the wrong one. How do you diagnose it before you fix it, and what are the structural fixes?
+7. **Wrong arguments** The model picks the right tool but generates arguments that are syntactically valid and semantically wrong. How do you fix that, and what does structured-output enforcement not solve?
+8. **Tool errors** How do you handle tool failures? Compare throwing an exception with returning an error result to the model, and say how you keep that from becoming an infinite retry.
+9. **Duplicate side effects** A payment tool times out after the charge succeeded, the agent retries, and the customer is charged twice. How do you harden this?
+10. **Irreversible actions** Your AI agent deleted a production database. How do you prevent irreversible actions? Answer at more than one layer, and say why prompt instructions are not one of them.
+11. **The generic tool** Product wants to expose a generic SQL or shell tool because it looks powerful in demos. How do you respond, and what do you offer instead?
+12. **Token budget** Your agent burns too many tokens per task and keeps exceeding budget. Explain where the tokens go in a multi-turn loop, then say how you enforce a ceiling and which two levers cut the bill.
+13. **Latency budget** You have a p95 target of 10 seconds and a task that takes 8 tool calls. Do the arithmetic out loud and say what you would actually change.
+14. **Ten turns** Your chatbot loses context after 10 turns of conversation. How do you maintain long conversation context? Say what stays verbatim and what leaves the context window.
+15. **Memory types** What types of memory does an agentic system need, and how do you design long-term memory so it does not get polluted? Say which layer the defense belongs in.
+16. **Single versus multi** When do you go multi-agent instead of single-agent? Give the one argument that survives scrutiny and what it costs you.
+17. **ReAct** Explain ReAct in one paragraph, and say what is left of it now that models have native tool calling.
+18. **Planner or loop** Planner-executor versus single-loop agent — when do you pick which? Say what triggers a replan, and what planning costs on a short task.
