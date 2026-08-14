@@ -10,7 +10,7 @@ This question tests whether you understand PCA as a *computation*—not whether 
 
 <Quiz id="1">
 
-**Q14 · must-know. How would you actually compute the eigenvalues?** You have said PCA is an eigendecomposition of the covariance matrix $C=\frac1nX^\top X$, where $X$ is the centered data matrix with $n$ rows and $d$ columns. The interviewer asks how that gets computed.
+**Q14 · must-know. How would you actually compute the eigenvalues?** You have said PCA is an eigendecomposition of the covariance matrix $C=\frac1{n-1}X^\top X$, where $X$ is the centered data matrix with $n$ rows and $d$ columns. The interviewer asks how that gets computed.
 
 **(a)** Explain why "solve $\det(C-\lambda I)=0$" is the wrong answer, on two separate counts. Then say which direction the relationship between polynomial roots and eigenvalues actually runs in numerical software.
 
@@ -79,13 +79,13 @@ which is only $m\times m$ (and tridiagonal when $C$ is symmetric), solve the sma
 
 *Why only matrix-vector products.* Krylov methods never need $C$ itself, only its action:
 
-$$Cv=\tfrac1nX^\top Xv=\tfrac1nX^\top(Xv)$$
+$$Cv=\tfrac1{n-1}X^\top Xv=\tfrac1{n-1}X^\top(Xv)$$
 
 so $v\to Xv\to X^\top(Xv)$, two passes over $X$ and no $d\times d$ matrix anywhere.
 
 *Two reasons to SVD $X$ directly.* **Memory and compute:** $C$ is $d\times d=10^8$ entries you never have to store, and forming it costs $O(nd^2)$ you never have to spend. **Accuracy:** $\kappa(X^\top X)=\kappa(X)^2$, writing $\kappa$ for the condition number, the factor by which a relative error in the input can be magnified in the answer. Squaring the condition number costs you roughly half your significant digits, and it destroys exactly the small singular values — which matters whenever the design is near-collinear. A matrix $X$ that is perfectly workable can produce an $X^\top X$ that is numerically singular.
 
-*The bridge.* $X=UDV^\top\Rightarrow X^\top X=VD^2V^\top$, so the right singular vectors of $X$ *are* the eigenvectors of $C$, with $\lambda_j=d_j^2/n$. You get the same answer, computed on a better-conditioned object.
+*The bridge.* $X=UDV^\top\Rightarrow X^\top X=VD^2V^\top$, so the right singular vectors of $X$ *are* the eigenvectors of $C$, with $\lambda_j=d_j^2/(n-1)$. You get the same answer, computed on a better-conditioned object.
 
 **Rubric:**
 - (a) Both objections, kept separate: no closed form past degree 4, *and* root-finding is ill-conditioned — not just one of them
@@ -99,9 +99,9 @@ so $v\to Xv\to X^\top(Xv)$, two passes over $X$ and no $d\times d$ matrix anywhe
 - (d) Eigenvectors come from the accumulated product $\bar Q_t$, not a second pass
 - (d) Householder $\to$ tridiagonal as a one-time $O(d^3)$; per-step drops to $O(d)$; total dominated by the reduction
 - (e) Names Lanczos/Krylov or randomized SVD and the project–solve–lift structure
-- (e) $Cv=\frac1nX^\top(Xv)$ — only the action of $C$ is ever needed
+- (e) $Cv=\frac1{n-1}X^\top(Xv)$ — only the action of $C$ is ever needed
 - (e) Both reasons distinctly: memory/compute *and* $\kappa(X^\top X)=\kappa(X)^2$ losing half the digits
-- (e) Connects $X=UDV^\top$ to $C=VD^2V^\top/n$
+- (e) Connects $X=UDV^\top$ to $C=VD^2V^\top/(n-1)$
 
 </details>
 
@@ -123,4 +123,4 @@ These 13 questions do not depend on the numbered questions above, so you can stu
 10. **The loadings changed overnight** You retrain a production PCA every week, and the downstream coefficients keep flipping sign and jumping around. Give two mechanisms that cause this, and say how you would make the pipeline stable.
 11. **PCA on one-hot features** Does PCA make sense on a design matrix that is mostly one-hot encoded categoricals plus a few count columns? Explain what goes wrong, and name what you would use instead.
 12. **PC1 of a return matrix** You run PCA on the correlation matrix of daily returns for 500 stocks. The first component explains 40% of the variance and every loading has the same sign. What is that component, and what would you do with the components after it?
-13. **How you actually compute the eigenvalues** PCA is an eigendecomposition of $C=\frac1nX^\top X$. Say how that is actually computed, and why it is not by solving $\det(C-\lambda I)=0$. Walk the chain: power iteration and what it converges to, the Rayleigh quotient for the eigenvalue, why $k$ independent starts all collapse to $v_1$ and what fixes it, then the QR algorithm and why reversing the factors preserves eigenvalues. Finish on practice: $d=10{,}000$ and $k=50$, what do you run, and why SVD $X$ directly rather than form $X^\top X$?
+13. **How you actually compute the eigenvalues** PCA is an eigendecomposition of $C=\frac1{n-1}X^\top X$. Say how that is actually computed, and why it is not by solving $\det(C-\lambda I)=0$. Walk the chain: power iteration and what it converges to, the Rayleigh quotient for the eigenvalue, why $k$ independent starts all collapse to $v_1$ and what fixes it, then the QR algorithm and why reversing the factors preserves eigenvalues. Finish on practice: $d=10{,}000$ and $k=50$, what do you run, and why SVD $X$ directly rather than form $X^\top X$?
