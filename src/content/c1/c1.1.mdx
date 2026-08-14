@@ -242,6 +242,8 @@ with equality *iff* the strata all have the same mean.
 
 *Intuition:* the total variance of the population decomposes into within-stratum variance plus between-stratum variance (this is the law of total variance / ANOVA decomposition). SRS pays the price of *both*. Stratified sampling eliminates the between-stratum contribution by *guaranteeing* the right proportional representation of each stratum. The bigger the between-stratum differences, the bigger the win. And the equality condition falls straight out: if the strata all have the same mean, there was no between-stratum variance to eliminate, so you saved nothing.
 
+<StratifiedVsSrs caption="Look at panel 3 first: both curves sit on μ, but the stratified one is half as wide. Panel 2 says why — under SRS the counts drawn from each stratum drift from sample to sample, so the estimate inherits the between-stratum spread, while stratified sampling pins n₁, n₂, n₃ before you look and that source of variation never enters. The numbers under the axis are measured off 12,000 simulated repeats of each scheme: SRS pays (2.25 within + 7.21 between)/n, stratified pays 2.25/n. The between term is absent, not merely smaller." />
+
 Now make it concrete with the case you'll actually meet.
 
 **Worked example: imbalanced binary classification.** You have 1 million examples; 1% are positive (10,000 positives, 990,000 negatives). You want to estimate the population's positive rate from a sample of 1,000.
