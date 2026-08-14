@@ -243,7 +243,7 @@ What I give up is real. Early folds train on very little data, so the model I ev
 
 **(a)** A $500 \times 500$ covariance matrix has $500 \times 501/2 = 125\,250$ free parameters. You have $500 \times 60 = 30\,000$ observations. You are estimating roughly four times more parameters than you have numbers, and no estimator repairs that arithmetic.
 
-**(b)** Write $N$ for the number of assets and $T$ for the number of time periods, so $N = 500$ and $T = 60$. With $\hat\Sigma = \frac{1}{T}\sum_t (r_t - \bar r)(r_t - \bar r)^\top$, where $r_t$ is the vector of $N$ returns at time $t$ and $\bar r$ their sample mean, a sum of $T$ rank-one matrices, minus one degree of freedom for the demeaning,
+**(b)** Write $N$ for the number of assets and $T$ for the number of time periods, so $N = 500$ and $T = 60$. With $\hat\Sigma = \frac{1}{T-1}\sum_t (r_t - \bar r)(r_t - \bar r)^\top$, where $r_t$ is the vector of $N$ returns at time $t$ and $\bar r$ their sample mean, a sum of $T$ rank-one matrices, minus one degree of freedom for the demeaning,
 
 $$\mathrm{rank}(\hat\Sigma) \le \min(N, T-1) = 59$$
 
@@ -251,7 +251,7 @@ So at least $500 - 59 = 441$ eigenvalues are exactly zero. The matrix is singula
 
 **(c)** Take returns that are pure noise, so the true covariance is the identity $I$ and every true eigenvalue is 1. The sample eigenvalues do not sit at 1; the Marchenko-Pastur law says they spread into a band whose width is set by the aspect ratio $q = N/T$, assets over observations (not the annualization horizon $q$ of Q3). They fill $[(1-\sqrt q)^2, (1+\sqrt q)^2]$. Here $q = 500/60 = 8.33$, $\sqrt q = 2.887$, upper edge $(3.887)^2 = 15.1$. Noise alone produces eigenvalues fifteen times the true value, so eigenvalue magnitude tells you nothing about signal at this aspect ratio. With five years of daily data, $T = 1260$, $q = 0.397$, $\sqrt q = 0.630$, edge $(1.630)^2 = 2.66$. Better, but everything below 2.66 is still indistinguishable from noise.
 
-**(d)** It proves the matrix was **not** computed as a single sample covariance, because those are positive semi-definite by construction: $w^\top\hat\Sigma w = \frac{1}{T}\sum_t (w^\top(r_t - \bar r))^2 \ge 0$. So the question is what was done to it. Usual causes: pairwise-complete estimation where each pair uses a different window because of missing data or different listing histories; hand edits such as overriding a correlation, blending in a view, or flooring entries; mixing estimators, such as a shrunk correlation matrix combined with unshrunk volatilities.
+**(d)** It proves the matrix was **not** computed as a single sample covariance, because those are positive semi-definite by construction: $w^\top\hat\Sigma w = \frac{1}{T-1}\sum_t (w^\top(r_t - \bar r))^2 \ge 0$. So the question is what was done to it. Usual causes: pairwise-complete estimation where each pair uses a different window because of missing data or different listing histories; hand edits such as overriding a correlation, blending in a view, or flooring entries; mixing estimators, such as a shrunk correlation matrix combined with unshrunk volatilities.
 
 Diagnose by magnitude. An eigenvalue around $10^{-16}$ times the trace is floating-point noise on a truly zero eigenvalue and is a numerical matter. An eigenvalue at $-0.02$ times the trace is structural and means the construction is wrong.
 
