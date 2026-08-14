@@ -1050,3 +1050,578 @@ export function PCARotation({ caption }: { caption?: string }) {
     ),
   });
 }
+
+// ---------------------------------------------------------------------------
+// 6. PCAPointSpace — the two equivalent objectives, drawn on the same cloud
+//    Left:  maximize the spread of the projections (vᵀxᵢ)
+//    Right: minimize the perpendicular reconstruction errors (dᵢ)
+//    Equal pixel scale on both axes, otherwise "perpendicular" would be a lie.
+// ---------------------------------------------------------------------------
+export function PCAPointSpace({ caption }: { caption?: string }) {
+  const W = 720;
+  const H = 322;
+  const SCALE = 30; // px per data unit — identical on x and y
+  const panelTop = 46;
+  const plotW = 300;
+  const plotH = 180;
+  const ax0 = 30;
+  const bx0 = 390;
+
+  const xToPx = (x: number, x0: number) => x0 + (x + 5) * SCALE;
+  const yToPx = (y: number) => panelTop + (3 - y) * SCALE;
+
+  // Same cloud recipe as PCARotation so the two figures read as one story.
+  const r = rng(9987);
+  const n = 70;
+  const theta = 0.5;
+  const cosT = Math.cos(theta);
+  const sinT = Math.sin(theta);
+  const raw: Pt[] = Array.from({ length: n }, () => {
+    const u = gauss(r) * 2.0;
+    const v = gauss(r) * 0.55;
+    return { x: cosT * u - sinT * v, y: sinT * u + cosT * v };
+  });
+  const mx = raw.reduce((s, p) => s + p.x, 0) / n;
+  const my = raw.reduce((s, p) => s + p.y, 0) / n;
+  const pts = raw.map((p) => ({ x: p.x - mx, y: p.y - my }));
+
+  // 2x2 covariance and its closed-form top eigenvector.
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  for (const p of pts) {
+    sxx += p.x * p.x;
+    syy += p.y * p.y;
+    sxy += p.x * p.y;
+  }
+  sxx /= n - 1;
+  syy /= n - 1;
+  sxy /= n - 1;
+  const tr = sxx + syy;
+  const det = sxx * syy - sxy * sxy;
+  const disc = Math.sqrt(Math.max(0, (tr / 2) ** 2 - det));
+  const l1 = tr / 2 + disc;
+  const v1n = Math.hypot(sxy, l1 - sxx) || 1;
+  const e1 = { x: sxy / v1n, y: (l1 - sxx) / v1n };
+  const e2 = { x: -e1.y, y: e1.x };
+  const s1 = Math.sqrt(Math.max(0, l1));
+
+  // Scores and signed perpendicular offsets.
+  const proj = pts.map((p) => ({
+    p,
+    t: p.x * e1.x + p.y * e1.y,
+    d: p.x * e2.x + p.y * e2.y,
+  }));
+
+  // Pick one clearly-offset point on the right-hand side to annotate.
+  let hi = proj[0];
+  for (const q of proj) {
+    if (q.t > 0.8 && Math.abs(q.d) > Math.abs(hi.d)) hi = q;
+  }
+  const hiFoot = { x: hi.t * e1.x, y: hi.t * e1.y };
+
+  // Unit directions in pixel space (y is flipped; scales are equal).
+  const pe1 = { x: e1.x, y: -e1.y };
+  const pe2 = { x: e2.x, y: -e2.y };
+
+  const lineHalf = 4.6;
+  const axisEnds = (x0: number) => ({
+    x1: xToPx(-lineHalf * e1.x, x0),
+    y1: yToPx(-lineHalf * e1.y),
+    x2: xToPx(lineHalf * e1.x, x0),
+    y2: yToPx(lineHalf * e1.y),
+  });
+
+  const panelBox = (x0: number) => (
+    <rect
+      x={x0}
+      y={panelTop}
+      width={plotW}
+      height={plotH}
+      className="text-border"
+      stroke="currentColor"
+      strokeWidth={1}
+      fill="none"
+      opacity={0.55}
+      rx={4}
+    />
+  );
+
+  const centroid = (x0: number) => (
+    <circle cx={xToPx(0, x0)} cy={yToPx(0)} r={3.2} fill="#dc2626" />
+  );
+
+  // Right-angle marker at the foot of the highlighted perpendicular.
+  const sgn = hi.d >= 0 ? 1 : -1;
+  const fx = xToPx(hiFoot.x, bx0);
+  const fy = yToPx(hiFoot.y);
+  const m = 8;
+  const corner = [
+    [fx + pe1.x * m, fy + pe1.y * m],
+    [
+      fx + pe1.x * m + pe2.x * m * sgn,
+      fy + pe1.y * m + pe2.y * m * sgn,
+    ],
+    [fx + pe2.x * m * sgn, fy + pe2.y * m * sgn],
+  ]
+    .map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`)
+    .join(" ");
+
+  const A = axisEnds(ax0);
+  const B = axisEnds(bx0);
+
+  return figureFrame({
+    W,
+    H,
+    ariaLabel:
+      "Two copies of the same tilted point cloud. On the left, each point is dropped onto the PC1 line and the spread of those projections is marked as the quantity PCA maximizes. On the right, the same drops are drawn as perpendicular segments, marked as the quantity PCA minimizes.",
+    caption,
+    children: (
+      <>
+        <defs>
+          <marker
+            id="pcaps-arrow"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0,0 L10,5 L0,10 z" fill="#2563eb" />
+          </marker>
+          <marker
+            id="pcaps-arrow-start"
+            viewBox="0 0 10 10"
+            refX="1"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M10,0 L0,5 L10,10 z" fill="#2563eb" />
+          </marker>
+        </defs>
+
+        {/* ---------- Panel A: maximize projected spread ---------- */}
+        <text
+          x={ax0}
+          y={28}
+          className="fill-foreground"
+          fontSize={12.5}
+          fontWeight={600}
+        >
+          Point space · MAXIMIZE spread of projections
+        </text>
+        {panelBox(ax0)}
+        <line
+          x1={A.x1}
+          y1={A.y1}
+          x2={A.x2}
+          y2={A.y2}
+          stroke="#dc2626"
+          strokeWidth={2}
+        />
+        {/* faint connectors so the point-to-foot mapping is visible */}
+        {proj.map((q, i) => (
+          <line
+            key={`ca${i}`}
+            x1={xToPx(q.p.x, ax0)}
+            y1={yToPx(q.p.y)}
+            x2={xToPx(q.t * e1.x, ax0)}
+            y2={yToPx(q.t * e1.y)}
+            className="text-border"
+            stroke="currentColor"
+            strokeWidth={0.8}
+            opacity={0.5}
+          />
+        ))}
+        {proj.map((q, i) => (
+          <circle
+            key={`pa${i}`}
+            cx={xToPx(q.p.x, ax0)}
+            cy={yToPx(q.p.y)}
+            r={1.9}
+            className="fill-muted-foreground"
+            opacity={0.5}
+          />
+        ))}
+        {/* the projections themselves */}
+        {proj.map((q, i) => (
+          <circle
+            key={`fa${i}`}
+            cx={xToPx(q.t * e1.x, ax0)}
+            cy={yToPx(q.t * e1.y)}
+            r={2.4}
+            fill="#2563eb"
+          />
+        ))}
+        {/* spread marker: ±2σ₁, offset perpendicular to the line so it reads
+            as a measurement of the blue dots rather than a second axis */}
+        <line
+          x1={xToPx(-2 * s1 * e1.x, ax0) - 22 * pe2.x}
+          y1={yToPx(-2 * s1 * e1.y) - 22 * pe2.y}
+          x2={xToPx(2 * s1 * e1.x, ax0) - 22 * pe2.x}
+          y2={yToPx(2 * s1 * e1.y) - 22 * pe2.y}
+          stroke="#2563eb"
+          strokeWidth={1.4}
+          markerEnd="url(#pcaps-arrow)"
+          markerStart="url(#pcaps-arrow-start)"
+        />
+        <text
+          x={xToPx(0, ax0) - 40 * pe2.x + 6}
+          y={yToPx(0) - 40 * pe2.y + 4}
+          fontSize={11}
+          fill="#2563eb"
+          fontWeight={600}
+        >
+          spread = λ₁
+        </text>
+        {/* the score of the highlighted point */}
+        <line
+          x1={xToPx(0, ax0)}
+          y1={yToPx(0)}
+          x2={xToPx(hi.t * e1.x, ax0)}
+          y2={yToPx(hi.t * e1.y)}
+          stroke="#f59e0b"
+          strokeWidth={3.4}
+        />
+        <circle
+          cx={xToPx(hi.p.x, ax0)}
+          cy={yToPx(hi.p.y)}
+          r={3.6}
+          fill="#f59e0b"
+        />
+        {centroid(ax0)}
+        <text
+          x={ax0 + 8}
+          y={panelTop + plotH - 10}
+          className="fill-foreground"
+          fontSize={11.5}
+        >
+          <tspan fill="#2563eb">●</tspan> projection of each point onto PC1
+        </text>
+        <text x={ax0 + 8} y={panelTop + 16} fontSize={11.5} fill="#f59e0b">
+          orange = vᵀxᵢ, one score
+        </text>
+
+        {/* ---------- Panel B: minimize perpendicular error ---------- */}
+        <text
+          x={bx0}
+          y={28}
+          className="fill-foreground"
+          fontSize={12.5}
+          fontWeight={600}
+        >
+          Same cloud · MINIMIZE perpendicular distances
+        </text>
+        {panelBox(bx0)}
+        <line
+          x1={B.x1}
+          y1={B.y1}
+          x2={B.x2}
+          y2={B.y2}
+          stroke="#dc2626"
+          strokeWidth={2}
+        />
+        {proj.map((q, i) => (
+          <line
+            key={`cb${i}`}
+            x1={xToPx(q.p.x, bx0)}
+            y1={yToPx(q.p.y)}
+            x2={xToPx(q.t * e1.x, bx0)}
+            y2={yToPx(q.t * e1.y)}
+            stroke="#dc2626"
+            strokeWidth={1.1}
+            opacity={0.55}
+          />
+        ))}
+        {proj.map((q, i) => (
+          <circle
+            key={`pb${i}`}
+            cx={xToPx(q.p.x, bx0)}
+            cy={yToPx(q.p.y)}
+            r={1.9}
+            className="fill-muted-foreground"
+            opacity={0.55}
+          />
+        ))}
+        {/* vertical gap — the kind of distance OLS uses instead */}
+        <line
+          x1={xToPx(hi.p.x, bx0)}
+          y1={yToPx(hi.p.y)}
+          x2={xToPx(hi.p.x, bx0)}
+          y2={yToPx((hi.p.x * e1.y) / (e1.x || 1e-9))}
+          stroke="#6b7280"
+          strokeWidth={1.4}
+          strokeDasharray="3 3"
+        />
+        {/* the highlighted perpendicular */}
+        <line
+          x1={xToPx(hi.p.x, bx0)}
+          y1={yToPx(hi.p.y)}
+          x2={fx}
+          y2={fy}
+          stroke="#f59e0b"
+          strokeWidth={3.4}
+        />
+        <polyline
+          points={corner}
+          fill="none"
+          stroke="#f59e0b"
+          strokeWidth={1.4}
+        />
+        <circle
+          cx={xToPx(hi.p.x, bx0)}
+          cy={yToPx(hi.p.y)}
+          r={3.6}
+          fill="#f59e0b"
+        />
+        {centroid(bx0)}
+        <text
+          x={bx0 + 8}
+          y={panelTop + plotH - 10}
+          fontSize={11.5}
+          fill="#dc2626"
+        >
+          ─ dᵢ, distance to the line (perpendicular)
+        </text>
+        <text x={bx0 + 8} y={panelTop + 16} fontSize={11.5} fill="#6b7280">
+          ┈ vertical gap — what OLS measures instead
+        </text>
+
+        {/* ---------- the identity that ties the two panels together ---------- */}
+        <text
+          x={W / 2}
+          y={panelTop + plotH + 42}
+          textAnchor="middle"
+          className="fill-foreground"
+          fontSize={13.5}
+        >
+          ‖xᵢ‖² = (vᵀxᵢ)² + dᵢ² for every point
+        </text>
+        <text
+          x={W / 2}
+          y={panelTop + plotH + 62}
+          textAnchor="middle"
+          className="fill-muted-foreground"
+          fontSize={12}
+        >
+          Σ‖xᵢ‖² is fixed by the data, so maximizing Σ(vᵀxᵢ)² is exactly
+          minimizing Σdᵢ². Left and right are the same problem.
+        </text>
+      </>
+    ),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 7. PCAFeatureSpace — the dual picture: d feature vectors living in R^n
+//    Lengths are standard deviations, angles are correlations.
+//    Numbers are exact for a standardized pair with r = 0.8.
+// ---------------------------------------------------------------------------
+export function PCAFeatureSpace({ caption }: { caption?: string }) {
+  const W = 720;
+  const H = 352;
+  const O = { x: 118, y: 276 }; // origin of the vector diagram
+  const L = 120; // ‖xⱼ‖ in px, equal for standardized features
+  const r12 = 0.8; // correlation between the two features
+
+  // Standardized 2x2 correlation matrix [[1, r], [r, 1]].
+  const lam1 = 1 + r12; // 1.8
+  const lam2 = 1 - r12; // 0.2
+  const halfAngle = Math.acos(r12) / 2; // vectors sit symmetrically about PC1
+  const bis = (57 * Math.PI) / 180; // bisector direction, up and to the right
+
+  const polar = (ang: number, len: number) => ({
+    x: O.x + Math.cos(ang) * len,
+    y: O.y - Math.sin(ang) * len,
+  });
+
+  const x1 = polar(bis - halfAngle, L);
+  const x2 = polar(bis + halfAngle, L);
+  // ‖z_k‖ = sqrt(λ_k) · ‖xⱼ‖ — so z₁ is exactly 3x longer than z₂ here.
+  const z1 = polar(bis, Math.sqrt(lam1) * L);
+  const z2 = polar(bis - Math.PI / 2, Math.sqrt(lam2) * L);
+
+  const arc = (() => {
+    const a = polar(bis - halfAngle, 46);
+    const b = polar(bis + halfAngle, 46);
+    return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} A 46 46 0 0 0 ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  })();
+
+  // Right-angle marker between z₁ and z₂.
+  const u1 = { x: Math.cos(bis), y: -Math.sin(bis) };
+  const u2 = { x: Math.cos(bis - Math.PI / 2), y: -Math.sin(bis - Math.PI / 2) };
+  const q = 11;
+  const ra = [
+    [O.x + u1.x * q, O.y + u1.y * q],
+    [O.x + u1.x * q + u2.x * q, O.y + u1.y * q + u2.y * q],
+    [O.x + u2.x * q, O.y + u2.y * q],
+  ]
+    .map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`)
+    .join(" ");
+
+  const vec = (
+    to: { x: number; y: number },
+    color: string,
+    width: number,
+    marker: string,
+  ) => (
+    <line
+      x1={O.x}
+      y1={O.y}
+      x2={to.x}
+      y2={to.y}
+      stroke={color}
+      strokeWidth={width}
+      markerEnd={`url(#${marker})`}
+    />
+  );
+
+  const rows: [string, string][] = [
+    ["‖xⱼ‖ = √(n−1) · sⱼ", "vector length is the feature's spread"],
+    ["cos θ = r₁₂ = 0.8", "the angle between them is their correlation"],
+    ["z₁ = Xv₁, z₂ = Xv₂", "PCs are combinations of the feature vectors"],
+    ["‖z₁‖² = (n−1) λ₁", "λ₁ = 1.8, λ₂ = 0.2, so z₁ is 3× longer than z₂"],
+    ["z₁ ⊥ z₂", "the scores are uncorrelated by construction"],
+    ["Σ‖xⱼ‖² = Σ‖zₖ‖²", "rotating the basis moves variance, never creates it"],
+  ];
+
+  return figureFrame({
+    W,
+    H,
+    ariaLabel:
+      "Two feature vectors drawn from a common origin at a narrow angle, with the first principal component bisecting them as a long arrow and the second principal component drawn perpendicular and much shorter.",
+    caption,
+    children: (
+      <>
+        <defs>
+          {[
+            ["fs-blue", "#2563eb"],
+            ["fs-red", "#dc2626"],
+            ["fs-amber", "#f59e0b"],
+          ].map(([id, fill]) => (
+            <marker
+              key={id}
+              id={id}
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="6.5"
+              markerHeight="6.5"
+              orient="auto"
+            >
+              <path d="M0,0 L10,5 L0,10 z" fill={fill} />
+            </marker>
+          ))}
+        </defs>
+
+        <text
+          x={30}
+          y={28}
+          className="fill-foreground"
+          fontSize={13}
+          fontWeight={600}
+        >
+          Feature space — each axis is an observation, each arrow is a column of
+          X
+        </text>
+
+        {/* angle arc between the two feature vectors */}
+        <path
+          d={arc}
+          fill="none"
+          className="text-muted-foreground"
+          stroke="currentColor"
+          strokeWidth={1.2}
+          opacity={0.8}
+        />
+        <text
+          x={polar(bis + halfAngle * 0.55, 63).x}
+          y={polar(bis + halfAngle * 0.55, 63).y + 4}
+          textAnchor="middle"
+          className="fill-muted-foreground"
+          fontSize={12}
+        >
+          θ
+        </text>
+
+        {/* the two feature vectors */}
+        {vec(x1, "#2563eb", 2.2, "fs-blue")}
+        {vec(x2, "#2563eb", 2.2, "fs-blue")}
+        {/* the two principal directions */}
+        {vec(z1, "#dc2626", 3, "fs-red")}
+        {vec(z2, "#f59e0b", 3, "fs-amber")}
+        <polyline
+          points={ra}
+          fill="none"
+          className="text-muted-foreground"
+          stroke="currentColor"
+          strokeWidth={1.2}
+        />
+        <circle cx={O.x} cy={O.y} r={3.4} className="fill-foreground" />
+
+        <text
+          x={x1.x + 10}
+          y={x1.y + 4}
+          fontSize={12.5}
+          fill="#2563eb"
+          fontWeight={600}
+        >
+          x₁
+        </text>
+        <text
+          x={x2.x - 4}
+          y={x2.y - 9}
+          fontSize={12.5}
+          fill="#2563eb"
+          fontWeight={600}
+        >
+          x₂
+        </text>
+        <text
+          x={z1.x + 8}
+          y={z1.y + 2}
+          fontSize={12.5}
+          fill="#dc2626"
+          fontWeight={600}
+        >
+          z₁ = PC1 scores
+        </text>
+        <text
+          x={z2.x + 8}
+          y={z2.y + 12}
+          fontSize={12.5}
+          fill="#f59e0b"
+          fontWeight={600}
+        >
+          z₂ = PC2 scores
+        </text>
+
+        {/* the reading key */}
+        {rows.map(([lhs, rhs], i) => (
+          <g key={`row${i}`} transform={`translate(392, ${74 + i * 32})`}>
+            <text
+              x={0}
+              y={0}
+              className="fill-foreground"
+              fontSize={12.5}
+              fontWeight={600}
+            >
+              {lhs}
+            </text>
+            <text
+              x={0}
+              y={15}
+              className="fill-muted-foreground"
+              fontSize={11.5}
+            >
+              {rhs}
+            </text>
+          </g>
+        ))}
+      </>
+    ),
+  });
+}
