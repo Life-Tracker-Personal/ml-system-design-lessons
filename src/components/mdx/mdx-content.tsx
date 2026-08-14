@@ -15,6 +15,16 @@ import {
   PCAPointSpace,
   PCAFeatureSpace,
 } from "./regression-figures";
+import { BackpropGraph } from "./fig-backprop";
+import { MomentumRavine } from "./fig-ravine";
+import { LossCurveShapes } from "./fig-losscurves";
+import { BoostingResidualStrip } from "./fig-boosting";
+import { ElboAscent } from "./fig-elbo";
+import { MarginLosses } from "./fig-margin-losses";
+import { NoiseModelToLoss } from "./fig-noise-loss";
+import { RidgeVsPcrShrinkage } from "./fig-shrinkage";
+import { EstimatorIsRandom } from "./fig-beta-random";
+import { StratifiedVsSrs } from "./fig-stratified";
 import {
   RowVsColumnStorage,
   SplitStrategyPanels,
@@ -84,6 +94,16 @@ export function MdxContent({ source }: { source: string }) {
         PCARotation,
         PCAPointSpace,
         PCAFeatureSpace,
+        BackpropGraph,
+        MomentumRavine,
+        LossCurveShapes,
+        BoostingResidualStrip,
+        ElboAscent,
+        MarginLosses,
+        NoiseModelToLoss,
+        RidgeVsPcrShrinkage,
+        EstimatorIsRandom,
+        StratifiedVsSrs,
         RowVsColumnStorage,
         SplitStrategyPanels,
         LeakageTimeline,

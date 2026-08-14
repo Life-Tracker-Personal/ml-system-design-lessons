@@ -179,6 +179,8 @@ $$\mathbb E[\hat\beta\mid X]=\beta$$
 
 and OLS is unbiased. Unbiased does **not** mean this sample's estimate equals truth. It means the estimator is centered on truth across repeated samples. Your one estimate can still be badly off.
 
+<EstimatorIsRandom caption="Look at the blue line on the left before anything else: that is your one sample, and its slope is 0.298 when the truth is 0.600. Nothing was resampled except ε — same β, same twelve x values every time — yet the refits fan out around the fixed red truth. The right panel is where 2000 of those slopes landed. Two readings: the pile is centred on the true 0.600, which is what unbiasedness means, and its width is not decoration — the simulated spread 0.185 matches σ/√Sxx = 0.184, the standard error the formula predicts." />
+
 If $\operatorname{Var}(\varepsilon\mid X)=\sigma^2I$, with $I$ the identity matrix — equal noise variance on every observation, no correlation between observations — then
 
 $$\operatorname{Var}(\hat\beta\mid X)=\sigma^2(X^\top X)^{-1}$$
