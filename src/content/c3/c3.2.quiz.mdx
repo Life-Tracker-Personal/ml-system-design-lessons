@@ -29,7 +29,7 @@ $$
 \text{LN}(x) = \gamma \odot \frac{x-\mu}{\sqrt{\sigma^2+\epsilon}} + \beta
 $$
 
-RMSNorm drops the mean subtraction and the bias, keeping only the rescale:
+Here $\mu$ and $\sigma^2$ are the mean and variance of one token's $d$ features, $\epsilon$ is a small constant protecting the denominator, $\odot$ is elementwise multiplication, and $\gamma$ and $\beta$ are the learned per-feature gain and bias. RMSNorm drops the mean subtraction and the bias, keeping only the rescale, with the sum over those same $d$ features:
 
 $$
 \text{RMSNorm}(x) = \gamma \odot \frac{x}{\sqrt{\frac1d\sum_i x_i^2 + \epsilon}}
@@ -62,9 +62,9 @@ The FLOP objection misses the point. A norm is elementwise, so it has very low *
 
 **(a)** Attention without position information is **permutation-equivariant**: permute the input tokens and you get exactly the same output vectors, permuted the same way. The logit between positions $i$ and $j$ depends only on the two tokens' content, not on where they sit. So "dog bites man" and "man bites dog" produce the same set of representations, and the model cannot tell them apart.
 
-**(b)** A **learned** position table has one row per slot. Train to 2048 and there is simply no row for position 5000; the parameter does not exist. **Sinusoidal** encodings are defined at every position, so nothing crashes, but the model has never seen those phase combinations during training, and attention quality degrades immediately past the trained length. Both are absolute: they tag a slot with an identity rather than encoding a distance.
+**(b)** A **learned** position table has one row per slot. Train to 2048 and there is no row for position 5000; the parameter does not exist. **Sinusoidal** encodings are defined at every position, so nothing crashes, but the model has never seen those phase combinations during training, and attention quality degrades immediately past the trained length. Both are absolute: they tag a slot with an identity rather than encoding a distance.
 
-**(c)** RoPE adds nothing to the embedding. It rotates $q$ and $k$ only, right before the dot product. Pair up the head dimensions, give pair $i$ frequency $\theta_i = b^{-2i/d}$, and rotate the pair at position $m$ by $m\theta_i$. Rotations compose and $R_m^\top = R_{-m}$, so
+**(c)** RoPE adds nothing to the embedding. It rotates $q$ and $k$ only, right before the dot product. Pair up the $d$ head dimensions into $d/2$ pairs indexed by $i = 0, \dots, d/2 - 1$, give pair $i$ the angular frequency $\theta_i = b^{-2i/d}$ with base $b = 10000$, and rotate the pair at position $m$ by the angle $m\theta_i$. Write $R_m$ for the matrix that applies all $d/2$ of those rotations at once. Transposing a rotation runs it backwards, $R_m^\top = R_{-m}$, and successive rotations add their angles, so
 
 $$
 (R_m q)^\top (R_n k) = q^\top R_m^\top R_n k = q^\top R_{n-m} k
@@ -72,7 +72,7 @@ $$
 
 The logit depends on positions only through $n-m$. Absolute rotations in, relative scores out, with zero parameters and zero extra memory.
 
-**KV cache compatibility.** RoPE is applied to a key once, at the moment that token is processed, and the rotated key is what you store. Nothing needs to be recomputed when the query position advances, because the relative behavior falls out of the algebra at dot-product time. A relative scheme that adds a bias term indexed by $i-j$ (or otherwise depends on the query's position) has to touch the score matrix at every step instead; it works, but it is an extra per-step term rather than a property of the cached tensor. ALiBi is the clean version of that route: add $-m|i-j|$ to the logits. It extrapolates gracefully but is monotonic in distance and lost to RoPE on long-range quality.
+**KV cache compatibility.** RoPE is applied to a key once, at the moment that token is processed, and the rotated key is what you store. Nothing needs to be recomputed when the query position advances, because the relative behavior falls out of the algebra at dot-product time. A relative scheme that adds a bias term indexed by $i-j$ (or otherwise depends on the query's position) has to touch the score matrix at every step instead; it works, but it is an extra per-step term rather than a property of the cached tensor. ALiBi is the clean version of that route: add $-m|i-j|$ to the logit between positions $i$ and $j$, with $m$ a fixed per-head slope. It extrapolates gracefully but is monotonic in distance and lost to RoPE on long-range quality.
 
 **Rubric:**
 - Names permutation-equivariance and defines it, with an ordering example
@@ -130,7 +130,7 @@ $$
 \text{bytes} = 2 \times n_{layers} \times n_{kv} \times d_{head} \times \text{seq} \times \text{batch} \times \text{dtype bytes}
 $$
 
-The leading 2 is keys and values. Dtype bytes: 4 fp32, 2 fp16/bf16, 1 fp8/int8.
+The leading 2 is keys and values. $n_{layers}$ is the layer count, $n_{kv}$ is `n_kv_heads`, $d_{head}$ is one head's dimension, seq is sequence length in tokens and batch is the number of sequences resident at once. Dtype bytes: 4 fp32, 2 fp16/bf16, 1 fp8/int8.
 
 MHA, $n_{kv} = 64$, batch 1, seq $10^5$, fp16:
 
@@ -164,13 +164,13 @@ The headline comparison to make out loud: under MHA, one user's cache at 100K is
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** Original: $W_2\,\text{ReLU}(W_1 x)$, two matrices, $d_{ff} = 4d$. SwiGLU:
+**(a)** Original: $W_2\,\text{ReLU}(W_1 x)$, two matrices, with model width $d$ and FFN hidden width $d_{ff} = 4d$. SwiGLU:
 
 $$
 \text{SwiGLU}(x) = W_2\big(\text{SiLU}(W_g x) \odot (W_1 x)\big), \qquad \text{SiLU}(z) = z\sigma(z)
 $$
 
-Three matrices. One branch produces values, the other a multiplicative gate, and the elementwise product gives a cheap second-order interaction between two learned projections that a single matmul plus pointwise nonlinearity cannot express. It is worth roughly a percent of loss at matched parameters, which is a large return on a one-line change.
+Three matrices: $W_g$ is a third up-projection shaped like $W_1$, $\sigma$ is the logistic sigmoid, and $\odot$ is elementwise multiplication. One branch produces values, the other a multiplicative gate, and the elementwise product gives a cheap second-order interaction between two learned projections that a single matmul plus pointwise nonlinearity cannot express. It is worth roughly a percent of loss at matched parameters, which is a large return on a one-line change.
 
 **(b)** Two matrices at $d_{ff} = 4d$ cost $2 \cdot d \cdot 4d = 8d^2$ parameters. Three matrices cost $3 d\, d_{ff}$. Setting them equal:
 
@@ -201,7 +201,7 @@ For $d = 4096$: $\frac83 \times 4096 = 10922.7$, and Llama ships 11008, the near
 
 **(a)** Replace the single FFN in a block with $E$ parallel FFNs plus a router, a small linear layer producing $E$ logits. Take the top $k$ (usually 2), softmax over just those $k$ scores, run the token through those experts, and sum their outputs weighted by the normalized scores. Routing is **per token per layer**, not per sequence: the same sentence uses different experts at different depths, and adjacent tokens routinely take different experts.
 
-**(b)** Total parameters and per-token FLOPs decouple. With the $2N$ rule for forward FLOPs, Mixtral costs like a 13B model per token and stores like a 47B one, roughly a 3.6x FLOP saving. In fp16 that is about 94 GB of weights you must hold resident, versus 26 GB for the dense 13B whose speed you are getting.
+**(b)** Total parameters and per-token FLOPs decouple. A forward pass costs roughly $2N$ FLOPs per token when $N$ parameters are active, so Mixtral costs like a 13B model per token and stores like a 47B one, roughly a 3.6x FLOP saving. In fp16 that is about 94 GB of weights you must hold resident, versus 26 GB for the dense 13B whose speed you are getting.
 
 So: **MoE buys compute, not memory.** Every expert has to be in VRAM because you cannot predict which tokens will need which. It changes your GPU count, not your per-token latency. Candidates get this backwards constantly, usually by saying MoE "makes the model smaller."
 
@@ -211,7 +211,7 @@ $$
 \mathcal{L}_{aux} = \alpha E \sum_{i=1}^{E} f_i P_i
 $$
 
-where $f_i$ is the fraction of batch tokens routed to expert $i$ and $P_i$ is the mean router probability for expert $i$. The product is minimized when both are uniform. Using $P_i$ rather than $f_i$ alone keeps the term differentiable, since $f_i$ comes from a hard top-$k$ selection. Implementations also set a **capacity factor**, a hard cap on tokens per expert per batch; tokens over the cap are dropped and their residual passes through unchanged. Newer models bias the router logits based on recent load instead of adding a loss, which avoids the auxiliary gradient perturbing quality.
+where $\alpha$ is a small coefficient scaling the term, $E$ is the number of experts, $f_i$ is the fraction of batch tokens routed to expert $i$, and $P_i$ is the mean router probability for expert $i$ over that batch. The product is minimized when both are uniform. Using $P_i$ rather than $f_i$ alone keeps the term differentiable, since $f_i$ comes from a hard top-$k$ selection. Implementations also set a **capacity factor**, a hard cap on tokens per expert per batch; tokens over the cap are dropped and their residual passes through unchanged. Newer models bias the router logits based on recent load instead of adding a loss, which avoids the auxiliary gradient perturbing quality.
 
 **(d)** First, **memory-constrained serving**: if you are fitting a model onto a fixed GPU budget, MoE gives you the worst of it, since you pay full VRAM for the total parameter count. Second, **large-batch throughput serving**: at high batch a single layer's tokens collectively touch most experts anyway, so the FLOP saving erodes while you still move many expert weight matrices per step. MoE's advantage is sharpest at low-to-moderate batch where per-token FLOPs dominate.
 
@@ -237,9 +237,9 @@ where $f_i$ is the fraction of batch tokens routed to expert $i$ and $P_i$ is th
 
 **(b)** Naive attention computes $S = QK^\top$ and writes the full $n \times n$ score matrix to HBM, reads it back to softmax, writes the result, reads it again to multiply by $V$. At $n = 10^5$ in fp16, that intermediate is $10^{10} \times 2 = 20$ GB, per head, per sequence. This is the point most people miss: attention is $O(n^2)$ in **memory**, not only in time, and the memory wall is the one you hit first.
 
-**(c)** FlashAttention tiles $Q$, $K$ and $V$ into blocks sized to fit in SRAM and never materializes $S$. For a block of queries it walks over key blocks, maintaining a running max $m$, a running softmax denominator $\ell$, and a running output accumulator. When a new block raises the max from $m$ to $m'$, the accumulated numerator and denominator are multiplied by $e^{m-m'}$ before the new block's contribution is added, which is exactly the online-softmax identity. At the end you have the same weighted sum you would have gotten from the full matrix. The backward pass recomputes tiles from the stored $m$ and $\ell$ instead of reading back a saved attention matrix.
+**(c)** FlashAttention tiles $Q$, $K$ and $V$ into blocks sized to fit in SRAM and never materializes $S$. For a block of queries it walks over key blocks, maintaining a running maximum $m$ of that row's scores so far (a different $m$ from the RoPE position index), a running softmax denominator $\ell$, and a running output accumulator. When a new block raises the maximum from $m$ to $m'$, the accumulated numerator and denominator are multiplied by $e^{m-m'}$ before the new block's contribution is added: everything accumulated so far was exponentiated against the old maximum, and that one factor re-bases it to the new one. This is exactly the online-softmax identity. At the end you have the same weighted sum you would have gotten from the full matrix. The backward pass recomputes tiles from the stored $m$ and $\ell$ instead of reading back a saved attention matrix.
 
-**(d)** It is **exact**, not an approximation: same values up to floating-point associativity, not a sparse or low-rank stand-in for softmax attention. And it does **not reduce FLOPs**; it slightly increases them, because the backward recomputes. What it reduces is HBM traffic, from $O(n^2)$ to roughly $O(n^2 d/M)$ with $M$ the SRAM size, and peak memory from $O(n^2)$ to $O(n)$. Two to four times faster on typical shapes, and the memory change is what makes long context feasible at all.
+**(d)** It is **exact**, not an approximation: same values up to floating-point associativity, not a sparse or low-rank stand-in for softmax attention. And it does **not reduce FLOPs**; it slightly increases them, because the backward recomputes. What it reduces is HBM traffic, from $O(n^2)$ to roughly $O(n^2 d/M)$ with $d$ the head dimension and $M$ the SRAM size, and peak memory from $O(n^2)$ to $O(n)$. Two to four times faster on typical shapes, and the memory change is what makes long context feasible at all.
 
 **(e)** Because it reorders floating-point accumulation, outputs are not bit-identical to the naive kernel. Regression tests that assert exact logit equality across kernel or library versions start failing, and that is not a bug. Sampling at temperature can then diverge into a visibly different completion from a tiny last-bit difference, which reads as a model change to whoever is looking at the output.
 
@@ -267,7 +267,7 @@ where $f_i$ is the fraction of batch tokens routed to expert $i$ and $P_i$ is th
 
 **(c)** **Arithmetic**: if "1234" is one token and "12345" is a different single token, the model has no positional view of the digits, so multi-digit arithmetic is learned per token string rather than compositionally. Llama's tokenizer splits numbers into individual digits specifically for this, and it measurably improves multi-digit arithmetic. **Character counting**: "how many r's in strawberry" is hard because the model sees a few opaque token IDs, not letters. Neither is a reasoning deficit; both are input-representation artifacts. A third worth naming: **domain mismatch**, where legal, medical, chemical and long-identifier code text shatters into many tokens under a general tokenizer, inflating cost and weakening the representation of exactly the terms that matter most.
 
-**(d)** Embedding matrix: $128000 \times 4096 = 5.24\times10^8$ parameters, about **1 GB** in fp16, and the unembedding is another 1 GB unless you tie the weights. Prefill logits for an 8K prompt: $8192 \times 128000 \times 2 = 2.1\times10^9$ bytes, about **2.1 GB** for a single sequence, and more if the kernel materializes them in fp32 for the softmax. That transient is why production computes logits only at the final position during decode, why prefill is chunked into segments rather than run in one shot, and why fused cross-entropy kernels that never materialize the full logits tensor exist. It is also the honest answer to "vocabulary of 100K, how would you optimize the architecture": tie embeddings, do not materialize logits you will not sample from, and chunk.
+**(d)** With $d = 4096$ as the model width, the embedding matrix is $128000 \times 4096 = 5.24\times10^8$ parameters, about **1 GB** in fp16, and the unembedding is another 1 GB unless you tie the weights. Prefill logits for an 8K prompt: $8192 \times 128000 \times 2 = 2.1\times10^9$ bytes, about **2.1 GB** for a single sequence, and more if the kernel materializes them in fp32 for the softmax. That transient is why production computes logits only at the final position during decode, why prefill is chunked into segments rather than run in one shot, and why fused cross-entropy kernels that never materialize the full logits tensor exist. It is also the honest answer to "vocabulary of 100K, how would you optimize the architecture": tie embeddings, do not materialize logits you will not sample from, and chunk.
 
 **Rubric:**
 - BPE described as an ordered merge list, learned by frequency, replayed at encode time

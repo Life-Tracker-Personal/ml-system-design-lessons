@@ -9,7 +9,7 @@ estimatedMinutes: 55
 
 ## TL;DR
 
-Every other chapter in this course assumes your rows are independent and identically distributed. Time series breaks that assumption in a specific, fixable way, and the fix has a name: **stationarity**. A stationary series has a mean, a variance and an autocovariance structure that do not move with calendar time, which is what lets one long sample stand in for the many paths you never got to observe. Once the series has a **unit root** — a shock that never decays — the usual asymptotics fail badly. Regress one random walk on an independent second random walk and the t-statistic **diverges at rate $\sqrt{T}$**, so the more data you collect the more certain you become of a relationship that does not exist.
+Standard regression theory assumes the rows are independent and identically distributed. Time series breaks that assumption in a specific, fixable way, and the property that replaces it is **stationarity**: a mean, a variance and an autocovariance structure that do not move with calendar time. That invariance is what lets one long sample stand in for the many paths you never got to observe. Once the series has a **unit root** — a shock that never decays — the usual asymptotics fail badly. Regress one random walk on an independent second random walk and the t-statistic **diverges at rate $\sqrt{T}$**, where $T$ is the number of observations, so the more data you collect the more certain you become of a relationship that does not exist.
 
 Four things to take away. One, why the t-stat blows up and what diagnostic catches it: high $R^2$ paired with a Durbin-Watson near zero. Two, differencing fixes stationarity by destroying the level information your signal probably lived in. Three, get the null hypotheses right: **ADF's null is that a unit root is present**, KPSS's null is the opposite, which is why you run both. Four, two I(1) series can have an I(0) linear combination — cointegration — which is the statistical basis of pairs trading, along with the ways it fails in production.
 
@@ -27,15 +27,15 @@ Four things to take away. One, why the t-stat blows up and what diagnostic catch
 
 ## Part 1 — What iid was doing for you, and what replaces it
 
-OLS inference rests on two limit theorems. The law of large numbers gives $\frac{1}{T}\sum_t x_t^2 \to Q$, a finite positive constant, so the design matrix stabilizes. The central limit theorem gives $\frac{1}{\sqrt{T}}\sum_t x_t \epsilon_t \Rightarrow N(0, \sigma^2 Q)$, so estimation error shrinks like $1/\sqrt{T}$ and is asymptotically normal. Those two facts are what let you compare a t-statistic to 1.96.
+OLS inference rests on two limit theorems. Write $x_t$ for the regressor at time $t$, $\epsilon_t$ for the error term with variance $\sigma^2$, and $T$ for the number of observations. The law of large numbers gives $\frac{1}{T}\sum_t x_t^2 \to Q$, a finite positive constant, so the design matrix stabilizes. The central limit theorem gives $\frac{1}{\sqrt{T}}\sum_t x_t \epsilon_t \Rightarrow N(0, \sigma^2 Q)$, so estimation error shrinks like $1/\sqrt{T}$ and is asymptotically normal. Those two facts are what let you compare a t-statistic to 1.96.
 
 Time series does not hand you independence. What it hands you instead, when you are lucky, is **stationarity plus ergodicity** — the distribution does not depend on calendar time, and time averages along one path converge to ensemble averages across paths. Together those restore both limit theorems, with a variance correction for the autocorrelation. Take stationarity away and you have nothing.
 
 ### Strict versus weak stationarity
 
-**Strict stationarity**: for every $k$, every set of times $t_1, \dots, t_k$, and every shift $h$, the joint distribution of $(X_{t_1}, \dots, X_{t_k})$ equals that of $(X_{t_1+h}, \dots, X_{t_k+h})$. The entire probabilistic structure is shift-invariant.
+**Strict stationarity**: for every number of time points $k \ge 1$, every set of times $t_1, \dots, t_k$, and every integer shift $h$, the joint distribution of $(X_{t_1}, \dots, X_{t_k})$ equals that of $(X_{t_1+h}, \dots, X_{t_k+h})$. The entire probabilistic structure is shift-invariant.
 
-**Weak (covariance) stationarity**: only the first two moments are shift-invariant.
+**Weak (covariance) stationarity**: only the first two moments are shift-invariant. The mean $\mu$ and variance $\sigma^2$ are constants, and the autocovariance $\gamma(h)$ depends only on the gap $h$ between two observations, not on where in the sample that gap sits.
 
 $$
 E[X_t] = \mu, \qquad \operatorname{Var}(X_t) = \sigma^2 < \infty, \qquad \operatorname{Cov}(X_t, X_{t+h}) = \gamma(h)
@@ -43,29 +43,29 @@ $$
 
 Neither implies the other. An iid sequence of Cauchy variables is strictly stationary — every joint distribution is shift-invariant — but not weakly stationary, because the variance does not exist. Going the other way, a process with constant mean and constant autocovariance whose third moment alternates in sign with $t$ is weakly but not strictly stationary. The two coincide for Gaussian processes, which are determined entirely by mean and covariance.
 
-In practice everybody means weak stationarity, because that is what the asymptotics need. Say which one you mean rather than letting the interviewer wonder whether you know there are two.
+In practice the unqualified word "stationary" means weak stationarity, because the first two moments are what the asymptotics need. State which of the two you mean; the bare word is ambiguous.
 
 ## Part 2 — Unit roots, where the variance grows without bound
 
-Start with the workhorse. An AR(1) process is $x_t = \phi x_{t-1} + \epsilon_t$ with $\epsilon_t$ white noise of variance $\sigma^2$. Unroll it:
+The workhorse model for persistence is the first-order autoregression. An AR(1) process is $x_t = \phi x_{t-1} + \epsilon_t$, where $\phi$ is the persistence coefficient and $\epsilon_t$ is white noise of variance $\sigma^2$. Unroll it back to the starting value $x_0$ at time zero and it becomes a weighted sum of every shock so far:
 
 $$
 x_t = \phi^t x_0 + \sum_{j=0}^{t-1} \phi^j \epsilon_{t-j}
 $$
 
-The variance is a geometric sum:
+The shocks are uncorrelated, so their variances add, and the weights $\phi^{2j}$ form a geometric series:
 
 $$
 \operatorname{Var}(x_t) = \sigma^2 \frac{1-\phi^{2t}}{1-\phi^2}
 $$
 
-When $|\phi| < 1$ this converges to $\sigma^2/(1-\phi^2)$. The process forgets: a shock at time $s$ has influence $\phi^{t-s}$, decaying geometrically toward a fixed mean. The **half-life** of a shock is the $h$ solving $\phi^h = 1/2$:
+When $|\phi| < 1$ this converges to $\sigma^2/(1-\phi^2)$. The process forgets: a shock at time $s$ has influence $\phi^{t-s}$, decaying geometrically toward a fixed mean. The **half-life** of a shock is the number of periods $h$ it takes for that influence to fall by half, the $h$ solving $\phi^h = 1/2$:
 
 $$
 h = \frac{-\ln 2}{\ln \phi}
 $$
 
-Worked: $\phi = 0.98$ gives $\ln \phi = -0.0202$, so $h = 0.6931/0.0202 = 34.3$ periods. On daily data that is a 34-day half-life. Memorize this formula. It is not usually asked on its own, but it is the arithmetic inside every pairs-trading and holding-period question you will get.
+Worked: $\phi = 0.98$ gives $\ln \phi = -0.0202$, so $h = 0.6931/0.0202 = 34.3$ periods. On daily data that is a 34-day half-life. This formula is worth memorizing. It rarely stands alone, but it is the arithmetic inside every pairs-trading and holding-period calculation.
 
 At $\phi = 1$ the geometric sum degenerates. Take the limit directly: $x_t = x_0 + \sum_{j=1}^{t}\epsilon_j$, so
 
@@ -73,19 +73,21 @@ $$
 \operatorname{Var}(x_t) = t\sigma^2
 $$
 
-The variance grows without bound, there is no mean to revert to, and $\partial x_t / \partial \epsilon_s = 1$ for every $s \le t$ — shocks are permanent. The characteristic polynomial $1 - \phi z$ has its root at $z = 1/\phi = 1$, hence "**unit root**". A series like this is I(1): difference it once and you get white noise, which is I(0).
+The variance grows without bound, there is no mean to revert to, and $\partial x_t / \partial \epsilon_s = 1$ for every earlier time $s \le t$ — shocks are permanent. The characteristic polynomial $1 - \phi z$, in the complex variable $z$, has its root at $z = 1/\phi = 1$, hence "**unit root**". A series like this is I(1): difference it once and you get white noise, which is I(0).
 
 ## Part 3 — Spurious regression, derived
 
-Here is the mechanism. It comes down to one counting argument about growth rates.
+The mechanism comes down to one counting argument about growth rates.
 
-Let $x_t$ and $y_t$ be **independent** driftless random walks. Regress $y_t = \alpha + \beta x_t + u_t$ by OLS. Look at the denominator of $\hat\beta$:
+Let $x_t$ and $y_t$ be **independent** driftless random walks with per-step innovation variances $\sigma_x^2$ and $\sigma_y^2$. Regress $y_t = \alpha + \beta x_t + u_t$ by OLS, with $\alpha$ an intercept and $u_t$ the regression error. Look at the denominator of $\hat\beta$, the sum of squared regressor values:
 
 $$
 E\!\left[\sum_{t=1}^{T} x_t^2\right] = \sigma_x^2 \sum_{t=1}^{T} t = \sigma_x^2 \frac{T(T+1)}{2} = O(T^2)
 $$
 
-For a stationary regressor this sum is $O(T)$. That extra factor of $T$ drives everything else. The normalization that makes things converge is $T^{-2}\sum x_t^2$, not $T^{-1}\sum x_t^2$. Under that normalization the sum converges — but to $\sigma_x^2 \int_0^1 W_1(r)^2 dr$, a **random variable** (a functional of Brownian motion), not to a constant. The law of large numbers has been replaced by a functional central limit theorem, and the limit is stochastic.
+For a stationary regressor this sum is $O(T)$. That extra factor of $T$ drives everything else. The normalization that makes things converge is $T^{-2}\sum x_t^2$, not $T^{-1}\sum x_t^2$.
+
+What does it converge to? Rescale the walk in both time and height and the path does not flatten onto a number; it settles onto a random continuous path, a Brownian motion. Sums along the walk therefore become integrals along that path, and the limit inherits the path's randomness. The theorem that licenses this rescaling is the functional central limit theorem, and it replaces the law of large numbers here. Write $W_1$ and $W_2$ for two independent standard Brownian motions on the unit interval and $r \in [0,1]$ for rescaled time. Under the $T^{-2}$ normalization the sum converges — but to $\sigma_x^2 \int_0^1 W_1(r)^2 dr$, a **random variable** (a functional of Brownian motion), not to a constant.
 
 The numerator $T^{-2}\sum x_t y_t$ converges to $\sigma_x \sigma_y \int_0^1 W_1(r) W_2(r)\, dr$, which is also random and, critically, **is not zero even though $W_1 \perp W_2$**. Two independent Brownian paths both wander; over any single realization one is generally above its mean while the other is too. So
 
@@ -101,13 +103,13 @@ $$
 s^2 = \frac{1}{T-2}\sum_t \hat u_t^2 = O_p(T)
 $$
 
-Feed that into the standard error:
+The standard error divides that growing residual variance by the even faster-growing regressor sum, so the two rates do not cancel:
 
 $$
 \operatorname{se}(\hat\beta)^2 = \frac{s^2}{\sum_t \tilde x_t^2} = \frac{O_p(T)}{O_p(T^2)} = O_p(T^{-1})
 $$
 
-so $\operatorname{se}(\hat\beta) = O_p(T^{-1/2})$. But $\hat\beta$ itself is $O_p(1)$. Therefore
+where $\tilde x_t = x_t - \bar x$ is the regressor in deviations from its sample mean $\bar x$. Taking the square root, $\operatorname{se}(\hat\beta) = O_p(T^{-1/2})$: the reported precision keeps improving with sample size. But $\hat\beta$ itself is $O_p(1)$, since it converges to a spread-out random variable rather than shrinking toward anything. A numerator that stays the same size over a denominator that shrinks can only grow:
 
 $$
 t_{\hat\beta} = \frac{\hat\beta}{\operatorname{se}(\hat\beta)} = \frac{O_p(1)}{O_p(T^{-1/2})} = O_p(\sqrt{T})
@@ -115,17 +117,17 @@ $$
 
 **The t-statistic diverges.** More data does not help; more data makes it worse, at rate $\sqrt{T}$. If a legitimate t of 1.0 is what the relationship deserves, then at $T=100$ you see roughly 10 and at $T = 10{,}000$ you see roughly 100. Granger and Newbold (1974) ran this as a simulation with $T=50$ and found $|t| > 2$ in about **75% of trials**, against a nominal 5% size. Yule had the phenomenon in 1926 without the theory, reporting a 0.95 correlation between the Church of England marriage rate and the standardized mortality rate.
 
-> **Stop and think.** The classic interview framing is "two unrelated random walks show $R^2$ above 0.5 over thousands of observations, what is going on?" Is a high $R^2$ actually a *property* of spurious regressions? Hint: work out what $R^2$ converges to, and ask whether that limit is a number or a distribution.
+> **Stop and think.** A common framing of the problem is "two unrelated random walks show $R^2$ above 0.5 over thousands of observations, what is going on?" Is a high $R^2$ actually a *property* of spurious regressions? Hint: work out what $R^2$ converges to, and ask whether that limit is a number or a distribution.
 
 ### High R-squared is a symptom, not a theorem
 
 $R^2$ here converges to a **nondegenerate random variable on $[0,1)$** — a ratio of Brownian functionals, same as $\hat\beta$. It does not converge to zero, which is the shocking part, but it does not converge to anything above 0.5 either. It is diffuse. Plenty of independent random-walk pairs produce an $R^2$ of 0.05, so a low $R^2$ does not acquit a regression.
 
-When an interviewer hands you "$R^2$ above 0.5", they are describing one draw they happened to see, not stating a result. Name the diverging t-statistic as the mechanism and treat high $R^2$ as a symptom that shows up often. Candidates who assert "spurious regressions always have high $R^2$" have memorized the anecdote instead of the theorem.
+A quoted "$R^2$ above 0.5" therefore describes one draw somebody happened to see, not a result. The mechanism to name is the diverging t-statistic; the high $R^2$ is a symptom that shows up often. "Spurious regressions always have high $R^2$" is the anecdote, not the theorem.
 
 ### The diagnostic
 
-Durbin-Watson on the residuals:
+Durbin-Watson compares the size of the residual changes to the size of the residuals themselves, where $\hat u_t$ are the OLS residuals and $\hat\rho_1$ is their lag-1 sample autocorrelation:
 
 $$
 DW = \frac{\sum_{t=2}^{T}(\hat u_t - \hat u_{t-1})^2}{\sum_{t=1}^{T}\hat u_t^2} \approx 2(1 - \hat\rho_1)
@@ -135,19 +137,19 @@ With iid residuals $\hat\rho_1 \approx 0$ and $DW \approx 2$. With random-walk r
 
 ## Part 4 — Differencing, and what it costs
 
-The textbook fix is to difference: model $\Delta y_t = \beta \Delta x_t + u_t$. Under a true unit root this is correct, since $\Delta$ of a random walk is white noise, and the regression now correctly reports nothing. Problem solved, except it costs you three things.
+The textbook fix is to difference: model $\Delta y_t = \beta \Delta x_t + u_t$, where $\Delta$ is the first-difference operator, $\Delta y_t = y_t - y_{t-1}$. Under a true unit root this is correct, since $\Delta$ of a random walk is white noise, and the regression now correctly reports nothing. The inference is repaired, at three costs.
 
-**You lost the levels.** Differencing is a high-pass filter: the frequency response of $1 - L$ has gain $|1 - e^{-i\omega}| = 2|\sin(\omega/2)|$, zero at $\omega = 0$ and maximal at the Nyquist frequency. It annihilates the low-frequency content — trends, slow reversion, valuation levels — where predictive information tends to live, and amplifies the high frequencies where microstructure noise lives.
+**You lost the levels.** Differencing is a high-pass filter. Written with the lag operator $L$, which sends $y_t$ to $y_{t-1}$, the difference is $1 - L$, and its gain at angular frequency $\omega$ is $|1 - e^{-i\omega}| = 2|\sin(\omega/2)|$, zero at $\omega = 0$ and maximal at the Nyquist frequency. It annihilates the low-frequency content — trends, slow reversion, valuation levels — where predictive information tends to live, and amplifies the high frequencies where microstructure noise lives.
 
 **You may have over-differenced.** If the series was already I(0), differencing makes the errors an MA(1) with $\theta = -1$, which is non-invertible. Any ARMA fit will now misbehave.
 
 **You threw away the cointegrating relationship.** That is Part 6.
 
-The middle path is **fractional differencing** (Hosking 1981, brought to finance by Lopez de Prado 2018). Apply $(1-L)^d$ with real $d \in (0,1)$ via the binomial expansion, weights $w_k = (-1)^k \binom{d}{k}$, which decay slowly instead of truncating at lag 1. Search for the **minimum $d$ that passes ADF**, keeping as much memory as stationarity permits. Equity price series often pass around $d \approx 0.3$ to $0.5$, far short of the $d=1$ integer differencing forces on you.
+The middle path is **fractional differencing** (Hosking 1981, brought to finance by Lopez de Prado 2018). Apply $(1-L)^d$ with real $d \in (0,1)$ via the binomial expansion, giving a weight $w_k = (-1)^k \binom{d}{k}$ on lag $k$ for $k = 0, 1, 2, \dots$; those weights decay slowly instead of truncating at lag 1. Search for the **minimum $d$ that passes ADF**, keeping as much memory as stationarity permits. Equity price series often pass around $d \approx 0.3$ to $0.5$, far short of the $d=1$ integer differencing forces on you.
 
 ## Part 5 — ADF and KPSS, and the null-hypothesis trap
 
-**ADF.** Fit
+**ADF.** Regress the change on the level, with $\alpha$ an intercept, $\gamma$ the coefficient on the lagged level, and $\delta_1,\dots,\delta_p$ the coefficients on $p$ lagged differences:
 
 $$
 \Delta x_t = \alpha + \gamma x_{t-1} + \sum_{i=1}^{p} \delta_i \Delta x_{t-i} + \epsilon_t
@@ -155,17 +157,17 @@ $$
 
 and test $H_0: \gamma = 0$. Read what that null says: $\gamma = 0$ means $x_t = x_{t-1} + \dots$, a **unit root**. The lagged difference terms are the "augmented" part, soaking up serial correlation so the error is white. The statistic is $\hat\gamma/\operatorname{se}(\hat\gamma)$, but it does **not** have a t distribution, because under the null the regressor $x_{t-1}$ is I(1) and everything from Part 3 applies. Compare against Dickey-Fuller critical values, which are far more negative: about $-2.86$ at 5% with a constant, $-3.41$ with a constant and trend.
 
-**KPSS.** Decompose $x_t = \xi t + r_t + \epsilon_t$ with $r_t$ a random walk of innovation variance $\sigma_u^2$. The null is $H_0: \sigma_u^2 = 0$, meaning **no random-walk component, i.e. the series is stationary**. The statistic uses partial sums $S_t = \sum_{i\le t} \hat e_i$ of the residuals:
+**KPSS.** Decompose $x_t = \xi t + r_t + \epsilon_t$ into a deterministic trend of slope $\xi$, a random walk $r_t$ of innovation variance $\sigma_u^2$, and a stationary error $\epsilon_t$. The null is $H_0: \sigma_u^2 = 0$, meaning **no random-walk component, i.e. the series is stationary**. The statistic uses partial sums $S_t = \sum_{i\le t} \hat e_i$ of the residuals $\hat e_i$ left after regressing the series on its deterministic part:
 
 $$
 \eta = \frac{1}{T^2 \hat s^2(l)}\sum_{t=1}^{T} S_t^2
 $$
 
-with $\hat s^2(l)$ a Newey-West long-run variance estimate. Large $\eta$ rejects stationarity; the 5% critical value is 0.463 for level stationarity and 0.146 for trend stationarity.
+with $\hat s^2(l)$ a Newey-West long-run variance estimate at bandwidth $l$. Large $\eta$ rejects stationarity; the 5% critical value is 0.463 for level stationarity and 0.146 for trend stationarity.
 
 ### Why you run both
 
-The trap, and it is the single most common ding on this topic: **failing to reject ADF is not evidence of a unit root.** You never accept a null. All you have shown is that the data did not contradict it, which is also what happens when you have no power.
+The trap is the direction of the inference: **failing to reject ADF is not evidence of a unit root.** You never accept a null. All you have shown is that the data did not contradict it, which is also what happens when you have no power.
 
 And ADF has notably low power near $\phi = 1$. Power depends on the local-to-unity parameter $T(1-\phi)$, not on $(1-\phi)$ alone. Take a genuinely mean-reverting spread with $\phi = 0.98$ — a 34-day half-life, exactly the regime a pairs trade lives in — and two years of daily data, $T = 500$. Then $T(1-\phi) = 500 \times 0.02 = 10$, which is well inside the underpowered zone; you will routinely fail to reject on a series that is genuinely stationary. To push $T(1-\phi)$ to around 25 at $\phi = 0.98$ you need $T = 1250$, five years of daily data. **The honest statement is "I do not have enough data to distinguish a 34-day half-life from a unit root," not "the spread has a unit root."**
 
@@ -178,11 +180,11 @@ Running both tests gives four outcomes, and all four are informative:
 | Fails to reject | Fails to reject | Underpowered. Not enough data; get more or shorten the sampling interval. |
 | Rejects | Rejects | The series is neither. Usually a **structural break**, sometimes long memory or a variance shift. Go look at a plot. |
 
-That last row is the discriminating answer. "Both reject" is not a contradiction to be averaged away, it is a signal that your model class is wrong.
+That last row is the one most often misread. "Both reject" is not a contradiction to be averaged away, it is a signal that your model class is wrong.
 
 ## Part 6 — Cointegration and pairs trading
 
-Generically, a linear combination of two I(1) series is I(1). Cointegration is the non-generic case, and here is why it can happen. Suppose both series are driven by one **common stochastic trend** $W_t$ (a random walk) plus their own stationary idiosyncratic parts:
+Generically, a linear combination of two I(1) series is I(1). Cointegration is the non-generic case, and one construction shows exactly when it arises. Suppose both series are driven by one **common stochastic trend** $W_t$ (a random walk) plus their own stationary idiosyncratic parts, with $\gamma_y$ and $\gamma_x$ the loadings of each series on that shared trend:
 
 $$
 y_t = \gamma_y W_t + \tilde y_t, \qquad x_t = \gamma_x W_t + \tilde x_t
@@ -196,13 +198,13 @@ $$
 
 The $W_t$ cancels exactly, and what remains is a linear combination of two I(0) series, hence I(0). That is a cointegrating vector, and it exists precisely when the two series share their non-stationary driver. Two random walks with *independent* drivers have no such $\beta$.
 
-The Granger representation theorem turns this into something tradeable: cointegration is equivalent to the existence of an **error-correction** form,
+A stationary combination cannot exist unless something pulls the spread back whenever it widens, and that pull has to be visible in the dynamics of the series. The result guaranteeing that it always is — cointegration is equivalent to the existence of an **error-correction** form — is the Granger representation theorem, and it is what turns cointegration into something tradeable:
 
 $$
 \Delta y_t = \alpha\,(y_{t-1} - \beta x_{t-1}) + \text{lagged differences} + \epsilon_t, \qquad \alpha < 0
 $$
 
-The spread level predicts the next change. A wide spread pulls back. That is the trade, and $\alpha$ is literally the speed of reversion. Engle and Granger shared the 2003 Nobel for this.
+The spread level predicts the next change. A wide spread pulls back. That is the trade, and the adjustment coefficient $\alpha$ is literally the speed of reversion. Engle and Granger shared the 2003 Nobel for this.
 
 ### Engle-Granger versus Johansen
 
@@ -210,19 +212,19 @@ The spread level predicts the next change. A wide spread pulls back. That is the
 
 **Johansen (1988, 1991)** estimates a VECM by maximum likelihood and tests the **rank** of the long-run impact matrix via its eigenvalues, using trace and max-eigenvalue statistics. It handles $n$ series at once, finds up to $n-1$ independent cointegrating vectors, is symmetric in the variables, and supports likelihood-ratio tests of restrictions on $\beta$. Cost: it assumes a Gaussian VAR, it is sensitive to lag-order selection, and on short samples with many series it happily discovers rank that is not there.
 
-Defend the choice out loud, because that is what is graded. Two assets with a clear economic hedge direction, and a need to explain it to a risk manager: Engle-Granger. A basket of five sector names where you do not know a priori which combination is stationary: Johansen.
+Defend the choice on its properties rather than on habit. Two assets with a clear economic hedge direction, and a need to explain it to a risk manager: Engle-Granger. A basket of five sector names where you do not know a priori which combination is stationary: Johansen.
 
 ### Sizing the trade
 
-Say you fit $\beta = 1.2$ on a pair, the residual spread has standard deviation \$0.80, and an AR(1) fit on the spread gives $\phi = 0.97$. Half-life:
+Say you fit $\beta = 1.2$ on a pair, the residual spread has standard deviation USD 0.80, and an AR(1) fit on the spread gives $\phi = 0.97$. Half-life:
 
 $$
 h = \frac{-\ln 2}{\ln 0.97} = \frac{0.6931}{0.03046} = 22.8 \text{ days}
 $$
 
-Enter at $z = 2$, which is \$1.60 from the mean, and over one half-life expect to capture about half of it, \$0.80. Cost it: on \$100 of the long leg and \$120 of the short, round-trip costs at 5bps per side on \$220 of gross notional are about \$0.22. Edge-to-cost near 4:1, which is a live trade.
+Enter at $z = 2$, two spread standard deviations from the mean, which is USD 1.60. Over one half-life expect to capture about half of it, USD 0.80. Cost it: on USD 100 of the long leg and USD 120 of the short, round-trip costs at 5bps per side on USD 220 of gross notional are about USD 0.22. Edge-to-cost near 4:1, which is a live trade.
 
-Now change one number and make the half-life 200 days. The edge per trade is identical, but you get one round trip a year instead of eight and the Sharpe collapses, with nothing about the cointegration having changed. **Half-life is what converts a statistical relationship into a capital-efficiency question.** A candidate who only reports "the ADF p-value was 0.03" has not answered the question.
+Now change one number and make the half-life 200 days. The edge per trade is identical, but you get one round trip a year instead of eight and the Sharpe collapses, with nothing about the cointegration having changed. **Half-life is what converts a statistical relationship into a capital-efficiency question.** Reporting "the ADF p-value was 0.03" and stopping there leaves that question untouched.
 
 ### What breaks it live
 

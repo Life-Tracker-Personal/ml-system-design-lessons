@@ -9,9 +9,9 @@ estimatedMinutes: 55
 
 ## TL;DR
 
-A 2026 production LLM is still the 2017 architecture: embed, then repeat (attention, feed-forward) with residual connections, then unembed. Almost every change since is a response to one of three pressures. Training got deeper, so normalization moved before the sublayer and got cheaper. Context got longer, so absolute position encodings were replaced by rotary embeddings that encode relative distance and can be stretched after training. Serving got expensive, so the key-value cache was compressed with grouped-query attention, the feed-forward network was made sparse with mixture of experts, and the attention kernel was rewritten to stop moving an $n \times n$ matrix through memory.
+A 2026 production LLM is still the 2017 architecture: embed, then repeat (attention, feed-forward) with residual connections, then unembed. Almost every change since is a response to one of three pressures. Training got deeper, so normalization moved before the sublayer and got cheaper. Context got longer, so absolute position encodings were replaced by rotary embeddings that encode relative distance and can be stretched after training. Serving got expensive, so the key-value cache was compressed with grouped-query attention, the feed-forward network was made sparse with mixture of experts, and the attention kernel was rewritten to stop moving the $n \times n$ attention score matrix, for a sequence of $n$ tokens, through memory.
 
-The interview value of this material is not the list. It is the ability to attach a number to each edit. Grouped-query attention with 8 key-value heads instead of 64 cuts a 70B model's cache at 100K context from 262 GB to 33 GB, which is the difference between one concurrent request and fifteen. Mixture of experts cuts per-token FLOPs by 3.6x and cuts memory by zero. FlashAttention changes no FLOPs at all and is bit-for-bit exact. Every section below ends in arithmetic, because that is what the follow-up question asks for.
+The value of this material is not the list. It is the ability to attach a number to each edit. Grouped-query attention with 8 key-value heads instead of 64 cuts a 70B model's cache at 100K context from 262 GB to 33 GB, which is the difference between one concurrent request and fifteen. Mixture of experts cuts per-token FLOPs by 3.6x and cuts memory by zero. FlashAttention changes no FLOPs at all and is bit-for-bit exact. Every section below ends in arithmetic.
 
 ## What you'll be able to do after this lesson
 
@@ -25,7 +25,7 @@ The interview value of this material is not the list. It is the ability to attac
 
 ## Part 1 — Normalization: where it goes, and what it computes
 
-Two independent changes happened here. Do not merge them.
+Two independent changes happened here, and they get merged into one constantly: where normalization sits relative to the residual add, and what the normalization itself computes.
 
 ### Pre-norm vs post-norm
 
@@ -43,7 +43,7 @@ $$
 \text{LN}(x) = \gamma \odot \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta, \qquad \mu = \frac1d \sum_i x_i
 $$
 
-RMSNorm drops the mean subtraction and the bias:
+The index $i$ runs over those $d$ features, $\mu$ and $\sigma^2$ are their mean and variance, $\epsilon$ is a small constant keeping the denominator away from zero, $\odot$ is elementwise multiplication, and $\gamma$ and $\beta$ are learned per-feature gain and bias vectors. RMSNorm drops the mean subtraction and the bias:
 
 $$
 \text{RMSNorm}(x) = \gamma \odot \frac{x}{\sqrt{\frac1d \sum_i x_i^2 + \epsilon}}
@@ -53,25 +53,25 @@ It keeps only the rescaling. The empirical finding is that re-centering contribu
 
 Why does that matter when normalization is well under 1% of a model's FLOPs? Because it is not FLOPs that cost you. A norm is an elementwise operation with very low **arithmetic intensity**, meaning FLOPs performed per byte moved from memory. Low-intensity ops are limited by memory bandwidth rather than by the arithmetic units, so their cost is measured in passes over the tensor.
 
-One thing worth separating: the reason transformers use LayerNorm rather than BatchNorm has nothing to do with any of this. BatchNorm normalizes across the batch dimension, which requires batch statistics that are unstable with variable sequence lengths and unavailable at decode time when the batch is a single sequence generating one token. LayerNorm normalizes within a token, so it behaves identically at batch 1 and batch 256.
+A third question gets tangled with these two and belongs apart from them. The reason transformers use LayerNorm rather than BatchNorm has nothing to do with placement or with bandwidth. BatchNorm normalizes across the batch dimension, which requires batch statistics that are unstable with variable sequence lengths and unavailable at decode time when the batch is a single sequence generating one token. LayerNorm normalizes within a token, so it behaves identically at batch 1 and batch 256.
 
 ## Part 2 — Position: from sinusoids to RoPE
 
 Attention with no position information is **permutation-equivariant**: permute the input tokens and the output tokens come back permuted the same way, with identical values. The attention weight between positions $i$ and $j$ depends only on the content of those two tokens. So "dog bites man" and "man bites dog" produce the same set of representations. Position has to be injected explicitly.
 
-The 2017 answer was fixed sinusoids added to the input embedding; GPT-2 used a learned lookup table instead. Both are **absolute**: they tag each slot with an identity, and both fail the same way. A learned table has no entry for position 5000 if you trained to 2048. Sinusoids technically define a value everywhere, but the model has never seen those phase combinations and attention degrades immediately past the training length. Do not spend interview time on the sinusoid formula; the question is why position is needed and why RoPE replaced it.
+The 2017 answer was fixed sinusoids added to the input embedding; GPT-2 used a learned lookup table instead. Both are **absolute**: they tag each slot with an identity, and both fail the same way. A learned table has no entry for position 5000 if you trained to 2048. Sinusoids technically define a value everywhere, but the model has never seen those phase combinations and attention degrades immediately past the training length. The sinusoid formula itself carries no weight; what matters is why position has to be injected at all and why RoPE replaced the absolute schemes.
 
-ALiBi took a different route, adding a linear penalty $-m \cdot |i-j|$ to the attention logits so distant tokens are down-weighted. It extrapolates gracefully, but the bias is monotonic in distance and it lost to RoPE on long-range quality.
+ALiBi took a different route, adding a linear penalty $-m \cdot |i-j|$ to the attention logit between positions $i$ and $j$, where $m$ is a fixed per-head slope, so distant tokens are down-weighted. It extrapolates gracefully, but the bias is monotonic in distance and it lost to RoPE on long-range quality.
 
 ### How RoPE actually works
 
-Rotary position embedding does not add anything to the embedding. It rotates the query and key vectors, and only those, right before the dot product. Split the $d_{head}$ dimensions into $d/2$ pairs. For pair $i$, define a frequency $\theta_i = b^{-2i/d}$ with base $b = 10000$. A vector at position $m$ has each pair rotated by angle $m\theta_i$:
+Rotary position embedding does not add anything to the embedding. It rotates the query and key vectors, and only those, right before the dot product. Write $d$ for the head dimension $d_{head}$, and split those $d$ coordinates into $d/2$ consecutive pairs indexed by $i = 0, 1, \dots, d/2 - 1$. Read each pair as a point in its own plane, so that "apply position" can mean "spin that point". Pair $i$ spins at its own angular frequency $\theta_i = b^{-2i/d}$, where the base $b = 10000$ sets how fast the frequencies decay; pair 0 spins fastest, pair $d/2 - 1$ slowest. A vector at position $m$ has pair $i$ turned through the angle $m\theta_i$, which is the 2x2 rotation
 
 $$
 R_m^{(i)} = \begin{pmatrix} \cos m\theta_i & -\sin m\theta_i \\ \sin m\theta_i & \cos m\theta_i \end{pmatrix}
 $$
 
-The whole point is one line of linear algebra. Rotations compose, and $R_m^{\top} = R_{-m}$, so for a query at position $m$ and a key at position $n$,
+Stacking those $d/2$ blocks down a diagonal gives the single matrix $R_m$ that rotates a whole head vector at position $m$. One property then does all the work. Transposing a rotation runs it backwards, $R_m^{\top} = R_{-m}$, and rotating by $-m$ and then by $n$ is the same as rotating once by $n - m$. So for a query at position $m$ and a key at position $n$,
 
 $$
 (R_m q)^{\top} (R_n k) = q^{\top} R_m^{\top} R_n k = q^{\top} R_{n-m} k
@@ -96,23 +96,23 @@ def rope(x, pos, base=10000.0):
 
 High-frequency pairs (small $i$, fast rotation) resolve local order; low-frequency pairs rotate slowly and encode long-range position. A model trained to 4K has never seen the low-frequency pairs complete much of a cycle, so at 32K those angles are out of distribution and attention falls apart.
 
-Three fixes, in the order they were invented. **Position interpolation** divides every position index by the scale factor $s$: to go from 4K to 32K, use $m/8$ instead of $m$. Nothing is out of distribution any more, but every angle is compressed, so local resolution degrades and you need a short fine-tune. **NTK-aware scaling** notices that only the slow dimensions are actually out of range, and instead raises the base $b$, which stretches the low frequencies a lot and the high frequencies barely at all. Llama 3 shipped with $b = 500000$ for exactly this reason. **YaRN** makes that explicit: interpolate the low-frequency dimensions fully, leave the high-frequency ones alone, ramp between them, and scale attention temperature to compensate for the entropy change. All three are cheap post-hoc edits, which is why context windows grew by 30x in two years without anyone retraining from scratch.
+Three fixes, in the order they were invented. **Position interpolation** divides every position index by the scale factor $s$, the ratio of new context length to trained length: going from 4K to 32K makes $s = 8$, so feed $m/8$ instead of $m$. Nothing is out of distribution any more, but every angle is compressed, so local resolution degrades and you need a short fine-tune. The second fix starts from the observation that only the slow dimensions were ever out of range, and so raises the base $b$ instead, which stretches the low frequencies a lot and the high frequencies barely at all. That one is called **NTK-aware scaling**, after the neural tangent kernel argument its authors used to derive it. Llama 3 shipped with $b = 500000$ for exactly this reason. **YaRN** makes that explicit: interpolate the low-frequency dimensions fully, leave the high-frequency ones alone, ramp between them, and scale attention temperature to compensate for the entropy change. All three are cheap post-hoc edits, which is why context windows grew by 30x in two years without anyone retraining from scratch.
 
 ## Part 3 — SwiGLU, and the 2/3 rule
 
-The original feed-forward network is $W_2\,\text{ReLU}(W_1 x)$ with $d_{ff} = 4d$. SwiGLU replaces it with a gated form using three matrices:
+The original feed-forward network is $W_2\,\text{ReLU}(W_1 x)$, where $d$ is the model width, $d_{ff}$ is the hidden width, $W_1$ projects a token from $d$ up to $d_{ff}$ and $W_2$ brings it back down, with $d_{ff} = 4d$. SwiGLU replaces it with a gated form using three matrices:
 
 $$
 \text{SwiGLU}(x) = W_2 \big( \text{SiLU}(W_g x) \odot (W_1 x) \big), \qquad \text{SiLU}(z) = z\,\sigma(z)
 $$
 
-One branch produces values, the other a multiplicative gate, and the elementwise product gives the layer a cheap second-order interaction that a single matmul plus pointwise nonlinearity cannot express. It is worth roughly a percent of loss at matched parameters, which is a lot for a one-line change.
+Here $W_g$ is a third up-projection of the same shape as $W_1$, $\sigma$ is the logistic sigmoid, and $\odot$ is again elementwise multiplication. One branch produces values, the other a multiplicative gate, and the elementwise product gives the layer a cheap second-order interaction that a single matmul plus pointwise nonlinearity cannot express. It is worth roughly a percent of loss at matched parameters, which is a lot for a one-line change.
 
-Three matrices instead of two would be a 50% parameter increase at the same $d_{ff}$, so implementations shrink $d_{ff}$ to compensate. Match the parameter count: $3 d\, d_{ff} = 8d^2$ gives $d_{ff} = \frac{8}{3}d$. For $d = 4096$ that is 10923, and Llama ships 11008 (the nearest multiple of 256 for kernel alignment). If a model card shows an FFN width that is an odd non-power-of-two like 11008 or 14336, that is the 2/3 rule and a SwiGLU.
+Three matrices instead of two would be a 50% parameter increase at the same $d_{ff}$, so implementations shrink $d_{ff}$ to compensate. Match the parameter count: $3 d\, d_{ff} = 8d^2$ gives $d_{ff} = \frac{8}{3}d$. For $d = 4096$ that is 10923, and Llama ships 11008 (the nearest multiple of 256 for kernel alignment). The name comes from the ratio to the old width: $\frac83 d$ is $\frac23$ of $4d$. If a model card shows an FFN width that is an odd non-power-of-two like 11008 or 14336, that is the 2/3 rule and a SwiGLU.
 
 ## Part 4 — GQA and MQA: compressing the KV cache
 
-Here is the single most common point of confusion, so state it precisely. `n_heads` is the number of **query** heads. `n_kv_heads` is the number of distinct key/value head pairs. Multi-head attention sets them equal. **Multi-query attention** sets `n_kv_heads = 1`: all query heads attend against one shared key and one shared value. **Grouped-query attention** sets it to something in between, typically 8, and each group of query heads shares a KV head. Only the KV heads are cached, so the cache shrinks by exactly `n_heads / n_kv_heads`.
+The single most common point of confusion is which heads get shared, so state it precisely. `n_heads` is the number of **query** heads. `n_kv_heads` is the number of distinct key/value head pairs. Multi-head attention sets them equal. **Multi-query attention** sets `n_kv_heads = 1`: all query heads attend against one shared key and one shared value. **Grouped-query attention** sets it to something in between, typically 8, and each group of query heads shares a KV head. Only the KV heads are cached, so the cache shrinks by exactly `n_heads / n_kv_heads`.
 
 The cache size formula, which you should be able to write without thinking:
 
@@ -120,7 +120,7 @@ $$
 \text{bytes} = 2 \times n_{layers} \times n_{kv} \times d_{head} \times \text{seq} \times \text{batch} \times \text{dtype bytes}
 $$
 
-The leading 2 is keys and values. Dtype bytes: 4 for fp32, 2 for fp16 or bf16, 1 for fp8 or int8.
+The leading 2 is keys and values. $n_{layers}$ is the number of layers, $n_{kv}$ is `n_kv_heads`, $d_{head}$ is the dimension of one head, seq is the sequence length in tokens and batch is the number of sequences held at once. Dtype bytes: 4 for fp32, 2 for fp16 or bf16, 1 for fp8 or int8.
 
 Worked example, a 70B-class model: 80 layers, 64 query heads, $d_{head} = 128$, so $d_{model} = 8192$. Weights in fp16 are about 140 GB. One sequence at 100K context:
 
@@ -128,17 +128,17 @@ Worked example, a 70B-class model: 80 layers, 64 query heads, $d_{head} = 128$, 
 - **GQA-8**: divide by 8, about **33 GB**.
 - **MQA**: divide by 64, about **4.1 GB**.
 
-Now turn that into a serving decision. An 8xH100 node has 640 GB. Subtract 140 GB of weights and you have roughly 500 GB for cache. MHA gives you one concurrent 100K request, and not comfortably. GQA-8 gives you about fifteen. That is the whole argument for why every 70B-plus model since Llama 2 uses GQA, and it is why the question is always asked as "how much does it save," never as "what is it."
+Now turn that into a serving decision. An 8xH100 node has 640 GB. Subtract 140 GB of weights and you have roughly 500 GB for cache. MHA gives you one concurrent 100K request, and not comfortably. GQA-8 gives you about fifteen. That is the whole argument for why every 70B-plus model since Llama 2 uses GQA. The saving, not the definition, is what the change is for.
 
-What do you give up? Less diversity in what keys and values can represent. MQA measurably degrades quality and is unstable to train; GQA at 8 groups is close to free, which is the empirical reason 8 is the standard choice. Mention Multi-head Latent Attention once if it comes up: DeepSeek compresses KV into a low-rank latent instead of sharing heads, same goal, different mechanism.
+What do you give up? Less diversity in what keys and values can represent. MQA measurably degrades quality and is unstable to train; GQA at 8 groups is close to free, which is the empirical reason 8 is the standard choice. Multi-head Latent Attention is the third member of this family: DeepSeek compresses KV into a low-rank latent instead of sharing heads, same goal, different mechanism.
 
 ## Part 5 — Mixture of experts
 
 Replace the single FFN in a block with $E$ parallel FFNs and a small router, a linear layer producing $E$ logits per token. Take the top $k$ (usually 2), softmax over those $k$ scores, and sum the chosen experts' outputs weighted by them. Every token takes a different pair of experts, and routing is per token per layer, not per sequence.
 
-Total parameters and per-token FLOPs decouple. Mixtral 8x7B has 46.7B parameters and activates about 12.9B per token, so with the $2N$ rule for forward FLOPs it costs like a 13B model and stores like a 47B one. In fp16 that is 94 GB of weights you must hold resident versus 26 GB for the dense 13B whose speed you get.
+Total parameters and per-token FLOPs decouple. Mixtral 8x7B has 46.7B parameters and activates about 12.9B per token. A forward pass costs roughly $2N$ FLOPs per token when $N$ parameters are active, so Mixtral costs like a 13B model and stores like a 47B one. In fp16 that is 94 GB of weights you must hold resident versus 26 GB for the dense 13B whose speed you get.
 
-That is the interview twist, and candidates get it backwards constantly. **MoE buys compute, not memory.** All experts must be in VRAM because you cannot predict which tokens will need which. It changes your GPU count, not your per-token latency. It also makes batching worse: at large batch a single layer touches most experts anyway, so the FLOPs saving erodes and you are moving many expert weight matrices per step.
+That decoupling gets read backwards more often than any other claim in this lesson. **MoE buys compute, not memory.** All experts must be in VRAM because you cannot predict which tokens will need which. It changes your GPU count, not your per-token latency. It also makes batching worse: at large batch a single layer touches most experts anyway, so the FLOPs saving erodes and you are moving many expert weight matrices per step.
 
 Routing has a stability problem. The router is trained jointly, so an expert that gets picked slightly more early on gets more gradient, gets better, and gets picked more. Left alone this collapses to a few overloaded experts while the rest are dead weight. The standard fix is an auxiliary load-balancing loss, added to the training objective:
 
@@ -146,17 +146,17 @@ $$
 \mathcal{L}_{aux} = \alpha E \sum_{i=1}^{E} f_i \, P_i
 $$
 
-where $f_i$ is the fraction of tokens in the batch routed to expert $i$ and $P_i$ is the mean router probability for expert $i$. The product is minimized when both are uniform, and using $P_i$ rather than $f_i$ alone keeps it differentiable. Implementations also set a **capacity factor**, a hard cap on tokens per expert per batch, and tokens over the cap are dropped (their residual passes through unchanged). Newer models bias the router logits directly based on recent load instead of adding a loss term, which avoids the auxiliary gradient perturbing quality.
+where $\alpha$ is a small coefficient setting how hard the term pushes, $f_i$ is the fraction of tokens in the batch routed to expert $i$, and $P_i$ is the mean router probability for expert $i$ over that same batch. The product is minimized when both are uniform. $P_i$ has to appear alongside $f_i$ because $f_i$ comes out of a hard top-$k$ selection and carries no gradient, while $P_i$ does. Implementations also set a **capacity factor**, a hard cap on tokens per expert per batch, and tokens over the cap are dropped (their residual passes through unchanged). Newer models bias the router logits directly based on recent load instead of adding a loss term, which avoids the auxiliary gradient perturbing quality.
 
 ## Part 6 — FlashAttention is exact
 
 Two memory tiers matter on a GPU. **HBM** is the high-bandwidth off-chip memory, tens of gigabytes at a few TB/s. **SRAM** is on-chip scratchpad, roughly 20 MB total, one to two orders of magnitude faster. Every read from HBM is expensive relative to arithmetic.
 
-Naive attention computes $S = QK^{\top}$, writes the full $n \times n$ matrix to HBM, reads it back to softmax it, writes it again, reads it again to multiply by $V$. At $n = 100000$ in fp16 that intermediate is $10^{10} \times 2 = 20$ GB per head per sequence. Attention is $O(n^2)$ in memory, not just in time, and that is the wall people hit first.
+Naive attention computes the score matrix $S = QK^{\top}$ for a sequence of $n$ tokens, writes that full $n \times n$ matrix to HBM, reads it back to softmax it, writes it again, reads it again to multiply by the value matrix $V$. At $n = 100000$ in fp16 that intermediate is $10^{10} \times 2 = 20$ GB per head per sequence. Attention is $O(n^2)$ in memory, not just in time, and that is the wall people hit first.
 
-FlashAttention tiles $Q$, $K$ and $V$ into blocks that fit in SRAM and never materializes $S$. It walks over key blocks maintaining a running max $m$, a running sum $\ell$ and a running output accumulator, rescaling on each step using the online-softmax identity: when the max increases from $m$ to $m'$, multiply the accumulated numerator and denominator by $e^{m - m'}$ before adding the new block's contribution. The final result is algebraically identical to the standard computation. Backward recomputes the tiles from the stored $m$ and $\ell$ rather than reading a saved attention matrix.
+FlashAttention tiles $Q$, $K$ and $V$ into blocks that fit in SRAM and never materializes $S$. For each block of queries it walks over the key blocks, maintaining a running maximum $m$ of the row's scores so far (a different $m$ from the position index of Part 2), a running sum $\ell$ of the exponentials that form the softmax denominator, and a running output accumulator. It rescales on each step using the online-softmax identity: when the running maximum increases from $m$ to a new value $m'$, multiply the accumulated numerator and denominator by $e^{m - m'}$ before adding the new block's contribution. Everything accumulated so far was exponentiated relative to the old maximum, and that single factor re-bases it to the new one, so the running totals stay exactly what a full-matrix softmax would have produced. The final result is algebraically identical to the standard computation. Backward recomputes the tiles from the stored $m$ and $\ell$ rather than reading a saved attention matrix.
 
-Two claims to get right, because both are commonly stated wrong. FlashAttention is **exact**, not an approximation, and produces the same values up to floating-point associativity. And it does **not reduce FLOPs**; it slightly increases them, since the backward pass recomputes. What it reduces is HBM traffic, from $O(n^2)$ to $O(n^2 d / M)$ where $M$ is SRAM size, and peak memory from $O(n^2)$ to $O(n)$. The speedup is two to four times on typical shapes, and the memory change is what makes long context possible at all.
+Two claims to get right, because both are commonly stated wrong. FlashAttention is **exact**, not an approximation, and produces the same values up to floating-point associativity. And it does **not reduce FLOPs**; it slightly increases them, since the backward pass recomputes. What it reduces is HBM traffic, from $O(n^2)$ to $O(n^2 d / M)$ where $d$ is the head dimension and $M$ is the SRAM size, and peak memory from $O(n^2)$ to $O(n)$. The speedup is two to four times on typical shapes, and the memory change is what makes long context possible at all.
 
 ## Part 7 — Tokenization leaks into behavior
 
@@ -171,7 +171,7 @@ Why an application engineer should care:
 3. **Character-level questions are unanswerable by construction.** "How many r's in strawberry" is hard because the model sees three opaque token IDs, not letters.
 4. **Domain mismatch fragments your vocabulary.** Legal and medical text, chemical names and code with long identifiers all shatter into many tokens under a general tokenizer, inflating cost and weakening the model's representation of the terms that matter most in that domain.
 
-One more piece of arithmetic, since "vocabulary of 100K, how would you optimize" is a real question. With $d = 4096$ and a 128K vocabulary, the embedding matrix is $128000 \times 4096 = 524$M parameters, about 1 GB in fp16, and the unembedding is another one unless you tie them. Worse, the logits tensor during prefill of an 8K prompt is $8192 \times 128000 \times 2$ bytes, about 2.1 GB, for one sequence. That is why production decode computes logits only at the final position, and why chunked prefill and fused cross-entropy kernels exist.
+One more piece of arithmetic, because vocabulary size lands in two places and the second one catches people out. "A vocabulary of 100K, how would you optimize" is a question people report being asked directly. With $d = 4096$ for the model width and a 128K vocabulary, the embedding matrix is $128000 \times 4096 = 524$M parameters, about 1 GB in fp16, and the unembedding is another one unless you tie them. Worse, the logits tensor during prefill of an 8K prompt is $8192 \times 128000 \times 2$ bytes, about 2.1 GB, for one sequence. That is why production decode computes logits only at the final position, and why chunked prefill and fused cross-entropy kernels exist.
 
 ## Tradeoff matrix
 
@@ -198,11 +198,11 @@ One more piece of arithmetic, since "vocabulary of 100K, how would you optimize"
 
 ## Interview gotchas
 
-- **"Why RoPE over sinusoidal or learned position embeddings?"** Because the logit depends only on $n - m$: $(R_m q)^{\top}(R_n k) = q^{\top} R_{n-m} k$. Relative by construction, no parameters, and the frequency structure lets you interpolate or rebase to extend context after training. Learned embeddings simply have no value at unseen positions.
+- **"Why RoPE over sinusoidal or learned position embeddings?"** Because the logit depends only on $n - m$: $(R_m q)^{\top}(R_n k) = q^{\top} R_{n-m} k$. Relative by construction, no parameters, and the frequency structure lets you interpolate or rebase to extend context after training. Learned embeddings have no value at all at unseen positions.
 - **"Is FlashAttention an approximation?"** No. It is exact and it does not reduce FLOPs. It reduces HBM reads and writes by tiling into SRAM with an online softmax, and peak memory from $O(n^2)$ to $O(n)$.
 - **"GQA vs MQA at 100K context, how much do you save?"** Cache scales as $n_{kv}$. For a 70B with 64 heads and 80 layers, MHA is 262 GB per sequence in fp16, GQA-8 is 33 GB, MQA is 4 GB. GQA-8 is the standard because it takes almost all the saving with almost no quality loss.
 - **"Does MoE reduce memory?"** No, it reduces per-token compute. All experts stay resident in VRAM. It changes your GPU count, not your latency, and it gets less attractive at large batch when a layer touches most experts anyway.
-- **"What does RMSNorm drop, and why is that safe?"** Mean subtraction and the learned bias. Re-centering turns out to contribute little; the variance rescaling is what stabilizes. It saves a reduction pass on a bandwidth-bound layer.
+- **"What does RMSNorm drop, and why is that safe?"** Mean subtraction and the learned bias. Re-centering contributes little in practice; the variance rescaling is what stabilizes. It saves a reduction pass on a bandwidth-bound layer.
 - **"Pre-norm or post-norm, and why?"** Pre-norm, because it leaves a clean additive residual path so gradients reach early layers without passing through a normalization Jacobian at every hop. Post-norm was the original and needs a careful warmup to survive depth.
 - **"Why does the FFN width look like 11008?"** SwiGLU uses three matrices instead of two, so $d_{ff}$ shrinks to $\frac83 d$ to hold parameters constant, then rounds up to a multiple of 256.
 - **"What risk does a general tokenizer create on legal or medical text?"** Domain terms fragment into many tokens, which inflates cost and latency, consumes context, and gives the model a weaker representation of exactly the vocabulary that matters. The fix is measurement first (tokens per document on your corpus), then vocabulary extension with continued pretraining if the multiple is bad.

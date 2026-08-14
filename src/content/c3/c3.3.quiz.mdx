@@ -63,9 +63,9 @@ What did not change: the cache is still FP16, so per-request cache cost is ident
 
 **(a) Intensity.** Ridge point is $989 \times 10^{12} / 3.35 \times 10^{12} \approx$ **295 FLOPs per byte**. Below that you are memory-bandwidth-bound.
 
-Prefill on $P$ tokens does about $2NP$ FLOPs while reading the weights once, $2N$ bytes in FP16. Intensity $= 2NP / 2N = P \approx 4000$. That is 13× above the ridge point, so **prefill is compute-bound**.
+Write $N$ for the parameter count and $P$ for the number of prompt tokens. Prefill on $P$ tokens does about $2NP$ FLOPs while reading the weights once, $2N$ bytes in FP16. Intensity $= 2NP / 2N = P \approx 4000$. That is 13× above the ridge point, so **prefill is compute-bound**.
 
-Decode at batch $B$ does $2NB$ FLOPs and still reads $2N$ bytes, because you cannot multiply by a matrix you have not loaded. Intensity $= B = 1$. That is ~295× below the ridge point. **Decode is memory-bandwidth-bound**, and the GPU is doing arithmetic about 0.3% of the time it could be.
+Decode at batch size $B$ does $2NB$ FLOPs and still reads $2N$ bytes, because you cannot multiply by a matrix you have not loaded. Intensity $= B = 1$. That is ~295× below the ridge point. **Decode is memory-bandwidth-bound**, and the GPU is doing arithmetic about 0.3% of the time it could be.
 
 Say it as a ratio, not as "models are big." "Models are big" is the answer that fails this question.
 
@@ -149,7 +149,7 @@ So one target pass yields ~2.53 tokens instead of 1.
 
 $$\frac{2.53}{1.3} \approx 1.95\times$$
 
-Roughly 2×, which matches reported end-to-end numbers of 2-3×. Note that raising $k$ has diminishing returns — expected tokens saturates at $1/(1-\alpha) = 3.33$ — while draft cost keeps growing linearly, so there is an optimal $k$ and it is usually small.
+Roughly 2×, which matches reported end-to-end numbers of 2-3×. Raising $k$ has diminishing returns — expected tokens saturates at $1/(1-\alpha) = 3.33$ — while draft cost keeps growing linearly, so there is an optimal $k$ and it is usually small.
 
 **(d) At batch 256, no.** The whole premise is unused arithmetic capacity at low batch. At batch 256 the intensity is already close to the ridge point, the GPU is busy, and there is no slack to convert. You would pay the draft model's HBM residency, which reduces KV cache space and therefore concurrency, in exchange for approximately nothing. Speculative decoding is a low-batch latency technique. Enable it for a single-user or interactive workload; leave it off on a throughput fleet.
 
@@ -178,7 +178,7 @@ GPTQ works layer by layer, using second-order (Hessian) information from a small
 
 **(b) It will not fix TTFT.** TTFT is prefill, prefill is compute-bound, and weight-only quantization dequantizes to FP16 inside the kernel — the arithmetic is unchanged. Quantization halves or quarters the *bytes moved per decode step*, so it improves TPOT and frees HBM for KV cache. Those are real wins and neither is the one being asked for. For TTFT: prefix-cache the system prompt, shorten the prompt, chunk the prefill, add prefill compute, or disaggregate prefill from decode.
 
-**(c) Activation outliers.** Weights are reasonably well-behaved per channel. Transformer activations are not: a few channels carry values orders of magnitude larger than the rest, and a per-tensor INT8 scale chosen to cover them quantizes everything else to near-zero. LLM.int8() keeps the outlier channels in FP16 and does the rest in INT8. SmoothQuant migrates the difficulty into the weights with a per-channel scaling, dividing activations by $s$ and multiplying the corresponding weight rows by $s$, which is mathematically neutral and makes both sides quantizable.
+**(c) Activation outliers.** Weights are reasonably well-behaved per channel. Transformer activations are not: a few channels carry values orders of magnitude larger than the rest, and a per-tensor INT8 scale chosen to cover them quantizes everything else to near-zero. LLM.int8() keeps the outlier channels in FP16 and does the rest in INT8. SmoothQuant migrates the difficulty into the weights with a per-channel scaling: pick a scale $s$ for each activation channel, divide that channel's activations by $s$ and multiply the corresponding weight rows by $s$. The product is unchanged, so the transformation is mathematically neutral, and it leaves both sides quantizable.
 
 **(d) Keys are more sensitive.** Two reasons. Key errors pass through a softmax, which is exponential and amplifies them into the attention distribution; value errors are averaged by attention weights and partly cancel. And RoPE-rotated keys carry strong per-channel outliers of their own. The practical setting is asymmetric: values at INT4 with keys at INT8 or FP8, or finer-grained per-head scales on keys.
 
@@ -203,7 +203,7 @@ GPTQ works layer by layer, using second-order (Hessian) information from a small
 <details>
 <summary>Model answer + rubric</summary>
 
-**Measure first.** Split the 8 seconds into TTFT and $N_{\text{out}} \times \text{TPOT}$. This is one line of instrumentation and it determines everything that follows. Also get the distribution of prompt length, output length, and how much of the prompt is shared across requests. Candidates who start proposing fixes before this split are the ones who get filtered.
+**Measure first.** Split the 8 seconds into TTFT and $N_{\text{out}} \times \text{TPOT}$, where $N_{\text{out}}$ is the number of output tokens and TPOT is the time to produce one of them. This is one line of instrumentation and it determines everything that follows. Also get the distribution of prompt length, output length, and how much of the prompt is shared across requests. Candidates who start proposing fixes before this split are the ones who get filtered.
 
 **If TTFT dominates.** Prefill cost is linear in prompt tokens (and quadratic in the attention term once prompts get very long). Levers, cheapest first: prefix-cache the system prompt and tool definitions, since a chat product typically has thousands of tokens of identical preamble on every request and this is pure bookkeeping with zero quality risk; cut the prompt itself, especially over-retrieved RAG context; chunked prefill so long prompts stop blocking; more prefill FLOPs, or disaggregating prefill onto separate GPUs from decode.
 
@@ -242,7 +242,7 @@ The clean phrasing: the cache does not make attention cheaper, it removes redund
 
 **(d) Incomplete in the way that matters.** Attention is $O(n^2)$ in *memory* as well as time, and naive implementations materialize the $n \times n$ score matrix. At 100K tokens that matrix alone is enormous per head per layer, and you OOM before you notice the time. That memory cost is what FlashAttention attacks, and it is also why paged caches exist.
 
-Worth adding the quantitative nuance: the quadratic *term* does not dominate as early as people assume. For a model with $N$ parameters, $L$ layers and hidden size $d$, prefill's attention FLOPs equal everything else at about $s = N / (L \cdot d)$. For a 34B model with 48 layers and $d = 5120$ that is $34\times10^9 / (48 \times 5120) \approx 138{,}000$ tokens. Below ~100K the quadratic term is a minority of prefill cost and the linear KV-cache growth is the more pressing problem; above it, attention genuinely dominates.
+Add the quantitative nuance: the quadratic *term* does not dominate as early as people assume. For a model with $N$ parameters, $L$ layers and hidden size $d$, prefill's attention FLOPs equal everything else at a prompt length $s$ of about $N / (L \cdot d)$. For a 34B model with 48 layers and $d = 5120$ that is $34\times10^9 / (48 \times 5120) \approx 138{,}000$ tokens. Below ~100K the quadratic term is a minority of prefill cost and the linear KV-cache growth is the more pressing problem; above it, attention genuinely dominates.
 
 **Rubric:**
 - (a) corrected as "removes redundant recomputation," with the memory-for-compute framing
@@ -268,7 +268,7 @@ Worth adding the quantitative nuance: the quadratic *term* does not dominate as 
 
 Here 3,000 of 3,200 prompt tokens are shared, so a hit removes about **94% of prefill work**. At 50 rps that is the difference between prefilling 160,000 tokens per second and prefilling 10,000. It is often the single largest cost win available in a chat product, and its quality risk is zero, which is a rare combination. Memory is the cost: those blocks stay resident and are not available as KV cache for active sequences.
 
-**(b) Conditions for a hit.** The cache is keyed on an exact token-prefix match, typically a hash per block from position zero. So the shared content must be **byte-identical and at the very front**. Any per-request content — user ID, timestamp, retrieved documents, A/B flags — must come *after* the shared block, not before. Order your prompt: static system content, then tools, then retrieved context, then the user turn. Also note that only whole blocks match, so the tail of the prefix rounds down to a block boundary.
+**(b) Conditions for a hit.** The cache is keyed on an exact token-prefix match, typically a hash per block from position zero. So the shared content must be **byte-identical and at the very front**. Any per-request content — user ID, timestamp, retrieved documents, A/B flags — must come *after* the shared block, not before. Order your prompt: static system content, then tools, then retrieved context, then the user turn. Only whole blocks match, so the usable part of the prefix rounds down to a block boundary.
 
 **(c) The overnight tripling.** Almost certainly someone put something varying at the top of the prompt. "Current date and time is 2026-08-14T09:31:07Z" at the start of the system prompt is the canonical version: every request now hashes differently at block zero, every prefix lookup misses, and you are paying full prefill on 3,200 tokens for every request. There was no deploy because it was a prompt or config change, or a template that always contained the timestamp and only started varying at second granularity. Other candidates: a cache eviction policy change, a model or tokenizer version bump that invalidated every entry, or a routing change spreading traffic across more replicas so each one's cache hit rate collapsed.
 

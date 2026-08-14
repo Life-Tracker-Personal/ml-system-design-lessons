@@ -6,7 +6,7 @@ description: The loop, tool schemas, the cost and reliability arithmetic, and th
 estimatedMinutes: 35
 ---
 
-These eight questions test whether you can reason about the orchestrator/model boundary from scratch, which is exactly what the agentic-design round grades. Most of them are scenario-shaped on purpose: real interviewers do not ask "what is an agent", they ask "your agent does this badly, fix it". Answer out loud first, in plain language, then check. The rapid-fire section at the bottom stands on its own and needs nothing from up here.
+These eight questions test whether you can reason about the orchestrator/model boundary from scratch, which is exactly what the agentic-design round grades. Most of them are scenario-shaped on purpose: real interviewers do not ask "what is an agent", they ask "your agent does this badly, fix it". Answer out loud first, in plain language, then check. The rapid-fire section at the bottom stands on its own and assumes nothing from the eight.
 
 <Quiz id="1">
 
@@ -39,11 +39,11 @@ Every cap is enforced in the orchestrator before dispatching, and every breach p
 
 **(c)** Hash `(tool_name, canonical_json(args))` on every call, canonical meaning sorted keys and normalized numbers so `{"a":1,"b":2}` and `{"b":2,"a":1}` collide. Keep a counter per hash. Three identical calls means the agent is not working, it is reflexively retrying something whose result it cannot act on.
 
-When it fires, do not just kill the run. Inject a system-level observation that names the situation ("you have called `get_order` with these exact arguments three times and received the same result; do not call it again, either use the result or tell the user you cannot complete this"), and give it one more turn. If the next call hashes the same, terminate and surface the state. A weaker variant that also works: detect when the last $k$ observations are byte-identical, which catches the case where the args vary trivially but nothing changes.
+When it fires, do not just kill the run. Inject a system-level observation that names the situation ("you have called `get_order` with these exact arguments three times and received the same result; do not call it again, either use the result or tell the user you cannot complete this"), and give it one more turn. If the next call hashes the same, terminate and surface the state. A weaker variant that also works: detect when the last $k$ observations are byte-identical, for a small $k$ such as three, which catches the case where the args vary trivially but nothing changes.
 
 **(d)** It is the tool's bug, and secondarily the tool description's. `pending` tells the model a fact about the world but nothing about what to do next, so the model's most plausible continuation is to look again. The fix is to make tool results carry the next action explicitly: return `{"status": "pending", "retry_after_s": 60, "guidance": "do not poll; tell the user it is processing and end the turn"}`. Tool outputs are prompt text. Write them for a reader who will act on them, not for a log.
 
-The general form of this lesson: an agent loops forever mostly when its environment gives it no way to tell progress from no-progress. Caps are the seatbelt, not the fix.
+The general form: an agent loops forever mostly when its environment gives it no way to tell progress from no-progress. Caps are the seatbelt, not the fix.
 
 **Rubric:**
 - Names soft versus hard termination and gets both failure directions of the soft one, not just the runaway.
@@ -61,7 +61,7 @@ The general form of this lesson: an agent loops forever mostly when its environm
 
 **(a)** The chat API is stateless. Derive total input tokens over $n$ turns with a fixed prefix $p_0$ and $a$ tokens appended per turn. Say in one sentence which term is the dangerous one and why.
 
-**(b)** Compute it for $p_0 = 3000$, $a = 700$, $n = 12$. Then for $n = 24$. Convert both to dollars at \$3 per million input tokens.
+**(b)** Compute it for $p_0 = 3000$, $a = 700$, $n = 12$. Then for $n = 24$. Convert both to dollars at 3 USD per million input tokens.
 
 **(c)** Prompt caching and history compaction each attack one term. Map each to its term and say what each one buys you as a multiplier.
 
@@ -84,7 +84,7 @@ $$
 12(3000) + 700\cdot\frac{12\cdot 11}{2} = 36{,}000 + 46{,}200 = 82{,}200
 $$
 
-At \$3 per million that is \$0.247 per task. The conversation only ever *contained* $12 \times 700 = 8400$ tokens of content; you paid for roughly ten times that because of re-sends.
+At 3 USD per million that is 0.247 USD per task. The conversation only ever *contained* $12 \times 700 = 8400$ tokens of content; you paid for roughly ten times that because of re-sends.
 
 At $n = 24$:
 
@@ -92,7 +92,7 @@ $$
 24(3000) + 700\cdot\frac{24\cdot 23}{2} = 72{,}000 + 193{,}200 = 265{,}200
 $$
 
-which is \$0.796. Doubling the turns multiplied the bill by 3.2, and the ratio approaches 4 as the quadratic term dominates.
+which is 0.796 USD. Doubling the turns multiplied the bill by 3.2, and the ratio approaches 4 as the quadratic term dominates.
 
 **(c)** **Prompt caching** attacks $n\,p_0$. The system prompt plus tool schemas is byte-identical on every turn, so it can be written to a cache once and re-read at roughly a tenth of the input price. In the example that turns 36,000 tokens of prefix into an effective ~6,600, cutting the bill by about a third at $n=12$ and less at higher $n$, since the prefix term is the smaller one by then.
 
@@ -124,7 +124,7 @@ The fix: the volatile value goes in the *last* message, or into a `get_current_t
 
 **(c)** You have a fixed engineering budget. Argue for which lever is cheaper: reducing $n$ or raising $p$. Give two concrete ways to do each.
 
-**(d)** The independence assumption is wrong in a real agent. Give one way failures are positively correlated and one way the model is *not* really a fresh Bernoulli trial each step, and say which direction each pushes the estimate.
+**(d)** The independence assumption is wrong in a real agent. Give one way failures are positively correlated and one way each step is *not* really a fresh independent trial with the same success probability, and say which direction each pushes the estimate.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -196,7 +196,7 @@ What beginners leave out is the *trigger condition and the boundary*. A descript
 
 **(b)** Diagnose first. Log tool name and arguments on every call, then look at the confusion pattern: which wrong tool is being picked for which request. If one tool absorbs everything, its description is too broad. If two tools trade places, their descriptions overlap. If the right tool is never picked, check that it is even in the context, since some setups truncate the schema block.
 
-Two structural fixes. **Merge and re-bound:** fewer tools with sharper, mutually exclusive descriptions, each naming what it is *not* for. **Dynamic tool retrieval:** keep the catalog large but retrieve only the relevant handful of schemas per request by embedding similarity or by a router, so the model is choosing among 5 rather than 40. The second also cuts $p_0$ on every turn, which is a cost win as well.
+Two structural fixes. **Merge and re-bound:** fewer tools with sharper, mutually exclusive descriptions, each naming what it is *not* for. **Dynamic tool retrieval:** keep the catalog large but retrieve only the relevant handful of schemas per request by embedding similarity or by a router, so the model is choosing among 5 rather than 40. The second also shrinks the fixed prompt prefix $p_0$ — the system prompt plus the tool schemas, re-sent on every turn — which is a cost win as well.
 
 The answer that reads as junior is "prompt it better".
 
@@ -238,9 +238,9 @@ Two caveats to state, or the answer is naive. Errors must be **bounded** — cou
 
 **(a)** Orchestrator: retry policy and backoff, idempotency keys, all budget caps, authentication and per-user authorization on every tool call, routing on a known enum, the refund-amount ceiling, whether this action needs human approval, logging, and the final "did we actually finish" check. Model: what the customer is asking for, which tool fits an unstructured request, how to phrase the reply, and whether the retrieved evidence supports the claim.
 
-The rule: **anything deterministic, anything with a correctness guarantee, and anything with blast radius belongs in code.** The model gets the parts that genuinely require judgment over unstructured input. A useful test is to ask "would I accept this being wrong 2% of the time?" If not, it is not the model's decision. Note that authorization especially is never a prompt instruction; "only refund orders belonging to the current user" in a system prompt is not an access control system.
+The rule: **anything deterministic, anything with a correctness guarantee, and anything with blast radius belongs in code.** The model gets the parts that genuinely require judgment over unstructured input. A useful test is to ask "would I accept this being wrong 2% of the time?" If not, it is not the model's decision. Authorization especially is never a prompt instruction; "only refund orders belonging to the current user" in a system prompt is not an access control system.
 
-**(b)** No, and here is the trade. A generic SQL tool has unbounded blast radius, cannot be authorized (you cannot tell from the string whether the query touches another tenant's rows), cannot be rate-limited meaningfully, cannot be made idempotent, and is a prompt-injection amplifier: any hostile text the agent reads becomes an arbitrary query. It also has the worst possible failure profile, since a subtly wrong query returns confident wrong numbers rather than an error.
+**(b)** No, and the objection is structural rather than stylistic. A generic SQL tool has unbounded blast radius, cannot be authorized (you cannot tell from the string whether the query touches another tenant's rows), cannot be rate-limited meaningfully, cannot be made idempotent, and is a prompt-injection amplifier: any hostile text the agent reads becomes an arbitrary query. It also has the worst possible failure profile, since a subtly wrong query returns confident wrong numbers rather than an error.
 
 What I offer instead: a small set of parameterized query tools covering the real use cases, each with its own permission scope, row limits, a read-only replica, and a timeout. If the demo genuinely needs open-ended exploration, the honest version is a *proposal* tool that returns the SQL it wants to run for human approval and never executes it directly. Then close by naming what I would need to see to change my mind: an actual list of the queries product wants, which usually turns out to be six of them.
 
@@ -252,7 +252,7 @@ What I offer instead: a small set of parameterized query tools covering the real
 4. **Reversibility:** prefer soft deletes, staged changes, and dry-run-then-apply, so the worst case is recoverable rather than terminal.
 5. **Environment:** run tools in a sandbox with a separate credential per tool, no ambient production access.
 
-Note what is *not* on the list: telling the model to be careful. Prompt instructions are a probability, and this is a decision you need a guarantee for.
+What is *not* on the list: telling the model to be careful. Prompt instructions are a probability, and this is a decision you need a guarantee for.
 
 **(d)** The test: can you draw the flowchart in advance? If the sequence of steps is known before you see the input, write the sequence. You get determinism, a tenth of the cost, a fraction of the latency, a real stack trace, and unit tests. An agent's only advantage is choosing the path at run time, and you pay for that with nondeterminism, token cost that grows quadratically, and a failure mode that is a transcript rather than an exception.
 
@@ -285,7 +285,7 @@ The honest middle ground worth naming: most production "agents" are a fixed pipe
 
 **(a)** ReAct (Yao et al., 2022) interleaves reasoning and acting: the model writes a thought, takes an action, observes the result, and the observation feeds the next thought. Its contribution was showing the two halves fail separately. Pure chain-of-thought reasoning hallucinates facts it has no way to check, and action-only prompting has no mechanism for revising a plan when the environment disagrees. Interleaving lets the trace be corrected by contact with reality.
 
-What remains: the loop shape, and that is all. Native tool calling absorbed the pattern — the model's reasoning is the Thought, the tool call is the Action, the appended tool result is the Observation — so nobody implements the paper's text format anymore. Give the paragraph, note that it is now just the default loop, and stop. Claiming to "use ReAct" as an architecture choice in 2026 signals you learned agents from a 2023 tutorial.
+What remains: the loop shape, and that is all. Native tool calling absorbed the pattern — the model's reasoning is the Thought, the tool call is the Action, the appended tool result is the Observation — so nobody implements the paper's text format anymore. Give the paragraph, add that it is now just the default loop, and stop. Claiming to "use ReAct" as an architecture choice in 2026 signals you learned agents from a 2023 tutorial.
 
 **(b)** Plan up front when at least one of these holds: the steps are largely **independent**, so a plan lets you parallelize; the horizon is **long** enough that drift is the main risk; or a **human must approve** before anything executes, which needs a plan to approve. That last one is the strongest single reason and the one people forget.
 
@@ -293,7 +293,7 @@ Use a single loop when each observation determines the next step, when the horiz
 
 **(c)** Two failure behaviours. The **stale march**: a naive executor runs steps 2 through 6 anyway because they are in the plan, producing confidently wrong work and, if any of them write, real damage. The **thrash**: a system that replans on every turn regenerates the plan constantly, has paid for planning, and behaves like a single loop with extra cost.
 
-The design that avoids both is explicit replanning triggers. Keep the plan, execute against it, and re-derive it only on a named condition: a step failed, a precondition the plan asserted turned out false, the budget forecast blew out, or the result contradicts an assumption the plan recorded. That last clause requires the planner to write down its assumptions, which is the part that makes contradiction detectable rather than a vibe.
+The design that avoids both is explicit replanning triggers. Keep the plan, execute against it, and re-derive it only on a named condition: a step failed, a precondition the plan asserted turned out false, the budget forecast blew out, or the result contradicts an assumption the plan recorded. That last clause requires the planner to write down its assumptions, which is the part that makes a contradiction detectable rather than a matter of impression.
 
 **(d)** Cost: one extra model call, on the order of a thousand output tokens, plus the plan then sitting in context on every subsequent turn, so it also feeds the quadratic term. Call it 15 to 25% overhead on a three-step task and a second or two of latency. Buys: essentially nothing, since a three-step loop discovers the same sequence for free and adapts better.
 
@@ -328,7 +328,7 @@ The exception: when a human has to approve before execution. If step 2 charges a
 
 Short-term is the first two. Long-term is the third. Splitting the word "memory" into these three is most of the answer to any memory question.
 
-**(b)** Keep the last $k$ turns verbatim, say 6 to 8, because recency carries the conversational thread and paraphrasing it breaks pronoun references. Maintain a **pinned facts block** near the top holding the durable, small stuff: user identity, the order in question, constraints they stated, decisions already made. Rebuild it as a structured object rather than prose, so it does not drift when rewritten. Summarize everything between the pinned block and the recent window, triggered on a token threshold rather than a turn count, since turns vary enormously in size. Push full tool outputs to the scratchpad and leave a pointer in context, so the agent can re-fetch the 30k-token file dump if it turns out to matter.
+**(b)** Keep the last $k$ turns verbatim, say 6 to 8, because recency carries the conversational thread and paraphrasing it breaks pronoun references. Maintain a **pinned facts block** near the top holding the durable, small facts: user identity, the order in question, constraints they stated, decisions already made. Rebuild it as a structured object rather than prose, so it does not drift when rewritten. Summarize everything between the pinned block and the recent window, triggered on a token threshold rather than a turn count, since turns vary enormously in size. Push full tool outputs to the scratchpad and leave a pointer in context, so the agent can re-fetch the 30k-token file dump if it turns out to matter.
 
 The failure being fixed is usually not the model's context limit at all; it is a naive truncation that drops the oldest messages, which is exactly where the user's original goal and constraints live.
 
@@ -358,7 +358,7 @@ Read-time filtering is still worth having on top. It is just not a defense.
 
 **(b)** The agent has 96% task success in staging and 71% in production, with no errors logged. Traces show the tool calls succeeding.
 
-**(c)** One customer request cost \$41 in model spend. Normal requests cost \$0.20.
+**(c)** One customer request cost 41 USD in model spend. Normal requests cost 0.20 USD.
 
 **(d)** A teammate proposes splitting the support agent into an intent agent, a lookup agent, and a response agent, arguing it will be more reliable.
 
@@ -369,15 +369,15 @@ Read-time filtering is still worth having on top. It is just not a defense.
 
 First change: an idempotency key derived deterministically from the task and the arguments (`task_id + order_id + amount_cents`), passed to the provider so the second call returns the first result instead of charging again. Then make the retry policy live in the orchestrator, not in the model's discretion, so an unknown-outcome call is reconciled by *querying* state before retrying rather than blindly re-issuing. And separate the three cases in the tool's return: success, definite failure, and unknown. Collapsing unknown into failure is the actual root cause, and models will retry a "failure" every time.
 
-**(b) The environments differ in a way the schema cannot see.** The usual culprits: production data is messier (real order histories with edge cases staging does not have), a downstream API returns a shape or an enum value staging never produces, or production requests are simply longer and are hitting truncation or compaction that staging never triggers. No errors logged, plus tool calls "succeeding", means the failure is semantic, not mechanical.
+**(b) The environments differ in a way the schema cannot see.** The usual culprits: production data is messier (real order histories with edge cases staging does not have), a downstream API returns a shape or an enum value staging never produces, or production requests are longer and are hitting truncation or compaction that staging never triggers. No errors logged, plus tool calls "succeeding", means the failure is semantic, not mechanical.
 
 First check: stop trusting the success flag and look at *arguments and outputs*, not just call counts. Sample 30 failing production traces and read them end to end. That is the answer to the general "your agent fails 20% of the time, how do you debug" question too — you cluster failures by where in the trajectory they diverge (wrong tool, right tool with wrong args, tool returned something the model misread, model stopped early), because those four have completely different fixes and an aggregate success rate tells you which none of them it is. Then assert on response shape inside the tool and version the tool contract, so the next silent drift is loud.
 
-**(c) No cumulative budget cap, plus the quadratic term.** One hard task looped 50 or 60 times, and input tokens grow as $a n^2/2$, so a 5× longer run is roughly a 25× bill. There is probably also a stuck loop underneath, since genuinely useful 60-step support requests are rare.
+**(c) No cumulative budget cap, plus the quadratic term.** One hard task looped 50 or 60 times, and input tokens grow as $a n^2/2$, where $n$ is the turn count and $a$ is the tokens appended per turn, so a 5× longer run is roughly a 25× bill. There is probably also a stuck loop underneath, since genuinely useful 60-step support requests are rare.
 
 First change: enforce a cumulative input-token cap in the orchestrator checked *before* each model call, and a per-task spend ceiling. Then add the repeated-call detector, alert on the tail rather than the mean of cost per task, and check whether prompt caching is on and whether anything volatile sits in the cached prefix.
 
-**(d) Push back.** Those three stages are not separable sub-tasks, they are a pipeline: each one's output is the next one's input, so nothing parallelizes and nothing is isolated. You would be paying the fixed prefix three times instead of once, adding two extra model calls of latency, and introducing a brand new failure class where one stage's output does not parse or drops a detail the next stage needed. Reliability goes *down*, not up, because you added steps to a product $p^n$.
+**(d) Push back.** Those three stages are not separable sub-tasks, they are a pipeline: each one's output is the next one's input, so nothing parallelizes and nothing is isolated. You would be paying the fixed prefix three times instead of once, adding two extra model calls of latency, and introducing a brand new failure class where one stage's output does not parse or drops a detail the next stage needed. Reliability goes *down*, not up, because you added steps to a product $p^n$, with $p$ the per-step success probability and $n$ the number of steps.
 
 The genuine case for multi-agent is context isolation: a sub-agent that reads forty files and reports two paragraphs keeps 40,000 tokens out of the orchestrator's context. That applies to separable, read-heavy, parallelizable work like research fan-out. Anthropic's published multi-agent research write-up reported roughly 15× the tokens of a plain chat interaction, so the cost is real and should be quoted. If intent classification is genuinely a distinct concern here, make it a deterministic classifier in the orchestrator, not an agent.
 

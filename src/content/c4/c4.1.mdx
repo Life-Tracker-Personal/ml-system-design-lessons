@@ -11,7 +11,7 @@ estimatedMinutes: 45
 
 An agent is a while-loop. Your code calls a model, the model returns either a final answer or a request to call a tool, your code executes the tool and appends the result, and you go around again. That is the entire mechanism. Everything people call "agentic" — ReAct, planning, memory, multi-agent — is a variation on where you put state and who decides what happens next.
 
-The organizing idea for this lesson: **the model chooses the next action, and your orchestrator decides everything else.** Termination, budgets, retries, what goes into context, which side effects are allowed — all of that is deterministic code you write, not behavior you prompt for. Interviewers probe exactly this boundary, because it is where candidates who have only used a framework fall apart. The second thing they probe is arithmetic: token cost grows quadratically in turn count, latency accumulates serially, and end-to-end success decays geometrically. Those three facts explain most production agent failures.
+One idea organizes the rest: **the model chooses the next action, and your orchestrator decides everything else.** Termination, budgets, retries, what goes into context, which side effects are allowed — all of that is deterministic code you write, not behavior you prompt for. That boundary is where systems assembled out of a framework come apart. The other half of the story is arithmetic: token cost grows quadratically in turn count, latency accumulates serially, and end-to-end success decays geometrically. Those three facts explain most production agent failures.
 
 ## What you'll be able to do after this lesson
 
@@ -41,9 +41,9 @@ for step in range(MAX_STEPS):
 raise BudgetExceeded                       # termination guarantee from you
 ```
 
-Four moving parts. The **model** picks the next action. The **tools** are functions you expose. The **observations** are tool results appended back into the message list. **Termination** happens two ways, and the distinction matters more than anything else in this lesson.
+Four moving parts. The **model** picks the next action. The **tools** are functions you expose. The **observations** are tool results appended back into the message list. **Termination** happens two ways, and the difference between the two matters more than anything else here.
 
-The model terminates by *choosing not to call a tool*. That is a soft signal — a probabilistic decision that can go wrong in both directions. It can declare success on a half-finished task, or it can keep calling tools forever. The orchestrator terminates by *running out of budget*, which is a hard guarantee because it is a `range()`. Every interview question of the form "how do you stop an agent running forever" is answered by pointing at that distinction and then listing the caps you enforce: max steps, max wall-clock, max cumulative tokens, max spend, and a no-progress detector.
+The model terminates by *choosing not to call a tool*. That is a soft signal — a probabilistic decision that can go wrong in both directions. It can declare success on a half-finished task, or it can keep calling tools forever. The orchestrator terminates by *running out of budget*, which is a hard guarantee because it is a `range()`. Stopping a runaway agent is that distinction plus the caps you enforce around it: max steps, max wall-clock, max cumulative tokens, max spend, and a no-progress detector.
 
 The no-progress detector is the one people forget. Hash `(tool_name, canonical_json(args))` on each call and keep a counter. Three identical calls in a row means the agent is stuck, not working — the tool is returning something the model does not know how to act on, and it is retrying by reflex. Break the loop and surface the state rather than burning the remaining budget.
 
@@ -79,7 +79,7 @@ The model does not execute anything. It emits a structured block naming a tool a
 
 ## Part 3 — The arithmetic that decides everything
 
-**Goal: get numbers into your answers, because interviewers now attach explicit budgets to agent-design prompts.**
+**Goal: put numbers on the three quantities every agent design is priced in — tokens, seconds, and end-to-end success.**
 
 ### Tokens grow quadratically in turn count
 
@@ -95,7 +95,7 @@ $$
 T_{\text{in}} = 12(3000) + 700\cdot\frac{12 \cdot 11}{2} = 36{,}000 + 46{,}200 = 82{,}200
 $$
 
-The conversation itself only ever contained $12 \times 700 = 8400$ tokens of content. You paid for 82,200 because of the re-sends. At a mid-tier frontier model's 2026 list price of \$3 per million input tokens, that is \$0.247 per task in input alone, before output. Double the turns to 24 and the input cost roughly quadruples to \$0.94 — the growth is in $n^2$, not $n$.
+The conversation itself only ever contained $12 \times 700 = 8400$ tokens of content. You paid for 82,200 because of the re-sends. At a mid-tier frontier model's 2026 list price of 3 USD per million input tokens, that is 0.247 USD per task in input alone, before output. Double the turns to 24 and the input cost roughly quadruples to 0.94 USD, because the growth is in $n^2$, not $n$.
 
 Two levers follow mechanically from the formula. **Prompt caching** attacks $n\,p_0$: the fixed prefix is cached after the first turn and re-read at roughly a tenth of the price, since it is byte-identical each turn (which is exactly why you must not interpolate a timestamp into the system prompt). **Compaction and context editing** attack the $a\,n^2/2$ term: summarize or drop old tool results so the history stops growing linearly. Neither is optional at $n = 30$.
 
@@ -117,9 +117,9 @@ A 95% step reliability — which sounds excellent — gives you a 40% failure ra
 
 **Goal: be able to give the one-paragraph answer without inflating it.**
 
-ReAct (Yao et al., 2022) interleaves reasoning and acting: the model writes a thought, takes an action, observes the result, and repeats, with each observation feeding the next thought. Its contribution was showing that neither half works alone — chain-of-thought reasoning with no actions hallucinates facts it cannot check, and action-only prompting has no mechanism for deciding what to do next when the plan needs revising. Interleaving lets the trace be corrected by contact with the environment.
+Reasoning and acting are two different things a model can put in a trace, and the productive move is to alternate them: the model writes a thought, takes an action, observes the result, and repeats, with each observation feeding the next thought. That interleaving is ReAct (Yao et al., 2022). Its contribution was showing that neither half works alone — chain-of-thought reasoning, meaning the model writes out its intermediate steps before answering, hallucinates facts it cannot check when it has no actions available, and action-only prompting has no mechanism for deciding what to do next when the plan needs revising. Interleaving lets the trace be corrected by contact with the environment.
 
-Here is the honest part. The loop in Part 1 *is* ReAct. Native tool calling absorbed the pattern: the model's internal reasoning plays the role of the "Thought" line, the tool call is "Action", and the appended tool result is "Observation". You do not implement the paper's text format anymore, and you should not claim to. Say what it contributed, note that it is now the default loop shape, and move on — nobody is asking you about its benchmark results.
+The honest part is that the loop in Part 1 *is* ReAct. Native tool calling absorbed the pattern: the model's internal reasoning plays the role of the "Thought" line, the tool call is "Action", and the appended tool result is "Observation". You do not implement the paper's text format anymore, and you should not claim to. Say what it contributed, add that it is now the default loop shape, and move on. Its benchmark results are not the part that matters.
 
 ## Part 5 — Planning: when it pays and when it is overhead
 
@@ -139,7 +139,7 @@ Replanning is the middle ground: keep the plan, but re-derive it whenever an obs
 
 **Context window.** The message list from Part 1. It is working memory: fast, complete, ordered, and quadratically expensive. Everything in it is re-read on every turn, so anything not needed for the *next* decision is pure tax.
 
-**Scratchpad.** A file or key-value store the agent reads and writes through tools. The point is that the content sits *outside* the context window and only the parts it fetches come back in. An agent that writes findings to `notes.md` and greps it later has traded quadratic re-sending for an explicit fetch. This is also the cheapest fix for the "chatbot loses context after 10 turns" question: summarize on a threshold, keep the last $k$ turns verbatim plus a pinned facts block, and push the rest to the scratchpad where it can be retrieved on demand.
+**Scratchpad.** A file or key-value store the agent reads and writes through tools. The point is that the content sits *outside* the context window and only the parts it fetches come back in. An agent that writes findings to `notes.md` and greps it later has traded quadratic re-sending for an explicit fetch. It is also the cheapest fix for a chatbot that loses the thread after ten turns: summarize on a threshold, keep the last $k$ turns verbatim — $k$ being a small recency window, six to eight turns — plus a pinned facts block, and push the rest to the scratchpad where it can be retrieved on demand.
 
 **External store.** Persistent memory across sessions, retrieved by relevance. Split it two ways: *episodic* (what happened — "on 2026-03-04 the user asked to cancel order ORD-771") and *semantic* (durable facts — "the user prefers metric units"). Short-term is the first two; long-term is this one.
 
@@ -153,11 +153,11 @@ A multi-agent system is one agent calling others as tools, or an orchestrator ha
 
 The costs are concrete. Each sub-agent re-establishes its own context from scratch, so you pay the fixed prefix $p_0$ once per agent instead of once per task. Anthropic's published write-up of its multi-agent research system reported roughly 15× the token usage of a plain chat interaction — that order of magnitude is the number to have in your head. Then apply Part 3's reliability arithmetic: coordination adds steps, and each handoff is a lossy translation where the sub-agent lacks context the orchestrator never thought to pass.
 
-So the graded answer is subtractive: **default to a single agent; go multi-agent only when the sub-tasks are genuinely separable, read-heavy, and parallelizable.** Research fan-out qualifies. A five-step customer-support flow does not — splitting it into "intent agent", "lookup agent" and "response agent" is a pipeline you could have written as three function calls, now with a language model between each pair and a new class of failure where one link's output does not parse.
+So the answer is subtractive: **default to a single agent; go multi-agent only when the sub-tasks are genuinely separable, read-heavy, and parallelizable.** Research fan-out qualifies. A five-step customer-support flow does not — splitting it into "intent agent", "lookup agent" and "response agent" is a pipeline you could have written as three function calls, now with a language model between each pair and a new class of failure where one link's output does not parse.
 
 ## Part 8 — MCP, in one paragraph
 
-MCP (Model Context Protocol, introduced by Anthropic in November 2024) is an open standard for exposing tools and data sources to models over a uniform interface. It exists to kill an $n \times m$ problem: without it, every agent framework writes its own connector to every system, so ten agents and ten systems means a hundred integrations. With a shared protocol, each system ships one server and each agent ships one client — ten plus ten. That is the whole pitch, and it is the depth interviews actually reach. Know that it makes integrations portable, know that it does not change anything about the loop in Part 1, and do not memorize the transport layer.
+Without a shared convention, every agent framework writes its own connector to every system it touches: with $n$ agent frameworks and $m$ systems that is $n \times m$ integrations, so ten of each means a hundred. A shared protocol collapses it — each system ships one server, each agent ships one client, ten plus ten. MCP (Model Context Protocol, introduced by Anthropic in November 2024) is that protocol: an open standard for exposing tools and data sources to models over a uniform interface. That is the whole pitch. Know that it makes integrations portable, know that it does not change anything about the loop in Part 1, and do not memorize the transport layer.
 
 ## Tradeoff matrix
 
@@ -174,7 +174,7 @@ MCP (Model Context Protocol, introduced by Anthropic in November 2024) is an ope
 ## Production failure modes
 
 1. **Non-termination from an ambiguous tool result.** A tool returns `{"status": "pending"}`; the model reads it as "not done yet" and re-calls the same tool forever. Cost: the full step budget, every time. Fix: make tool results state the next action explicitly, and add the identical-call-hash detector.
-2. **Duplicated side effects on retry.** A payment tool times out after the charge succeeded. The model retries, and the customer is charged twice. Fix: idempotency keys derived from the task and arguments, enforced in the tool, not in the prompt.
+2. **Duplicated side effects on retry.** A payment tool times out after the charge succeeded. The model retries, and the customer is charged twice. Fix: idempotency keys — a deterministic key derived from the task and arguments, sent with the call so a repeat returns the first result instead of acting twice — enforced in the tool, not in the prompt.
 3. **Context blowout past the window.** A loop that greps a large repo appends 30k-token tool results until the request exceeds the context limit and errors mid-task. Fix: truncate tool results at the boundary with a pointer to the full content, and compact on a token threshold.
 4. **Tool selection collapse as the catalog grows.** Accuracy is fine at 8 tools and falls apart at 40, because three of them plausibly match the request. Fix: merge overlapping tools, write trigger conditions into descriptions, or load schemas dynamically.
 5. **Silent staging-to-prod drift.** A downstream API adds a field and changes an enum value. The schema still validates, the model still calls the tool, and the results are quietly wrong. Fix: version tool contracts, and assert on response shape inside the tool.
@@ -190,7 +190,7 @@ MCP (Model Context Protocol, introduced by Anthropic in November 2024) is an ope
 - **"Right tool, wrong arguments."** Tighten the schema first (enums, required fields, formats in descriptions) and turn on structured-output enforcement. Then validate semantics inside the tool and return an actionable error so the model can correct on the next turn. Add a couple of example calls to the description if the argument shape is unusual.
 - **"When is an agent the wrong solution?"** When the steps are known in advance. If you can draw the flowchart, write the flowchart — you get determinism, lower cost, lower latency, and a debuggable stack trace. The refusal is the answer, not a caveat.
 - **"When do you go multi-agent?"** Default single. Go multi only for separable, read-heavy, parallelizable sub-tasks where context isolation is the actual win — and price it, since it can cost an order of magnitude more tokens.
-- **"Explain ReAct."** Reason, act, observe, repeat, with observations feeding the next reasoning step; its contribution was showing reasoning and acting fail separately. Note that native tool calling has absorbed it and it is now just the default loop.
+- **"Explain ReAct."** Reason, act, observe, repeat, with observations feeding the next reasoning step; its contribution was showing reasoning and acting fail separately. Native tool calling has absorbed it, and it is now just the default loop.
 - **"Planner-executor or single loop?"** Plan when steps are independent, the horizon is long, or a human must approve before execution. Single loop when each observation determines the next step. Replan on contradiction, not on every turn.
 - **"How do you keep long-term memory clean?"** Gate the write path: persist only verified or user-confirmed facts, attach provenance and timestamps, deduplicate on write, decay old entries, and give the user a way to inspect and delete.
 - **"What is MCP?"** A uniform protocol for exposing tools and data to models, so integrations are $n+m$ instead of $n \times m$. One paragraph, then stop.

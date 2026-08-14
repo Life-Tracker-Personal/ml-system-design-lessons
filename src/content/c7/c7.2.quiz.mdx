@@ -50,7 +50,7 @@ The surprising part is that these two are **independent**. Knowing the first fai
 
 **(a)** Gaps between Poisson arrivals are exponential with mean 10. Exponential is memoryless, so the time from *any* fixed instant to the next arrival is exponential with mean 10, regardless of how long ago the last bus left. You wait 10 minutes.
 
-**(b)** The general argument. You do not land in a uniformly chosen gap. Long gaps cover more of the timeline, so you land in a gap with probability proportional to its length. If gap lengths $L$ have density $f$, the gap you land in has the length-biased density $\ell f(\ell)/E[L]$, so
+**(b)** The general argument. You do not land in a uniformly chosen gap. Long gaps cover more of the timeline, so you land in a gap with probability proportional to its length. If the gap length $L$ has density $f$, so that a gap of length near $\ell$ carries density $f(\ell)$, then the gap you land in has the length-biased density $\ell f(\ell)/E[L]$, where dividing by the mean gap keeps it integrating to 1. So
 
 $$E[\text{gap you land in}] = \frac{\int \ell^2 f(\ell)\,d\ell}{E[L]} = \frac{E[L^2]}{E[L]} = \frac{E[L]^2 + \mathrm{Var}(L)}{E[L]} = E[L] + \frac{\mathrm{Var}(L)}{E[L]}$$
 
@@ -96,9 +96,9 @@ The game is worth $\boxed{2/3}$.
 
 **(b)** Because you hold an option, and an option is never worth less than zero. Playing the deck to the end has EV $0$; the ability to walk away on bad paths truncates the left tail without touching the right tail, so the value strictly exceeds $0$. The $\max(0,\cdot)$ in the recursion *is* the option.
 
-**(c)** Look at $V(2,1)$: you got here by drawing a black first, so you are down \$1, and yet $V(2,1) = 4/3 > 0$, so you keep playing. Conversely at $(1,2)$ you have drawn one red and are up \$1, and $V(1,2) = 0$, so you are indifferent between stopping and continuing. What matters is not your running P&L, it is the composition of the remaining deck. You continue exactly when the remainder is red-rich enough that the option value clears the immediate drift.
+**(c)** Look at $V(2,1)$: you got here by drawing a black first, so you are down one dollar, and yet $V(2,1) = 4/3 > 0$, so you keep playing. Conversely at $(1,2)$ you have drawn one red and are up one dollar, and $V(1,2) = 0$, so you are indifferent between stopping and continuing. What matters is not your running P&L, it is the composition of the remaining deck. You continue exactly when the remainder is red-rich enough that the option value clears the immediate drift.
 
-**(d)** Same recursion, more grinding. Using $V(1,3) = 0$ (since $\tfrac14 - \tfrac34 \lt 0$):
+**(d)** The same recursion, one deck size up. Using $V(1,3) = 0$ (since $\tfrac14 - \tfrac34 \lt 0$):
 
 - $V(2,3) = \max\!\big(0,\ \tfrac25(1+0) + \tfrac35(-1+\tfrac23)\big) = \tfrac25 - \tfrac15 = \tfrac15$
 - $V(3,1) = \tfrac34(1+\tfrac43) + \tfrac14(-1+3) = \tfrac74 + \tfrac12 = \tfrac94$
@@ -126,7 +126,7 @@ So $17/20 = 0.85$ for the 3-3 deck. The value grows with deck size (more chances
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** Fix $\lambda$ and set $p = \lambda/n$. Then
+**(a)** Fix the mean count $\lambda$ and set $p = \lambda/n$, so that the expected number of successes stays $\lambda$ as $n$ grows. With $X$ the number of successes in the $n$ trials and $k$ one of its possible values,
 
 $$P(X=k) = \binom{n}{k}\left(\frac{\lambda}{n}\right)^{k}\left(1-\frac{\lambda}{n}\right)^{n-k} = \underbrace{\frac{n(n-1)\cdots(n-k+1)}{n^{k}}}_{\to\, 1}\cdot\frac{\lambda^{k}}{k!}\cdot\underbrace{\left(1-\frac{\lambda}{n}\right)^{n}}_{\to\, e^{-\lambda}}\cdot\underbrace{\left(1-\frac{\lambda}{n}\right)^{-k}}_{\to\, 1}$$
 
@@ -140,7 +140,7 @@ $$P(0) = e^{-2} \approx 0.135$$
 
 $$P(\ge 3) = 1 - e^{-2}\left(1 + 2 + \frac{2^2}{2}\right) = 1 - 5e^{-2} \approx 1 - 0.677 = 0.323$$
 
-So about a 32 percent chance of three or more failures on a given day. (Note $1 + 2 + 2 = 5$, since $\lambda^2/2! = 2$ as well.)
+So about a 32 percent chance of three or more failures on a given day. The bracket is $1 + 2 + 2 = 5$ because $\lambda^2/2! = 2$ as well.
 
 **(d)** No. Here $np = 120$ and $p = 0.3$ is not small. Binomial variance is $400 \cdot 0.3 \cdot 0.7 = 84$, while Poisson would claim $120$: a 43 percent overstatement of variance, so every tail probability is wrong. The right approximation in this regime is the normal one, since $np$ and $n(1-p)$ are both large: mean 120, $\sigma = \sqrt{84} \approx 9.2$. The general split is that Poisson handles *rare* events and the normal handles *bulk* counts.
 
@@ -184,7 +184,7 @@ since that is the standard simplex. Then use the tail formula for a non-negative
 
 $$E[N] = \sum_{n \ge 0} P(N > n) = \sum_{n\ge 0}\frac{1}{n!} = e \approx 2.718$$
 
-Note the sum starts at $n = 0$, where $P(N > 0) = 1$; dropping that term is the usual off-by-one and gives $e - 1$.
+The sum starts at $n = 0$, where $P(N > 0) = 1$; dropping that term is the usual off-by-one and gives $e - 1$.
 
 **Rubric:**
 - CDF-of-max trick stated as an event equivalence, not just an assertion
@@ -208,15 +208,17 @@ Note the sum starts at $n = 0$, where $P(N > 0) = 1$; dropping that term is the 
 
 $$g(f) = p\log(1+f) + (1-p)\log(1-f)$$
 
+Growth is maximised where this curve peaks, so differentiate, set the derivative to zero and clear the denominators:
+
 $$g'(f) = \frac{p}{1+f} - \frac{1-p}{1-f} = 0 \implies p(1-f) = (1-p)(1+f) \implies p - pf = 1 - p + f - pf$$
 
-so $f^\star = 2p - 1$. With $p = 0.6$ that is 20 percent of bankroll. Note $f^\star$ equals the edge on an even-money bet, which is the form worth remembering.
+The $pf$ terms cancel, leaving $f^\star = 2p - 1$. With $p = 0.6$ that is 20 percent of bankroll. That fraction is exactly the edge on an even-money bet, which is the form worth remembering.
 
 **(b)** Because wealth compounds multiplicatively and expectation does not commute with the product. Maximising $E[W_n]$ is linear in $f$ and pushes you to $f=1$: bet everything every time. That has the highest mean wealth and yet ruins you with probability $1$, since a single loss zeroes you permanently. The mean is dragged around by a vanishingly rare path where you win everything. $E[\log W]$ is the almost-sure long-run growth rate by the law of large numbers applied to the sum of log returns, so it describes what actually happens to you rather than to the average of you.
 
 **(c)** Three separate arguments:
 
-1. **The objective is flat at the top and a cliff past it.** In the Gaussian approximation $g(f) \approx f\mu - f^2\sigma^2/2$, with $f^\star = \mu/\sigma^2$. Then $g(2f^\star) = 2\mu^2/\sigma^2 - 2\mu^2/\sigma^2 = 0$: betting double Kelly gives *zero* growth. Overbetting is punished far harder than underbetting, and the penalty is asymmetric, so err low.
+1. **The objective is flat at the top and a cliff past it.** In the Gaussian approximation, where $\mu$ and $\sigma$ are the mean and standard deviation of the per-bet return, $g(f) \approx f\mu - f^2\sigma^2/2$, with $f^\star = \mu/\sigma^2$. Then $g(2f^\star) = 2\mu^2/\sigma^2 - 2\mu^2/\sigma^2 = 0$: betting double Kelly gives *zero* growth. Overbetting is punished far harder than underbetting, and the penalty is asymmetric, so err low.
 2. **Drawdowns.** Under full Kelly the probability that your bankroll ever touches a fraction $a$ of its starting value is $a$. So a 50 percent drawdown at some point is a coin flip and an 80 percent drawdown happens with probability $0.8$. No real allocator or risk committee survives that path even when it is theoretically optimal.
 3. **The edge is estimated, not known.** $f^\star = 2p-1$ is very sensitive to $p$: a true $p = 0.55$ gives $f^\star = 0.10$, but estimating $p = 0.60$ gives $0.20$, which is *double* Kelly on the true edge, hence zero growth by the first argument. A 5-point error in a probability estimate wipes out the entire advantage. Historical win rates on backtested strategies are exactly this kind of overestimate.
 
@@ -248,7 +250,7 @@ Quote **9.5 at 11.5**. Centred on the true mean, two wide, roughly two-thirds of
 
 **(c)** They bought at 11.5, which is a full standard deviation above fair. Either they know something (impossible here, the dice have not been rolled) or they are testing whether I will move my market on one trade. I re-quote around the *same* fair value, 10.5, because nothing about the distribution changed, and I say so. What I might do is shade slightly and widen — quote 9.5 at 12, say — to reflect that I am now long risk and want to be paid more to add to it. Inventory management shades the centre; adverse selection widens the spread. Confusing those two is the error they are looking for.
 
-**(d)** Heads in 100 flips is Binomial$(100, 0.5)$: mean $50$, $\mathrm{Var} = np(1-p) = 25$, $\sigma = 5$. By the CLT this is close to normal, so 48 at 52 is a sensible market: roughly $\pm 0.4\sigma$, and I can back it with 68/95/99.7 — about 68 percent of outcomes land in $[45,55]$, 95 percent in $[40,60]$. If they ask for the probability of at least 60 heads, that is two standard deviations up, so roughly $2.5$ percent.
+**(d)** Heads in 100 flips is Binomial$(100, 0.5)$: mean $50$, $\mathrm{Var} = np(1-p) = 25$, $\sigma = 5$. A count of 100 independent flips is a sum of 100 independent pieces, and sums like that settle into a bell shape — the central limit theorem — so the count is close to normal and 48 at 52 is a sensible market: roughly $\pm 0.4\sigma$, and I can back it with 68/95/99.7 — about 68 percent of outcomes land in $[45,55]$, 95 percent in $[40,60]$. If they ask for the probability of at least 60 heads, that is two standard deviations up, so roughly $2.5$ percent.
 
 **Rubric:**
 - Computes single-die variance from the definition, not from a recalled formula
@@ -283,7 +285,7 @@ Quote **9.5 at 11.5**. Centred on the true mean, two wide, roughly two-thirds of
 
 **(c) Exponential churn.** Exponential implies a *constant hazard*: the probability of churning in the next month, given survival so far, is the same for a day-1 user and a two-year user. That is almost never true. Real churn hazard is high early (users who never onboarded) and drops with tenure. Hardware is the mirror image, with a bathtub-shaped hazard: infant mortality, a flat middle, then wear-out.
 
-*Detection:* plot the empirical hazard by tenure bucket, or plot $\log$ of the Kaplan-Meier survival curve against time. Exponential is a straight line through the origin; curvature is the violation. Equivalently check whether $\mathrm{sd} = \mathrm{mean}$ for observed lifetimes, which exponential requires.
+*Detection:* plot the empirical hazard by tenure bucket, or take the fraction of users still alive at each tenure — the Kaplan-Meier survival curve, which estimates that fraction without assuming any parametric shape — and plot its $\log$ against time. Exponential is a straight line through the origin; curvature is the violation. Equivalently check whether $\mathrm{sd} = \mathrm{mean}$ for observed lifetimes, which exponential requires.
 
 *Fix:* Weibull if you want a monotone hazard with one shape parameter, Cox proportional hazards if you want covariates without committing to a baseline shape, or a discrete-time hazard model with tenure as a feature. The harm from getting it wrong is confidently wrong retention forecasts: a constant hazard fit to early-churning data massively underpredicts the survival of the long-tenured cohort, which is where the revenue is.
 
