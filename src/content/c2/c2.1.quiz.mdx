@@ -1,0 +1,349 @@
+---
+lessonId: c2.1
+chapter: 2
+title: Quiz — Neural networks and backpropagation
+description: Hand-derived backprop, shapes, autograd mechanics, and the gradient-magnitude product.
+estimatedMinutes: 60
+---
+
+These eight questions test whether you can actually run a backward pass and reason about what the product of Jacobians does to magnitude, rather than recite that "backprop is the chain rule." Several ask for arithmetic. Do the arithmetic before revealing the answer; the shape and sign errors are the whole point.
+
+<Quiz id="1">
+
+**Q1.** Run a full forward and backward pass by hand on a 2-2-1 ReLU network. Inputs and parameters:
+
+$$
+x = \begin{bmatrix} 2 & -1 \end{bmatrix}, \quad
+W_1 = \begin{bmatrix} 0.4 & 0.1 \\ -0.5 & 0.3 \end{bmatrix}, \quad
+b_1 = \begin{bmatrix} 0.1 & -0.2 \end{bmatrix}, \quad
+W_2 = \begin{bmatrix} 2.0 \\ -1.0 \end{bmatrix}, \quad b_2 = 0.1
+$$
+
+Hidden activation is ReLU, output is linear, target $y = 0$, loss $L = \tfrac12(\hat y - y)^2$. (a) Compute $\partial L/\partial W_1$ and $\partial L/\partial W_2$ with numbers. (b) Verify the $[0,0]$ entry of $\partial L/\partial W_1$ against a finite difference with step $0.001$. (c) Two of the four entries of $\partial L/\partial W_1$ are exactly zero and one is exactly $-2\times$ another. Explain both facts mechanically.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Forward.** Column $j$ of $W_1$ holds hidden unit $j$'s incoming weights.
+
+$$
+z_1 = \begin{bmatrix} 2(0.4) + (-1)(-0.5) + 0.1 & \; 2(0.1) + (-1)(0.3) - 0.2 \end{bmatrix} = \begin{bmatrix} 1.4 & -0.3 \end{bmatrix}
+$$
+
+$$
+a_1 = \begin{bmatrix} 1.4 & 0 \end{bmatrix}, \qquad \hat y = 1.4(2.0) + 0(-1.0) + 0.1 = 2.9, \qquad L = \tfrac12(2.9)^2 = 4.205
+$$
+
+**(a) Backward.** Right to left, one chain-rule step each.
+
+1. $\delta_2 = \hat y - y = 2.9$.
+2. $\partial L/\partial W_2 = a_1^{\top}\delta_2 = \begin{bmatrix} 1.4 \\ 0\end{bmatrix}(2.9) = \begin{bmatrix} 4.06 \\ 0 \end{bmatrix}$, shape $h \times k = 2 \times 1$.
+3. $\partial L/\partial a_1 = \delta_2 W_2^{\top} = 2.9\begin{bmatrix} 2.0 & -1.0\end{bmatrix} = \begin{bmatrix} 5.8 & -2.9\end{bmatrix}$.
+4. ReLU mask is $\mathbb{1}[z_1 > 0] = \begin{bmatrix} 1 & 0\end{bmatrix}$, so $\delta_1 = \begin{bmatrix} 5.8 & 0 \end{bmatrix}$.
+5. $\partial L/\partial W_1 = x^{\top}\delta_1 = \begin{bmatrix} 2 \\ -1\end{bmatrix}\begin{bmatrix} 5.8 & 0\end{bmatrix} = \begin{bmatrix} 11.6 & 0 \\ -5.8 & 0 \end{bmatrix}$, shape $d \times h = 2 \times 2$.
+
+(For completeness, $\partial L/\partial b_2 = 2.9$ and $\partial L/\partial b_1 = \begin{bmatrix} 5.8 & 0\end{bmatrix}$.)
+
+**(b) Finite difference.** Bump $W_1[0,0]$ from $0.4$ to $0.401$. Then $z_1[0] = 2(0.401) + 0.5 + 0.1 = 1.402$, $\hat y = 2.904$, $L = \tfrac12(2.904)^2 = 4.216608$. So
+
+$$
+\frac{4.216608 - 4.205}{0.001} = 11.608 \;\approx\; 11.6
+$$
+
+Agreement to the first-order accuracy you expect from a one-sided difference. That is the check to run on any hand-written backward pass.
+
+**(c) The two structural facts.**
+
+*The zero column.* Hidden unit 2 had $z_1[1] = -0.3 \le 0$, so the ReLU mask killed its gradient. Nothing flows into either of its incoming weights, and $b_1[1]$ gets nothing either. On this example the unit is invisible to the optimizer. If that held for every input in the dataset, the unit would be permanently dead.
+
+*The $-2\times$ ratio.* $\partial L/\partial W_1 = x^{\top}\delta_1$, so every row of the weight gradient is scaled by the corresponding input feature. Here $x = [2, -1]$, so row 0 is $2\delta_1$ and row 1 is $-1\delta_1$, a ratio of exactly $-2$. That is the mechanical reason to normalize inputs: a feature on a scale of $10^3$ produces a gradient $10^3$ times larger than a feature on a scale of $1$, and no single learning rate suits both.
+
+**Rubric:**
+- Correct forward: $z_1 = [1.4, -0.3]$, $a_1 = [1.4, 0]$, $\hat y = 2.9$, $L = 4.205$
+- Correct backward with correct shapes: $\partial L/\partial W_2 = [4.06, 0]^{\top}$ ($h\times k$), $\partial L/\partial W_1 = [[11.6, 0],[-5.8, 0]]$ ($d\times h$)
+- Finite difference $\approx 11.608$ against analytic $11.6$
+- Zero column explained by the ReLU mask (dead-unit mechanism), not by "small weights"
+- $-2$ ratio explained by $\partial L/\partial W_1 \propto x$, tied to input normalization
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2.** Derive $\partial L/\partial z = p - y$ for softmax with cross-entropy, starting from the softmax Jacobian. Then show concretely why the same output layer trained with squared error through a sigmoid learns slowly exactly when the model is most wrong.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Softmax Jacobian.** With $p_i = e^{z_i} / \sum_j e^{z_j}$,
+
+$$
+\frac{\partial p_i}{\partial z_j} = p_i(\delta_{ij} - p_j)
+$$
+
+(diagonal term $p_i(1-p_i)$ from differentiating the numerator and the denominator together; off-diagonal $-p_i p_j$ from the denominator alone).
+
+**Chain through cross-entropy.** $L = -\sum_i y_i \log p_i$, so $\partial L/\partial p_i = -y_i/p_i$ and
+
+$$
+\frac{\partial L}{\partial z_j} = \sum_i \left(-\frac{y_i}{p_i}\right) p_i(\delta_{ij} - p_j) = -\sum_i y_i(\delta_{ij} - p_j) = -y_j + p_j \sum_i y_i = p_j - y_j
+$$
+
+using $\sum_i y_i = 1$ for a one-hot label. The $1/p_i$ from the loss cancels the $p_i$ from the Jacobian. That cancellation is the reason the pairing exists: the gradient at the logits is the plain residual, with no derivative-of-the-nonlinearity factor left in it.
+
+**Squared error through a sigmoid.** Now $L = \tfrac12(\sigma(z) - y)^2$, so
+
+$$
+\frac{\partial L}{\partial z} = (\sigma(z) - y)\,\sigma'(z), \qquad \sigma'(z) = \sigma(z)(1-\sigma(z))
+$$
+
+Take $y = 1$ and $z = -10$, the maximally-wrong case. Then $\sigma(z) = 4.54\times 10^{-5}$, the error term is $\approx -1$, but $\sigma'(z) \approx 4.54\times 10^{-5}$. The gradient is about $-4.5\times 10^{-5}$: near zero precisely when the model is as wrong as it can be. Cross-entropy on the same unit gives $p - y \approx -0.99995$, four orders of magnitude larger.
+
+So the saturation factor is the problem, and cross-entropy's log cancels it. This is also why "use MSE for classification" is a real bug and not just a style preference.
+
+**Rubric:**
+- Softmax Jacobian $p_i(\delta_{ij} - p_j)$, both diagonal and off-diagonal terms
+- Chain and cancel the $1/p_i$; use $\sum_i y_i = 1$ to land on $p - y$
+- MSE-through-sigmoid gradient is $(\sigma - y)\sigma'$
+- Concrete numbers at the maximally-wrong point ($\sim 4.5\times 10^{-5}$ vs $\sim 1$)
+- Name the mechanism: cross-entropy's log cancels the saturating derivative
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3.** The following backward pass for a 2-layer softmax net is handed to you in a code review. Row-major convention throughout: `X` is `(N, d)`, `W1` is `(d, h)`, `W2` is `(h, k)`, `Y` is one-hot `(N, k)`, `P` is the softmax output `(N, k)`. Find every bug and say what each one does to training.
+
+```python
+def backward(X, Y, Z1, A1, W2, P):
+    dZ2 = P - Y
+    dW2 = dZ2 @ A1.T
+    db2 = dZ2
+    dA1 = W2.T @ dZ2
+    dZ1 = dA1 * A1
+    dW1 = X.T @ dZ1
+    db1 = dZ1.sum(axis=0)
+    return dW1, db1, dW2, db2
+```
+
+<details>
+<summary>Model answer + rubric</summary>
+
+Five bugs. Four are shape errors that raise immediately; one is silent, which makes it the dangerous one.
+
+1. **`dZ2 = P - Y` is missing the batch division.** It should be `(P - Y) / N`. This is the silent bug: shapes are fine, training runs, but the effective learning rate scales linearly with batch size. Move from batch 32 to batch 256 and your steps get 8x larger for no visible reason. Divide by $N$ exactly once, anywhere in the chain, and be consistent about where.
+2. **`dW2 = dZ2 @ A1.T`** has the operands backwards for this convention. The rule is *weight gradient equals inputs transposed times delta*: `dW2 = A1.T @ dZ2`, which is `(h, N) @ (N, k)` giving `(h, k)`, matching `W2`. As written it is `(N, k) @ (h, N)`, which does not conform.
+3. **`db2 = dZ2`** returns shape `(N, k)` where the bias is `(k,)`. The bias was broadcast across the batch on the forward pass, so its gradient is the sum over the batch: `db2 = dZ2.sum(axis=0)`.
+4. **`dA1 = W2.T @ dZ2`** is the transposed form of the input-gradient rule. For $z = aW$, the input gradient is $\delta W^{\top}$, so `dA1 = dZ2 @ W2.T`, which is `(N, k) @ (k, h)` giving `(N, h)`.
+5. **`dZ1 = dA1 * A1`** multiplies by the activation *value* instead of the 0/1 mask. It should be `dA1 * (Z1 > 0)`. Where `A1` is 5.0 the gradient is scaled by 5; where `A1` is 0.1 it is shrunk tenfold. The zeros happen to come out right, which is exactly why this survives a casual glance.
+
+Corrected:
+
+```python
+def backward(X, Y, Z1, A1, W2, P):
+    N = len(X)
+    dZ2 = (P - Y) / N        # (N, k)
+    dW2 = A1.T @ dZ2         # (h, k)
+    db2 = dZ2.sum(axis=0)    # (k,)
+    dA1 = dZ2 @ W2.T         # (N, h)
+    dZ1 = dA1 * (Z1 > 0)     # (N, h)
+    dW1 = X.T @ dZ1          # (d, h)
+    db1 = dZ1.sum(axis=0)    # (h,)
+    return dW1, db1, dW2, db2
+```
+
+Two rules cover the whole function: a weight gradient is `inputs.T @ delta`, and a bias gradient is `delta.sum(axis=0)`.
+
+**Rubric:**
+- Catches the missing `/N` and names the consequence (effective LR scales with batch size)
+- Catches both transposed matmuls and states the two rules: $a^{\top}\delta$ for weights, $\delta W^{\top}$ for inputs
+- Catches `db2` needing a batch sum, with the broadcast justification
+- Catches the ReLU mask replaced by the activation value, and notes it is silent
+- Writes a corrected version with shapes that conform end to end
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4.** Quantify vanishing gradients. (a) For a 20-layer network of sigmoid units, compute the best-case attenuation from the activation derivatives alone, and the attenuation if units typically sit at $|z| = 3$. (b) A colleague proposes fixing it by multiplying the loss by $10^{12}$. Say why that does not work. (c) Explain what changes when you swap sigmoid for ReLU, and be precise about what the burden moves onto.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) The arithmetic.** The gradient at layer $\ell$ is
+
+$$
+\frac{\partial L}{\partial z_\ell} = \frac{\partial L}{\partial z_L}\prod_{i=\ell+1}^{L}\bigl(D_i W_i^{\top}\bigr)
+$$
+
+where $D_i$ is diagonal with the activation derivatives. For sigmoid, $\sigma' = \sigma(1-\sigma)$ peaks at $z=0$ with value exactly $0.25$.
+
+- Best case, every unit at its most favourable point: $0.25^{20} = 2^{-40} \approx 9.1\times 10^{-13}$.
+- At $|z| = 3$: $\sigma(3) = 0.9526$, so $\sigma'(3) = 0.9526 \times 0.0474 \approx 0.0452$. Then $0.0452^{20} \approx 1.3\times 10^{-27}$.
+
+So the *best* case already costs twelve orders of magnitude, and a mildly saturated network costs twenty-seven. In fp32, whose smallest normal magnitude is around $10^{-38}$, the second number is close to being unrepresentable after any further scaling.
+
+**(b) Why global rescaling fails.** Multiplying the loss by a constant $c$ multiplies *every* gradient in the network by $c$, including the last layer's. The problem is not that gradients are small in absolute terms; it is that they are small **relative to each other**. Layer 1's gradient is $10^{-12}$ times layer 20's, and that ratio is invariant to any global scale. A learning rate that moves layer 1 sensibly blows up layer 20 by the same factor. (Loss scaling in mixed precision is a different thing: it exists to keep fp16 gradients out of the subnormal range, and it is undone before the optimizer step. It fixes representability, not conditioning.)
+
+**(c) What ReLU changes.** $\mathrm{ReLU}'(z) = 1$ exactly, for $z > 0$. Not $0.9$, not $0.25$. The activation stops contributing any shrink factor at all, so $D_i$ becomes a 0/1 diagonal instead of a uniformly-attenuating one.
+
+The burden does not disappear; it moves entirely onto the $W_i^{\top}$ factors. Now whether the product stays near 1 is decided by the scale of the weight matrices, which is exactly what initialization sets (He/Kaiming variance $2/\text{fan-in}$, the factor of 2 covering ReLU killing half the distribution) and what normalization layers re-set at every layer. That is the point: ReLU converted an unfixable activation problem into a weight-scale problem that other tools can control.
+
+The price is the other branch. $\mathrm{ReLU}'(z) = 0$ for $z \le 0$, so a unit that is negative on every input receives identically zero gradient forever.
+
+**Rubric:**
+- Writes the product-of-Jacobians form and identifies $D_i$
+- $0.25^{20} \approx 9.1\times 10^{-13}$ and $\sigma'(3)\approx 0.045$ giving $\approx 10^{-27}$
+- Explains that rescaling the loss preserves the *ratio* between layers, so it cannot help
+- Distinguishes this from mixed-precision loss scaling (representability, not conditioning)
+- ReLU derivative exactly 1 on the active branch; burden moves to weight scale (init, normalization)
+- Names the cost: the dead branch
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5.** Explain what a framework builds during the forward pass and what `.backward()` does with it. Then answer three concrete follow-ups: why `x += self.f(x)` inside a residual block throws but `x = x + self.f(x)` does not; why an evaluation loop without `no_grad()` can OOM on a model that trains fine; and what gradient checkpointing trades away.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**What gets built.** Every operation on a tensor that requires grad appends a node to a directed acyclic graph. Each node records its inputs' nodes (the edges) and **saves whatever values its local derivative will need**: a multiply saves both operands, a matmul saves both matrices, ReLU saves the sign mask, softmax saves its own output. The graph is constructed dynamically on each forward pass and discarded after the backward. It is a record of the computation, not a compiled program.
+
+**What `.backward()` does.** It seeds the output scalar with gradient $1$ and walks the graph in **reverse topological order**. At each node it performs a **vector-Jacobian product**: given the incoming gradient $\bar v$, it returns $\bar v J$ without ever materializing $J$. That is why reverse mode is cheap. For $f: \mathbb{R}^n \to \mathbb{R}$, one reverse sweep produces all $n$ partials for roughly the cost of one forward pass; forward-mode AD would need $n$ sweeps. Results accumulate into `.grad` by addition, which is why you need `zero_grad()` and also why a tensor consumed by two branches correctly gets both contributions summed.
+
+**In-place inside a residual block.** `x = x + self.f(x)` allocates a new tensor; the old `x`, which some upstream node saved, is untouched. `x += self.f(x)` overwrites that buffer in place. When the backward pass reaches the node that saved it, the value it needs is gone, and PyTorch raises *"one of the variables needed for gradient computation has been modified by an inplace operation."* The graph structure is fine; the saved tensor is not. Same mathematics, different bookkeeping.
+
+**Evaluation without `no_grad()`.** Graph construction keeps every intermediate activation alive so it can be used in a backward that will never happen. Under training you at least free them each step after `.backward()`; in a validation loop with no backward, activations pile up across batches until you OOM. `torch.no_grad()` skips graph construction entirely, so nothing is retained.
+
+**Gradient checkpointing.** Activation memory, not parameter memory, is usually what stops a deep model from fitting. Checkpointing drops the saved activations inside a block and recomputes them during the backward pass from the block's stored input. You buy a large memory reduction for roughly 30% more compute. It is a compute-for-memory trade and nothing else; gradients are numerically identical.
+
+**Rubric:**
+- Nodes save the *values their local derivative needs*, with specific examples
+- `.backward()` = reverse topological traversal applying vector-Jacobian products, no explicit Jacobian
+- Reverse mode gives all partials in one sweep; ties this to why it is used for scalar losses
+- Accumulation into `.grad` explains both `zero_grad()` and shared tensors
+- In-place error explained as a corrupted *saved tensor*, not a broken graph
+- `no_grad()` prevents activation retention; checkpointing trades ~30% compute for memory
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6.** A junior engineer's model has `Linear(1024, 8)` immediately followed by `Linear(8, 1024)` with no activation between them. (a) State exactly what function this computes and what its capacity limit is. (b) Compare its parameter count to a single `Linear(1024, 1024)`. (c) Give the one setting where this exact structure is the right call, and say why the argument reverses there.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) What it computes.** $z = (xW_1 + b_1)W_2 + b_2 = x(W_1W_2) + (b_1W_2 + b_2)$. That is a single affine map with effective weight $W = W_1W_2 \in \mathbb{R}^{1024\times 1024}$. Since $\mathrm{rank}(W_1W_2) \le \min(1024, 8, 1024) = 8$, the composite can only ever be a rank-8 linear map. Stacking linear layers buys no expressiveness whatsoever; it buys a rank cap and a harder optimization problem.
+
+**(b) Parameters.** The pair has $1024\times 8 + 8\times 1024 = 16{,}384$ weights. A single `Linear(1024, 1024)` has $1{,}048{,}576$. So the pair is 64x smaller *and* strictly less expressive than the layer it is imitating: it can represent only the rank-8 subset of what the full layer can. That is the honest framing. It is not "fewer parameters for the same thing"; it is "fewer parameters for a restricted thing."
+
+**(c) When it is right: LoRA.** Low-rank adaptation freezes a pretrained weight $W_0$ and learns an update $\Delta W = BA$ with $A \in \mathbb{R}^{1024\times r}$, $B \in \mathbb{R}^{r\times 1024}$, $r = 8$. The structure is identical, and the rank cap is now the *goal*, not the accident. The reversal is that you are no longer trying to represent an arbitrary function; you are representing a *fine-tuning delta*, and the empirical claim is that useful task adaptations live in a low-rank subspace. You train 16k parameters instead of 1M per layer, you keep the base weights shared across many adapters, and you can fold $BA$ back into $W_0$ at inference so there is zero added latency.
+
+Same factorization, opposite verdict, because the thing being approximated changed. That is the whole answer, and it is a good demonstration that "two linear layers are pointless" is a statement about *what you are trying to represent*, not about matrix algebra.
+
+**Rubric:**
+- Collapses to $x(W_1W_2) + \text{const}$, one affine map
+- Rank at most $\min(d, h, k) = 8$, stated as the capacity limit
+- $16{,}384$ vs $1{,}048{,}576$ parameters, with the correct interpretation (restricted, not equivalent)
+- LoRA named, with $\Delta W = BA$ and the rank cap as the deliberate design choice
+- Explains *why* the argument reverses: representing a delta, not an arbitrary function
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7.** Someone tells you the universal approximation theorem proves one hidden layer is enough, so depth is a matter of taste. Give the concrete construction that refutes the practical version of this claim, and state honestly what the theorem does and does not say.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**What the theorem says.** A single hidden layer of sufficient width, with a non-polynomial activation, can approximate any continuous function on a compact set to arbitrary accuracy. This is true and it is essentially useless for practice, because it is silent on two things that decide everything: *how many* units you need, and whether gradient descent will find them. A statement that permits $10^{40}$ units and gives no learning guarantee predicts nothing about your training run.
+
+**The useful statement: pieces per parameter.** A ReLU network is a piecewise-linear function, so count linear pieces.
+
+*Width.* One hidden layer of $n$ ReLU units on a 1-D input has at most $n+1$ pieces: each unit contributes one kink where its pre-activation crosses zero. Pieces grow **linearly** in width.
+
+*Depth.* Two ReLU units implement the tent map $f(x) = 2\min(x, 1-x)$ on $[0,1]$, which folds the interval onto itself: the left half stretches to cover $[0,1]$, and so does the right half, reversed. Compose it with itself. Each composition doubles the number of monotone segments, because every existing segment gets folded into two. So $L$ tents stacked in depth, using about $2L$ units, produce a sawtooth with $2^L$ linear pieces. Pieces grow **exponentially** in depth.
+
+**The separation.** To match the function computed by an $L$-layer sawtooth, a single-hidden-layer network needs on the order of $2^L$ units. At $L = 20$ that is roughly $10^6$ units against 40. Telgarsky (2016) turned this into a formal separation theorem; Montúfar et al. (2014) counted linear regions for general multi-dimensional inputs.
+
+**The honest framing.** Depth's advantage is compositional reuse: each layer transforms features the layer below already built, so capacity multiplies rather than adds. And the catch is the same multiplication seen from the other direction. The product that multiplies expressiveness on the way forward is the product that multiplies gradient magnitude on the way back, which is exactly why very deep networks were untrainable until initialization, normalization, and residual connections arrived to control it.
+
+**Rubric:**
+- States the theorem correctly, then names its two silences: unit count and learnability
+- Width: $n$ ReLU units give at most $n+1$ pieces, linear growth
+- Tent map construction, why composition *doubles* pieces, $2L$ units giving $2^L$ pieces
+- Cites the separation result (Telgarsky 2016 / Montúfar et al. 2014) rather than hand-waving
+- Connects back: the same product governs expressiveness and gradient magnitude
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8.** A 12-layer ReLU MLP trains fine at learning rate $10^{-3}$. Someone raises it to $10^{-1}$. Loss drops fast for 200 steps, then flattens well above the previous run's plateau and never moves again. Logged activation sparsity in layer 5 has gone from 48% zeros to 91% zeros and is still climbing. Diagnose it, explain the mechanism in terms of the backward pass, and give the fix ladder in order.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Diagnosis: dead ReLUs, caused by the learning-rate increase.**
+
+**Mechanism.** A large learning rate produces a large step. The bias gradient for a hidden layer is $\delta_1$ summed over the batch, so one oversized step can drive a unit's bias strongly negative. Once $z = xW + b \le 0$ for every input in the data, the ReLU mask is zero for that unit on every example. The mask multiplies the incoming gradient, so $\delta$ for that unit is identically zero, so $\partial L/\partial W$ and $\partial L/\partial b$ for that unit are identically zero. **The unit cannot recover, because the only mechanism that could move it back is the gradient it no longer receives.** This is unlike a saturated sigmoid, which has a tiny but nonzero derivative and can in principle crawl back.
+
+Why the loss plateaus rather than diverging: the surviving units compensate as far as they can, so the loss keeps falling for a while and then stops when there is not enough live capacity left. Nothing throws an error. Only per-layer activation-sparsity logging catches this, which is why the 91% number is the actual diagnostic here and the loss curve is not.
+
+**Confirm before fixing.** Check that the zeros are the *same* units across different batches. If a layer is 91% zeros but the zero set changes per input, that is ordinary ReLU sparsity, not death. Persistent-across-batches zeros, plus a per-layer gradient norm near zero for those rows, confirms it.
+
+**Fix ladder, in order:**
+
+1. **Lower the learning rate** and restart, since the parameters are already dead and there is nothing to salvage in this run. Add warmup if the spike was early.
+2. **Check the bias initialization.** Large negative bias init, or a bias that drifted negative, is the usual proximate cause. A small positive bias init (e.g. $0.01$) is the classic prophylactic.
+3. **Check input and activation scale.** If pre-activations are entering the layer with a large negative mean, the layer below is the real problem, not this one.
+4. **Switch the activation.** Leaky ReLU gives slope $\alpha$ on the negative branch so the gradient is never exactly zero; GELU or SwiGLU, what modern transformers actually use, are smooth with a small nonzero gradient just below zero, so the dead branch is soft rather than absolute.
+5. **Add gradient clipping** to cap the step that caused it. Note that this is the symptom fix: it prevents the killing step but does not address why steps that large were being taken.
+
+**Rubric:**
+- Names dead ReLUs and ties them to the LR change, not to "overfitting" or "bad data"
+- Mechanism: mask is zero on all inputs, so $\delta$, $\partial L/\partial W$ and $\partial L/\partial b$ are all identically zero, hence irrecoverable
+- Contrasts with sigmoid saturation (small but nonzero derivative)
+- Explains why the loss plateaus silently and why sparsity logging is the diagnostic
+- Verifies the zero set is persistent across batches before concluding
+- Fix ladder ordered, with leaky/GELU as the activation fix and clipping labelled as symptom treatment
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: neural networks and backpropagation
+
+These 15 questions stand alone. Each should take two to five minutes to answer out loud, and they are picked for how often they get asked, not for how interesting they are. Several are ML-coding prompts where the graded content is shapes and numerical stability, so say the shapes out loud as you write.
+
+1. **Backprop in NumPy** Write the forward and backward pass for a 2-layer MLP with ReLU, softmax and cross-entropy, vectorized, no frameworks. Annotate every line with its shape, and say where you divide by the batch size and why exactly once.
+2. **The two shape rules** For $z = aW$ in row-major form, state the gradient of the loss with respect to $W$ and with respect to $a$, and say why the bias gradient is a sum over the batch rather than the delta itself.
+3. **Softmax and cross-entropy** Why do these two get paired? Derive the gradient at the logits, and separately say what you must do to the logits before exponentiating and what breaks in production if you skip it.
+4. **Why not MSE for classification** A candidate uses squared error with a sigmoid output on a binary task. Explain what happens to the gradient when the model is confidently wrong, with a rough number, and what cross-entropy does differently.
+5. **Why ReLU replaced sigmoid** Give the graded answer, not "it's faster." Put a number on how much a 10-layer sigmoid stack attenuates the gradient, and say what ReLU's derivative actually is on each branch.
+6. **How do you know gradients are exploding** You suspect exploding gradients. What do you log, what does the failure look like in that log, and what shows up before the loss does?
+7. **How do you prevent vanishing or exploding gradients** Give the full remedy set in order, then say which of them treat the symptom and which fix the underlying conditioning. Be ready for the interviewer to say "and?" after you mention clipping.
+8. **What is a dead neuron** Define it, say how you detect it in a running job, and name the two most common causes and the corresponding fixes.
+9. **Why are RNNs the pathological case** Explain why the vanishing and exploding gradient problem is structurally worse in a recurrent network than in a feedforward one of the same depth, and what quantity governs the behaviour.
+10. **Two linear layers in a row** Why shouldn't you stack two linear layers with no activation between them? Say what the composite actually is, and name the one architecture that does this deliberately and why that is not a contradiction.
+11. **How does autograd work** What does the framework build during the forward pass, what does `.backward()` traverse, and what does each node store? Then say why gradients accumulate rather than overwrite.
+12. **detach, no_grad, and in-place** Explain what `detach()` and `torch.no_grad()` each do and when you would use each. Then say why `x += f(x)` can throw an error inside a model while `x = x + f(x)` does not.
+13. **NaN loss at step 400** Your loss prints `NaN` 400 steps into a run that was going fine. Walk through your diagnosis in order, name the three most likely causes, and say what you would have logged in advance to make this a 5-minute investigation.
+14. **Activation memory** Your model fits in GPU memory as parameters but OOMs during training. Explain what is consuming the memory and why, and describe gradient checkpointing including what it costs you.
+15. **Gradient checking** You have hand-written a backward pass and want to know it is right before training on it. Describe the check you would run, what agreement you expect to see, and one situation where the check legitimately fails on correct code.

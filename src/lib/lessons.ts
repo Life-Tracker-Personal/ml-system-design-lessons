@@ -59,6 +59,29 @@ export async function getQuiz(
   }
 }
 
+export const CHAPTER_TITLES: Record<string, string> = {
+  c1: "Classical ML foundations",
+  c2: "Deep learning foundations",
+  c3: "Transformers",
+  c4: "Agentic AI",
+  c5: "Retrieval-augmented generation",
+  c6: "Evaluation pipelines",
+  c7: "Probability & statistics",
+};
+
+/** Chapter directories under src/content, numerically sorted (c2 before c10). */
+export async function listChapters(): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(CONTENT_ROOT, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory() && /^c\d+$/.test(e.name))
+      .map((e) => e.name)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  } catch {
+    return [];
+  }
+}
+
 export async function listLessons(chapter: string): Promise<LessonMeta[]> {
   try {
     const dirPath = path.join(CONTENT_ROOT, chapter);

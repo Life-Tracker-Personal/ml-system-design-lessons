@@ -1,100 +1,238 @@
-// Browser console collector for verbatim interview-question research.
+// Browser console collector for interview-question research.
 //
-// SITE-AGNOSTIC: no hostnames or site-specific rules are baked in. It uses
-// generic, Readability-style heuristics, so it works on whatever page you run
-// it on. Point it at the prep sites and discussion forums you're researching.
+// PURPOSE: a RESEARCH tool — captured links *inform* the course, they are NOT
+// copied verbatim. Run only on pages you're authorized to view, logged in.
 //
-// PURPOSE: a RESEARCH tool. Captured text *informs* the course (frameworks,
-// question shapes, expected-answer rubrics in
-// .claude/skills/interview-questions/) — it is NOT copied verbatim into lessons.
-// Run it only on pages you are authorized to view, in your own logged-in
-// browser. It captures the single page you're on; don't crawl aggressively.
+// WHAT IT DOES: for each target company, pages through the site's
+// ?company=X listing (client-rendered, so we render it in ONE hidden iframe and
+// read the question links). Writes <dir>/<company>.md — a numbered list of every
+// question that company asked, each linked to its page. Simple and robust.
 //
 // USAGE
-//   1. Open a page; scroll to the bottom; expand any "show more comments".
-//   2. DevTools (F12) > Console, paste this whole file, press Enter.
-//   3. IQ.grab()    capture the current page (verbatim title + body + comments)
-//      IQ.links()   print same-site links that look like posts/threads/lessons
-//      IQ.list()    show what you've collected so far
-//      IQ.export()  download a .md of everything captured ON THIS DOMAIN
-//      IQ.clear()   reset the store for this domain
-//   4. Storage is per-domain — run IQ.export() before leaving each site, then
-//      send the exported .md back into the chat (it lands in research/raw/).
+//   1. Open hellointerview.com; DevTools (F12) > Console; paste & Enter.
+//   2. IQ.setDir()   — pick export folder
+//   3. IQ.crawl()    — crawl all target companies
+//      IQ.crawl({ companies: ['Google','Meta'] })  — specific companies
+//      IQ.stop()                                    — abort
+//   IQ.status() · IQ.list() · IQ.export() · IQ.clear()
 
 (() => {
-  const KEY = '__iq__',
+  const KEY = '__iq_links__',
         load = () => JSON.parse(localStorage.getItem(KEY) || '[]'),
         save = a => localStorage.setItem(KEY, JSON.stringify(a)),
-        clean = t => (t || '').replace(/ /g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+        clean = t => (t || '').replace(/\s+/g, ' ').trim();
 
-  // Generic main-content picker: among candidate blocks, prefer the one with
-  // the most text and the lowest link-density (nav/menus are link-dense).
-  function pickMain(root) {
-    const cands = [...root.querySelectorAll('article, main, [role=main], section, div')];
-    let best = null, bestScore = 0;
-    for (const el of cands) {
-      const len = (el.innerText || '').length;
-      if (len < 200) continue;
-      const linkChars = [...el.querySelectorAll('a')].reduce((s, a) => s + (a.innerText || '').length, 0);
-      const score = len * (1 - (len ? linkChars / len : 1));
-      if (score > bestScore) { bestScore = score; best = el; }
-    }
-    return best || root;
+  const COMPANIES = [
+    'Anthropic', 'NVIDIA', 'Google', 'Netflix', 'OpenAI', 'Meta',
+    'Amazon', 'Apple', 'Microsoft', 'Stripe', 'Databricks',
+    'Uber', 'Airbnb', 'DoorDash', 'SpaceX', 'Tesla', 'DeepMind',
+  ];
+
+  let crawlAbort = null;
+  let exportDirHandle = null;
+
+  function jitter() { return Math.floor(Math.random() * 3000) + 2000; } // 2-5s
+
+  function sleep(ms, signal) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, ms);
+      if (signal) signal.addEventListener('abort', () => {
+        clearTimeout(timer); reject(new Error('aborted'));
+      }, { once: true });
+    });
   }
 
-  function extract() {
-    // Strip chrome from a clone so it never pollutes the text.
-    const c = document.body.cloneNode(true);
-    c.querySelectorAll('script,style,nav,header,footer,aside,svg,noscript,form,button')
-      .forEach(n => n.remove());
+  function titleFromSlug(url) {
+    const slug = url.split('/').slice(-2, -1)[0] || '';
+    return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
 
-    const title = clean(document.querySelector('h1')?.innerText) || clean(document.title);
-    const main = pickMain(c);
-    const body = clean(main.innerText);
+  // Extract {url, title} for each question card in a rendered listing document.
+  function findDetailItems(doc) {
+    const host = location.hostname;
+    const byUrl = new Map();
+    for (const a of doc.querySelectorAll('a[href]')) {
+      try {
+        const u = new URL(a.href, location.origin);
+        if (u.hostname !== host || u.hash) continue;
+        const seg = u.pathname.split('/').filter(Boolean);
+        if (seg.length !== 4 || seg[0] !== 'community' || seg[1] !== 'questions') continue;
+        const url = u.origin + u.pathname;
+        const text = clean(a.innerText || a.textContent || '');
+        const prev = byUrl.get(url);
+        if (prev == null || text.length > prev.length) byUrl.set(url, text);
+      } catch {}
+    }
+    return [...byUrl].map(([url, text]) => ({ url, title: text || titleFromSlug(url) }));
+  }
 
-    // Comments by generic semantic class hints (not tied to any site).
-    const comments = [...c.querySelectorAll('[class*=comment i],[class*=reply i],[class*=answer i]')]
-      .map(e => clean(e.innerText)).filter(t => t && t.length > 20);
+  // ONE reused hidden iframe renders each listing page (light, ~dozens of loads).
+  let frame = null;
+  function getFrame() {
+    if (!frame || !frame.isConnected) {
+      frame = document.createElement('iframe');
+      frame.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1024px;height:768px;opacity:0;pointer-events:none;';
+      document.body.appendChild(frame);
+    }
+    return frame;
+  }
+  function disposeFrame() {
+    if (frame) {
+      try { frame.contentWindow?.stop(); } catch {}
+      try { frame.src = 'about:blank'; } catch {}
+      frame.remove(); frame = null;
+    }
+  }
 
-    return { url: location.href, host: location.hostname, title,
-             capturedAt: new Date().toISOString(), body, comments };
+  function grabListingItems(url, signal) {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) { reject(new Error('aborted')); return; }
+      const iframe = getFrame();
+      let attempts = 0, poll = null, done = false;
+      const onAbort = () => { if (poll) clearInterval(poll); done = true; reject(new Error('aborted')); };
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
+      const finish = (val) => {
+        if (done) return; done = true;
+        if (poll) clearInterval(poll);
+        iframe.onload = null;
+        if (signal) signal.removeEventListener('abort', onAbort);
+        resolve(val);
+      };
+      iframe.onload = () => {
+        poll = setInterval(() => {
+          attempts++;
+          try {
+            const items = findDetailItems(iframe.contentDocument);
+            if (items.length > 0 || attempts >= 15) finish(items);
+          } catch { if (attempts >= 15) finish([]); }
+        }, 1000);
+      };
+      iframe.src = url;
+    });
+  }
+
+  // store: [{ url, title, companies: [] }]
+  function addItem(url, title, company) {
+    const all = load();
+    let rec = all.find(x => x.url === url);
+    if (!rec) { rec = { url, title, companies: [] }; all.push(rec); }
+    if (title && title.length > (rec.title || '').length) rec.title = title;
+    if (!rec.companies.includes(company)) rec.companies.push(company);
+    save(all);
+    return rec;
+  }
+
+  async function writeCompanyFile(company) {
+    if (!exportDirHandle) return 0;
+    const items = load().filter(r => r.companies.includes(company))
+      .sort((a, b) => a.title.localeCompare(b.title));
+    const md = `# ${company} — Interview Questions (${items.length})\n\n`
+      + items.map((r, i) => `${i + 1}. [${r.title}](${r.url})`).join('\n') + '\n';
+    try {
+      const file = await exportDirHandle.getFileHandle(`${company}.md`, { create: true });
+      const w = await file.createWritable();
+      await w.write(md);
+      await w.close();
+    } catch (e) { console.warn(`⚠️ write ${company}.md: ${e.message}`); }
+    return items.length;
   }
 
   window.IQ = {
-    grab() {
-      const a = load(), r = extract();
-      if (a.some(x => x.url === r.url)) { console.log('already have', r.url); return r; }
-      a.push(r); save(a);
-      console.log(`✅ ${a.length} total | ${r.title} | ${r.body.length} chars, ${r.comments.length} comments`);
-      return r;
+    async setDir() {
+      try {
+        exportDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        console.log(`📁 Export directory set: ${exportDirHandle.name}`);
+      } catch { console.warn('⚠️ Directory picker cancelled'); }
     },
+
+    async crawl({ companies = COMPANIES, sort = 'popular', maxPagesPerCompany = 50 } = {}) {
+      if (crawlAbort) { console.log('crawl already running — IQ.stop() first'); return; }
+      if (!exportDirHandle) { console.warn('⚠️ Run IQ.setDir() first'); return; }
+
+      const ac = new AbortController();
+      crawlAbort = ac;
+      const signal = ac.signal;
+      let grandTotal = 0;
+
+      console.log('%c🕷️ Crawl started', 'color:orange;font-weight:bold',
+        `${companies.length} companies`);
+
+      try {
+        for (const company of companies) {
+          if (signal.aborted) break;
+          console.log(`%c🏢 ${company}`, 'color:yellow;font-weight:bold');
+          const seen = new Set();
+
+          for (let page = 1; page <= maxPagesPerCompany; page++) {
+            if (signal.aborted) break;
+            const url = `${location.origin}/community/questions?company=${encodeURIComponent(company)}&sort=${sort}&page=${page}`;
+            await sleep(jitter(), signal);
+
+            let items;
+            try {
+              items = await grabListingItems(url, signal);
+            } catch (e) {
+              if (e.message === 'aborted') throw e;
+              console.warn(`  ⚠️ p${page}: ${e.message}`); break;
+            }
+
+            const fresh = items.filter(it => !seen.has(it.url));
+            if (!fresh.length) { console.log(`  🏁 end of ${company} at page ${page}`); break; }
+
+            for (const it of fresh) { seen.add(it.url); addItem(it.url, it.title, company); }
+            console.log(`  📄 p${page}: +${fresh.length} (${seen.size} total)`);
+            await writeCompanyFile(company); // save progress each page
+          }
+
+          const n = await writeCompanyFile(company);
+          grandTotal += n;
+          console.log(`  ✅ ${company}: ${n} questions → ${company}.md`);
+        }
+      } catch (e) {
+        if (e.message === 'aborted') console.log('%c⏹️ stopped', 'color:red;font-weight:bold');
+        else console.error('Crawl error:', e);
+      } finally {
+        crawlAbort = null;
+        disposeFrame();
+      }
+
+      console.log(`%c🏁 Done — ${grandTotal} question-links across companies, ${load().length} unique`,
+        'color:green;font-weight:bold');
+    },
+
+    stop() {
+      if (crawlAbort) { crawlAbort.abort(); crawlAbort = null; console.log('stopping…'); }
+      else console.log('no crawl running');
+    },
+
+    status() {
+      const all = load();
+      const counts = {};
+      for (const r of all) for (const c of r.companies) counts[c] = (counts[c] || 0) + 1;
+      console.log(`${all.length} unique questions`);
+      console.table(Object.entries(counts).sort((a, b) => b[1] - a[1])
+        .map(([company, n]) => ({ company, questions: n })));
+    },
+
     list() {
-      const a = load();
-      console.table(a.map(x => ({ title: x.title.slice(0, 60), comments: x.comments.length, url: x.url })));
-      return a.length;
+      const all = load();
+      console.table(all.map(x => ({ title: x.title.slice(0, 60), companies: x.companies.join(', '), url: x.url })));
+      return all.length;
     },
-    // Same-origin links whose path looks like a discussion/question/lesson page.
-    links() {
-      const here = location.hostname;
-      const re = /(thread|post|question|discuss|comment|lesson|interview|topic|answer)/i;
-      const u = [...new Set([...document.querySelectorAll('a[href]')].map(a => a.href).filter(x => {
-        try { const url = new URL(x); return url.hostname === here && re.test(url.pathname); }
-        catch (e) { return false; }
-      }))];
-      console.log(u.join('\n'));
-      return u;
+
+    async export() {
+      if (!exportDirHandle) await IQ.setDir();
+      if (!exportDirHandle) return;
+      const companies = [...new Set(load().flatMap(r => r.companies))];
+      for (const c of companies) await writeCompanyFile(c);
+      console.log(`📁 wrote ${companies.length} company files`);
     },
-    export() {
-      const a = load();
-      const md = a.map(x => `\n\n# ${x.title}\nURL: ${x.url}\nHost: ${x.host} | ${x.capturedAt}\n\n## Body\n${x.body}\n\n## Comments (${x.comments.length})\n${x.comments.map((cm, i) => `### ${i + 1}\n${cm}`).join('\n\n')}`).join('\n\n---\n');
-      const b = new Blob([md], { type: 'text/markdown' }), l = document.createElement('a');
-      l.href = URL.createObjectURL(b);
-      l.download = `iq-${location.hostname.replace(/^www\./, '')}-${Date.now()}.md`;
-      l.click();
-      console.log(`⬇️ exported ${a.length} pages`);
-    },
+
     clear() { save([]); console.log('cleared'); }
   };
-  console.log('%cIQ ready (site-agnostic capture)', 'color:green;font-weight:bold');
-  console.log('IQ.grab() · IQ.list() · IQ.links() · IQ.export() · IQ.clear()');
+
+  console.log('%cIQ ready — question-link collector', 'color:green;font-weight:bold');
+  console.log(`${COMPANIES.length} companies: ${COMPANIES.slice(0, 6).join(', ')}…`);
+  console.log('1. IQ.setDir()   2. IQ.crawl()');
+  console.log('IQ.stop() · IQ.status() · IQ.list() · IQ.export() · IQ.clear()');
 })();

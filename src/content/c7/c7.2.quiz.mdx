@@ -1,0 +1,319 @@
+---
+lessonId: c7.2
+chapter: 7
+title: Quiz — Distributions, order statistics and stopping
+description: Questions on the five reflex distributions, memorylessness, the inspection paradox, order statistics, backward induction and Kelly.
+estimatedMinutes: 70
+---
+
+These eight questions test whether you can *derive* the results in the lesson rather than recite them. Every one of them is a thing an interviewer can push on for five minutes, so answer out loud and watch for the step where you would normally hand-wave. The rapid-fire section at the bottom stands on its own and is the part to drill before an interview.
+
+<Quiz id="1">
+
+**Q1. Memorylessness is a theorem, not a property you assign.** (a) Define memorylessness for a non-negative random variable. (b) Prove that the exponential is the only continuous distribution with it. (c) State the discrete analogue and say why it is the same proof. (d) Two machines fail independently at exponential rates $\lambda_1$ and $\lambda_2$. Give the distribution of the time until the first failure, and the probability that machine 1 is the one that fails, and say what is surprising about how those two facts relate.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** $T \ge 0$ is memoryless if $P(T > s + t \mid T > s) = P(T > t)$ for all $s, t \ge 0$. In words: conditioning on having already survived $s$ leaves the remaining lifetime distributed exactly as a fresh one. The elapsed time is not information.
+
+**(b)** Write the survival function $G(t) = P(T > t)$. By the definition of conditional probability, $P(T > s+t \mid T > s) = G(s+t)/G(s)$, so the condition is
+
+$$G(s+t) = G(s)\,G(t) \quad \text{for all } s,t \ge 0$$
+
+with $G(0) = 1$ and $G$ non-increasing and right-continuous. This is the multiplicative Cauchy functional equation. Iterate it: $G(n t) = G(t)^n$ for integer $n$, so $G(1) = G(1/n)^n$, giving $G(1/n) = G(1)^{1/n}$. Combining, $G(m/n) = G(1)^{m/n}$, so $G(q) = G(1)^q$ on all positive rationals. Right-continuity extends this to all real $t \ge 0$. Since $0 \le G(1) \le 1$, write $G(1) = e^{-\lambda}$ with $\lambda \ge 0$, and $G(t) = e^{-\lambda t}$. That is exactly the exponential survival function. (The degenerate cases $G(1) = 1$ and $G(1) = 0$ correspond to $\lambda = 0$ and $\lambda = \infty$.)
+
+**(c)** Restrict the same functional equation to the integers: $G(n) = G(1)^n$, so $P(X > n) = (1-p)^n$ with $1-p = G(1)$. That is the geometric distribution. There is no extra work because the rational-extension step was the only thing the continuous case needed beyond the integer case. Geometric and exponential are the same statement sampled at two resolutions, and they are the *only* memoryless distributions, discrete or continuous.
+
+**(d)** $P(\min(T_1,T_2) > t) = P(T_1 > t)P(T_2 > t) = e^{-(\lambda_1 + \lambda_2)t}$, so the first failure time is exponential with rate $\lambda_1 + \lambda_2$. The probability machine 1 goes first is $\lambda_1/(\lambda_1 + \lambda_2)$.
+
+The surprising part is that these two are **independent**. Knowing the first failure happened at $t = 3$ minutes tells you nothing about which machine it was, and knowing it was machine 1 tells you nothing about when. That independence is what makes competing-risk problems collapse to two lines instead of an integral, and it is special to exponentials.
+
+**Rubric:**
+- Correct definition with the conditional form
+- Reduces to $G(s+t) = G(s)G(t)$ by dividing survival functions, not by manipulating densities
+- Solves the functional equation: integer step, rational step, continuity extension
+- Names geometric as the discrete case and says the proof is identical on the integers
+- Min is exponential with the summed rate, via multiplying survival functions
+- $\lambda_1/(\lambda_1+\lambda_2)$ for the winner, and calls out the independence of "who" and "when"
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. The inspection paradox, derived twice.** Buses arrive as a Poisson process with mean gap 10 minutes. (a) Give the one-line memorylessness argument for your expected wait. (b) Derive it again without using memorylessness, via length-biased sampling, and show the general formula. (c) Use the general formula to explain why the answer is 10 for exponential gaps but 5 for a perfectly punctual 10-minute schedule. (d) Give a production system where this bites.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Gaps between Poisson arrivals are exponential with mean 10. Exponential is memoryless, so the time from *any* fixed instant to the next arrival is exponential with mean 10, regardless of how long ago the last bus left. You wait 10 minutes.
+
+**(b)** The general argument. You do not land in a uniformly chosen gap. Long gaps cover more of the timeline, so you land in a gap with probability proportional to its length. If gap lengths $L$ have density $f$, the gap you land in has the length-biased density $\ell f(\ell)/E[L]$, so
+
+$$E[\text{gap you land in}] = \frac{\int \ell^2 f(\ell)\,d\ell}{E[L]} = \frac{E[L^2]}{E[L]} = \frac{E[L]^2 + \mathrm{Var}(L)}{E[L]} = E[L] + \frac{\mathrm{Var}(L)}{E[L]}$$
+
+Given the gap you landed in, your arrival instant is uniform inside it, so your expected wait is half the sampled gap:
+
+$$E[\text{wait}] = \frac{1}{2}\left(E[L] + \frac{\mathrm{Var}(L)}{E[L]}\right)$$
+
+**(c)** Exponential gaps with mean 10 have $\mathrm{Var}(L) = 100$, so the sampled gap averages $10 + 100/10 = 20$ minutes and you wait half of that: 10. The factor of 2 from length bias and the factor of $1/2$ from landing mid-gap cancel exactly, which is the coincidence that makes the memorylessness one-liner work. Punctual buses have $\mathrm{Var}(L) = 0$, so the sampled gap is 10 and you wait 5. The excess over $E[L]/2$ is entirely $\mathrm{Var}(L)/(2E[L])$: the paradox is a variance effect, not a Poisson effect.
+
+**(d)** Any metric computed from "what is happening right now." Sampling active user sessions at an instant oversamples long sessions, so the reported mean session length is the length-biased $E[L^2]/E[L]$, not $E[L]$. Same for sampling in-flight requests to estimate latency: you disproportionately catch the slow ones. The fix is to sample by *session start* or *request arrival*, so each unit gets equal weight, or to apply the $E[L^2]/E[L]$ correction explicitly.
+
+**Rubric:**
+- One-line memoryless answer of 10 minutes, said first
+- Length-biased density $\ell f(\ell)/E[L]$ with the correct normalizer
+- Arrives at $E[L^2]/E[L] = E[L] + \mathrm{Var}(L)/E[L]$
+- Remembers the extra factor of $1/2$ for uniform position inside the gap
+- Shows the two factors cancel for exponential, and gets 5 for the deterministic case
+- Identifies a real length-biased sampling bug, not a toy one
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. The stopping game, all the way down.** A shuffled deck has 2 red and 2 black cards. You draw one at a time, win \$1 per red and lose \$1 per black, and may stop whenever you like and keep your total. (a) Write the value recursion and solve for the EV under optimal play, showing every intermediate value. (b) The full deck has expected value zero. Explain in one sentence why the game is worth strictly more than zero. (c) Show that "stop when you are ahead" is not the optimal policy. (d) Redo the recursion for 3 red and 3 black.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Let $V(r,b)$ be the expected *additional* gain with $r$ red and $b$ black remaining, playing optimally from here. Stopping is worth $0$ additional, so
+
+$$V(r,b) = \max\!\left(0,\ \frac{r}{r+b}\big(1 + V(r-1,b)\big) + \frac{b}{r+b}\big(-1 + V(r,b-1)\big)\right)$$
+
+Boundaries: $V(0,b) = 0$ (only losses remain, so stop) and $V(r,0) = r$ (all reds left, take them all).
+
+- $V(1,1) = \max\!\big(0,\ \tfrac12(1+0) + \tfrac12(-1+1)\big) = \tfrac12$
+- $V(2,1) = \max\!\big(0,\ \tfrac23(1+\tfrac12) + \tfrac13(-1+2)\big) = 1 + \tfrac13 = \tfrac43$
+- $V(1,2) = \max\!\big(0,\ \tfrac13(1+0) + \tfrac23(-1+\tfrac12)\big) = \max(0,\ \tfrac13 - \tfrac13) = 0$
+- $V(2,2) = \max\!\big(0,\ \tfrac12(1+0) + \tfrac12(-1+\tfrac43)\big) = \tfrac12 + \tfrac16 = \tfrac23$
+
+The game is worth $\boxed{2/3}$.
+
+**(b)** Because you hold an option, and an option is never worth less than zero. Playing the deck to the end has EV $0$; the ability to walk away on bad paths truncates the left tail without touching the right tail, so the value strictly exceeds $0$. The $\max(0,\cdot)$ in the recursion *is* the option.
+
+**(c)** Look at $V(2,1)$: you got here by drawing a black first, so you are down \$1, and yet $V(2,1) = 4/3 > 0$, so you keep playing. Conversely at $(1,2)$ you have drawn one red and are up \$1, and $V(1,2) = 0$, so you are indifferent between stopping and continuing. What matters is not your running P&L, it is the composition of the remaining deck. You continue exactly when the remainder is red-rich enough that the option value clears the immediate drift.
+
+**(d)** Same recursion, more grinding. Using $V(1,3) = 0$ (since $\tfrac14 - \tfrac34 \lt 0$):
+
+- $V(2,3) = \max\!\big(0,\ \tfrac25(1+0) + \tfrac35(-1+\tfrac23)\big) = \tfrac25 - \tfrac15 = \tfrac15$
+- $V(3,1) = \tfrac34(1+\tfrac43) + \tfrac14(-1+3) = \tfrac74 + \tfrac12 = \tfrac94$
+- $V(3,2) = \tfrac35(1+\tfrac23) + \tfrac25(-1+\tfrac94) = 1 + \tfrac12 = \tfrac32$
+- $V(3,3) = \tfrac12(1+\tfrac15) + \tfrac12(-1+\tfrac32) = \tfrac35 + \tfrac14 = \tfrac{17}{20}$
+
+So $17/20 = 0.85$ for the 3-3 deck. The value grows with deck size (more chances for a red-rich tail) but slowly, which is the right thing to say if asked about a full 26-26 deck without computing it.
+
+**Rubric:**
+- Correct recursion with $\max(0,\cdot)$ and the *additional*-gain framing
+- Both boundary conditions stated and justified
+- All four intermediate values shown, landing on $2/3$
+- Option-value explanation for why a zero-mean deck has positive value
+- Uses $V(2,1) > 0$ and $V(1,2) = 0$ to kill "stop when ahead"
+- Gets $17/20$ for 3-3, or at minimum sets up the recursion correctly and says the value increases with deck size
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. Binomial to Poisson.** (a) Derive the Poisson limit of the binomial term by term. (b) Give the practical rule for when the approximation is safe and the variance check that tells you it is failing. (c) 400 servers each fail independently on a given day with probability $0.005$. Compute the probability of no failures and of at least 3. (d) Would you use the same approximation for 400 servers with failure probability $0.3$? Say what breaks.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Fix $\lambda$ and set $p = \lambda/n$. Then
+
+$$P(X=k) = \binom{n}{k}\left(\frac{\lambda}{n}\right)^{k}\left(1-\frac{\lambda}{n}\right)^{n-k} = \underbrace{\frac{n(n-1)\cdots(n-k+1)}{n^{k}}}_{\to\, 1}\cdot\frac{\lambda^{k}}{k!}\cdot\underbrace{\left(1-\frac{\lambda}{n}\right)^{n}}_{\to\, e^{-\lambda}}\cdot\underbrace{\left(1-\frac{\lambda}{n}\right)^{-k}}_{\to\, 1}$$
+
+Each of the three limits is elementary: the first is a product of $k$ fixed factors each tending to 1, the second is the definition of $e^{-\lambda}$, the third has a fixed exponent and a base tending to 1. So $P(X=k) \to e^{-\lambda}\lambda^{k}/k!$.
+
+**(b)** The rule of thumb is $n$ large, $p$ small, $np$ moderate — say $n \ge 100$ and $np \le 10$. The variance check is the honest diagnostic. Binomial variance is $np(1-p)$; Poisson variance is $\lambda = np$. The approximation is only good when $(1-p) \approx 1$, so as soon as $p$ is not small the binomial variance is visibly below $np$ and the Poisson tail is too fat.
+
+**(c)** $\lambda = 400 \times 0.005 = 2$.
+
+$$P(0) = e^{-2} \approx 0.135$$
+
+$$P(\ge 3) = 1 - e^{-2}\left(1 + 2 + \frac{2^2}{2}\right) = 1 - 5e^{-2} \approx 1 - 0.677 = 0.323$$
+
+So about a 32 percent chance of three or more failures on a given day. (Note $1 + 2 + 2 = 5$, since $\lambda^2/2! = 2$ as well.)
+
+**(d)** No. Here $np = 120$ and $p = 0.3$ is not small. Binomial variance is $400 \cdot 0.3 \cdot 0.7 = 84$, while Poisson would claim $120$: a 43 percent overstatement of variance, so every tail probability is wrong. The right approximation in this regime is the normal one, since $np$ and $n(1-p)$ are both large: mean 120, $\sigma = \sqrt{84} \approx 9.2$. The general split is that Poisson handles *rare* events and the normal handles *bulk* counts.
+
+**Rubric:**
+- Splits the binomial pmf into the three factors and takes each limit correctly
+- States both conditions ($n$ large AND $np$ moderate), not just "n large"
+- Names the variance mismatch $np(1-p)$ versus $np$ as the diagnostic
+- Correct arithmetic: $0.135$ and $\approx 0.323$
+- Rejects Poisson at $p = 0.3$ with the variance number, and reaches for the normal instead
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Order statistics of uniforms.** $U_1,\dots,U_n$ are independent Uniform$(0,1)$. (a) Get the density and mean of the maximum with the CDF trick, then specialise to $n=2$ and give a one-line sanity check on $E[\max] + E[\min]$. (b) Derive the density of the $k$-th smallest, name the distribution, and give its mean. (c) Give the spacings argument that produces the same mean with no integration. (d) Expected number of Uniform$(0,1)$ draws until the running sum first exceeds 1?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** "The max is at most $x$" is the same event as "every one of them is at most $x$", and they are independent, so
+
+$$P(U_{(n)} \le x) = x^{n} \implies f_{U_{(n)}}(x) = n x^{n-1} \implies E[U_{(n)}] = \int_0^1 x\cdot n x^{n-1}\,dx = \frac{n}{n+1}$$
+
+For $n=2$, $E[\max] = 2/3$ and by the symmetry $x \mapsto 1-x$, $E[\min] = 1/3$. Sanity check: $\max + \min = U_1 + U_2$ pointwise, so the means must sum to $1$, and $2/3 + 1/3 = 1$. Do not set up a joint density integral for this; the CDF trick is one line.
+
+**(b)** Counting argument for $U_{(k)} \in [x, x+dx]$: choose which of the $n$ points lands in the sliver ($n$ ways, density $1$), choose which $k-1$ of the remaining $n-1$ fall below $x$ ($\binom{n-1}{k-1}$ ways, probability $x^{k-1}$ each), and the other $n-k$ fall above ($(1-x)^{n-k}$). So
+
+$$f_{U_{(k)}}(x) = n\binom{n-1}{k-1}x^{k-1}(1-x)^{n-k} = \frac{n!}{(k-1)!\,(n-k)!}\,x^{k-1}(1-x)^{n-k}$$
+
+That is the Beta$(k,\ n-k+1)$ density, whose mean is $\frac{k}{k + (n-k+1)} = \frac{k}{n+1}$.
+
+**(c)** Drop $n$ uniform points on $[0,1]$. They cut the interval into $n+1$ gaps. The gaps are exchangeable (relabelling the points does not change the joint law), so all $n+1$ have the same mean, and since they sum to 1 that mean is $1/(n+1)$. The $k$-th smallest point sits at the end of $k$ of those gaps, so $E[U_{(k)}] = k/(n+1)$. This gives $n/(n+1)$ for the max for free and is the version to say out loud when time is short.
+
+**(d)** $e$. Let $N$ be the number of draws. $N > n$ exactly when the first $n$ draws sum to at most 1, and
+
+$$P(U_1 + \cdots + U_n \le 1) = \mathrm{vol}\lbrace u \in [0,1]^n : \textstyle\sum u_i \le 1 \rbrace = \frac{1}{n!}$$
+
+since that is the standard simplex. Then use the tail formula for a non-negative integer variable:
+
+$$E[N] = \sum_{n \ge 0} P(N > n) = \sum_{n\ge 0}\frac{1}{n!} = e \approx 2.718$$
+
+Note the sum starts at $n = 0$, where $P(N > 0) = 1$; dropping that term is the usual off-by-one and gives $e - 1$.
+
+**Rubric:**
+- CDF-of-max trick stated as an event equivalence, not just an assertion
+- $n/(n+1)$, and $2/3$ / $1/3$ with the sums-to-one check
+- Correct combinatorial derivation of the $k$-th order statistic, names Beta$(k, n-k+1)$, mean $k/(n+1)$
+- Spacings/exchangeability argument given as an integration-free alternative
+- $P(N>n) = 1/n!$ justified by the simplex volume, tail formula summed to $e$, index starting at 0
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. Kelly, and why nobody bets it.** (a) Derive $f^\star$ for a repeated even-money bet won with probability $p > 1/2$. (b) Defend maximising $E[\log W]$ instead of $E[W]$. (c) Give three mechanically distinct reasons practitioners bet less than full Kelly, with a number attached to each. (d) What is the growth rate at half Kelly relative to full?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Bet a fixed fraction $f$ of current wealth each time. Wealth after $n$ bets is a *product* of factors $(1+f)$ and $(1-f)$, so the quantity that adds is $\log$ wealth. The expected log growth per bet is
+
+$$g(f) = p\log(1+f) + (1-p)\log(1-f)$$
+
+$$g'(f) = \frac{p}{1+f} - \frac{1-p}{1-f} = 0 \implies p(1-f) = (1-p)(1+f) \implies p - pf = 1 - p + f - pf$$
+
+so $f^\star = 2p - 1$. With $p = 0.6$ that is 20 percent of bankroll. Note $f^\star$ equals the edge on an even-money bet, which is the form worth remembering.
+
+**(b)** Because wealth compounds multiplicatively and expectation does not commute with the product. Maximising $E[W_n]$ is linear in $f$ and pushes you to $f=1$: bet everything every time. That has the highest mean wealth and yet ruins you with probability $1$, since a single loss zeroes you permanently. The mean is dragged around by a vanishingly rare path where you win everything. $E[\log W]$ is the almost-sure long-run growth rate by the law of large numbers applied to the sum of log returns, so it describes what actually happens to you rather than to the average of you.
+
+**(c)** Three separate arguments:
+
+1. **The objective is flat at the top and a cliff past it.** In the Gaussian approximation $g(f) \approx f\mu - f^2\sigma^2/2$, with $f^\star = \mu/\sigma^2$. Then $g(2f^\star) = 2\mu^2/\sigma^2 - 2\mu^2/\sigma^2 = 0$: betting double Kelly gives *zero* growth. Overbetting is punished far harder than underbetting, and the penalty is asymmetric, so err low.
+2. **Drawdowns.** Under full Kelly the probability that your bankroll ever touches a fraction $a$ of its starting value is $a$. So a 50 percent drawdown at some point is a coin flip and an 80 percent drawdown happens with probability $0.8$. No real allocator or risk committee survives that path even when it is theoretically optimal.
+3. **The edge is estimated, not known.** $f^\star = 2p-1$ is very sensitive to $p$: a true $p = 0.55$ gives $f^\star = 0.10$, but estimating $p = 0.60$ gives $0.20$, which is *double* Kelly on the true edge, hence zero growth by the first argument. A 5-point error in a probability estimate wipes out the entire advantage. Historical win rates on backtested strategies are exactly this kind of overestimate.
+
+**(d)** Using the same quadratic, $g(f^\star) = \mu^2/(2\sigma^2)$ and $g(f^\star/2) = \mu^2/(2\sigma^2) - \mu^2/(8\sigma^2) = 3\mu^2/(8\sigma^2)$. So half Kelly delivers $3/4$ of the maximum growth rate at half the volatility. That trade is why half Kelly is the practitioner default.
+
+**Rubric:**
+- Sets up the product-of-returns framing before taking logs
+- Derives $f^\star = 2p-1$ with the algebra shown
+- Explains $E[W]$ maximisation implies all-in and ruin, and invokes the almost-sure growth rate for $\log$
+- Three genuinely distinct reasons (not three phrasings of "it is risky"), each with a number: $g(2f^\star)=0$, drawdown probability $a$, edge estimation error
+- $3/4$ of the growth at half the volatility
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Make a market on the sum of three dice.** You have ninety seconds. (a) Give your quote and the full arithmetic behind it. (b) Justify the width. (c) The interviewer lifts your offer immediately, then asks for another quote. What do you do and why? (d) Now do the same for the number of heads in 100 fair coin flips.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Say the method out loud while you compute. One die: $E = 3.5$. Variance is $\frac{1}{6}\sum_{k=1}^{6}(k-3.5)^2 = \frac{1}{6}(6.25+2.25+0.25+0.25+2.25+6.25) = \frac{17.5}{6} = \frac{35}{12} \approx 2.92$. Dice are independent, so means add and variances add: $E = 10.5$, $\mathrm{Var} = 3 \times 35/12 = 8.75$, $\sigma = \sqrt{8.75} \approx 2.96$.
+
+Quote **9.5 at 11.5**. Centred on the true mean, two wide, roughly two-thirds of a standard deviation.
+
+**(b)** Width is a real risk decision, not a formality. Too tight and an informed counterparty picks you off on every trade and you lose money on flow you were happy to take. Too wide and you never trade, which in an interview reads as having no appetite for risk, which is the thing they are hiring for. Scale the width to $\sigma$, then widen further for two reasons: if the quantity is something the counterparty might already know (a realised value, a statistic they computed), and if you are unsure of your own estimate. Here the quantity is unknown to both sides and my estimate is exact, so a tight-ish two-wide market is defensible.
+
+**(c)** They bought at 11.5, which is a full standard deviation above fair. Either they know something (impossible here, the dice have not been rolled) or they are testing whether I will move my market on one trade. I re-quote around the *same* fair value, 10.5, because nothing about the distribution changed, and I say so. What I might do is shade slightly and widen — quote 9.5 at 12, say — to reflect that I am now long risk and want to be paid more to add to it. Inventory management shades the centre; adverse selection widens the spread. Confusing those two is the error they are looking for.
+
+**(d)** Heads in 100 flips is Binomial$(100, 0.5)$: mean $50$, $\mathrm{Var} = np(1-p) = 25$, $\sigma = 5$. By the CLT this is close to normal, so 48 at 52 is a sensible market: roughly $\pm 0.4\sigma$, and I can back it with 68/95/99.7 — about 68 percent of outcomes land in $[45,55]$, 95 percent in $[40,60]$. If they ask for the probability of at least 60 heads, that is two standard deviations up, so roughly $2.5$ percent.
+
+**Rubric:**
+- Computes single-die variance from the definition, not from a recalled formula
+- Uses additivity of variance under independence and states that assumption
+- Quote centred on $10.5$ with a width tied to $\sigma \approx 2.96$
+- Explains both failure directions of width (picked off versus never trading)
+- Distinguishes inventory shading from adverse-selection widening on the follow-up
+- Binomial mean 50, $\sigma = 5$, quote near 48/52, uses 68/95/99.7 fluently
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8. Three distributional assumptions that break in production.** For each, say what the assumption implies mathematically, how you would detect the violation from data you already have, and what to do instead. (a) A capacity planner models incoming web requests as Poisson. (b) An analyst estimates mean session length by sampling users who are online right now. (c) A churn model uses an exponential time-to-event.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Poisson arrivals.** Poisson implies $\mathrm{Var}(N) = E[N]$ over a fixed window, and independent non-overlapping windows. Real traffic clusters: retries after an incident, cron jobs on the hour, cache expiry storms, a push notification going out. Clustering means the same average load arrives in bursts, so the variance exceeds the mean and the tail is much heavier than Poisson predicts.
+
+*Detection:* bucket arrivals into fixed windows and compute the variance-to-mean ratio (the index of dispersion). Poisson says 1. Web traffic routinely shows 5 to 50. Also check the autocorrelation of per-window counts, which Poisson says is zero.
+
+*Fix:* use a negative binomial or a compound Poisson (Poisson batch arrivals with a batch-size distribution) for capacity math, or skip parametric models and plan capacity off the empirical p99 of measured windows. The concrete harm is that a Poisson tail understates p99 concurrency, so you provision too little headroom and it fails exactly during the bursts.
+
+**(b) Sampling who is online now.** This is length-biased sampling. Instantaneous sampling picks a session with probability proportional to its duration, so the estimator converges to $E[L^2]/E[L] = E[L] + \mathrm{Var}(L)/E[L]$, not $E[L]$. With heavy-tailed session lengths the inflation is large: if session length has mean 5 minutes and standard deviation 20, the estimate is $5 + 400/5 = 85$ minutes.
+
+*Detection:* compare against an estimate built from session *starts* over the same period. A big gap in the same direction every time is the signature. Or check whether the estimate rises when you sample more frequently, which it should not.
+
+*Fix:* sample by arrival, meaning enumerate sessions that started in a window and follow them (handling right-censoring at the window edge), or keep the instant sampling and divide out the length bias by weighting each observation by $1/L$.
+
+**(c) Exponential churn.** Exponential implies a *constant hazard*: the probability of churning in the next month, given survival so far, is the same for a day-1 user and a two-year user. That is almost never true. Real churn hazard is high early (users who never onboarded) and drops with tenure. Hardware is the mirror image, with a bathtub-shaped hazard: infant mortality, a flat middle, then wear-out.
+
+*Detection:* plot the empirical hazard by tenure bucket, or plot $\log$ of the Kaplan-Meier survival curve against time. Exponential is a straight line through the origin; curvature is the violation. Equivalently check whether $\mathrm{sd} = \mathrm{mean}$ for observed lifetimes, which exponential requires.
+
+*Fix:* Weibull if you want a monotone hazard with one shape parameter, Cox proportional hazards if you want covariates without committing to a baseline shape, or a discrete-time hazard model with tenure as a feature. The harm from getting it wrong is confidently wrong retention forecasts: a constant hazard fit to early-churning data massively underpredicts the survival of the long-tenured cohort, which is where the revenue is.
+
+**Rubric:**
+- Names the exact mathematical implication in each case: variance equals mean, length bias, constant hazard
+- Gives a concrete detection procedure from existing data for each, not "look at the residuals"
+- Index of dispersion for (a), start-based comparison for (b), hazard-versus-tenure plot for (c)
+- Names a specific alternative model for each
+- States the business consequence, not just the statistical one
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: distributions, stopping and market-making
+
+These 15 questions do not depend on anything above, so this section stands on its own. Each should take 2 to 5 minutes to answer out loud, and they are chosen for how often they get asked, not for how interesting they are. If you can only drill one part of this quiz, drill this one.
+
+1. **The five distributions cold** Name the generating story, mean and variance for binomial, geometric, Poisson, exponential and normal. Do not recite the variances, get each one from a technique: indicators for one, one-step conditioning for another. Then say which of the five have mean equal to variance and which have standard deviation equal to mean.
+2. **How long do you wait for the bus** Buses arrive on average every 10 minutes. How long do you expect to wait if you show up at a random time? Give the answer under Poisson arrivals and under a perfectly punctual schedule, and explain in one sentence what property of the gap distribution drives the difference.
+3. **Which distributions are memoryless** Which distributions are memoryless, and how do you know those are the only ones? Then: a lightbulb has exponential lifetime with mean 1000 hours and has already burned for 800. What is its expected remaining life, and why does that not violate anything?
+4. **Two machines racing** Two machines fail independently at exponential rates $\lambda_1$ and $\lambda_2$. Give the distribution of the time until the first failure and the probability that machine 1 is the one that failed. Then say what the relationship is between those two answers.
+5. **Poisson or binomial** When can you replace a binomial with a Poisson, and what rule of thumb do you use? Give the variance-based check that tells you the approximation is breaking down, and say what you would use instead when $p$ is not small.
+6. **400 servers** 400 servers each fail independently on a given day with probability $0.005$. What is the probability of zero failures, and of three or more? Do the arithmetic out loud.
+7. **Count data that is not Poisson** Your request-per-second counts have a mean of 200 and a variance of 4000. What does that tell you, what is the standard name for it, and what would you do differently in a capacity plan that had assumed Poisson?
+8. **Expected max of two uniforms** $X$ and $Y$ are independent Uniform$(0,1)$. Give $E[\max(X,Y)]$ in one line without setting up a joint integral, then $E[\min(X,Y)]$, then the check that confirms both. Extend to the expected value of the $k$-th smallest of $n$ uniforms.
+9. **Draws until the sum exceeds 1** You draw independent Uniform$(0,1)$ numbers and add them up. What is the expected number of draws until the running sum first exceeds 1? Say what fact about the volume of a simplex you are using and which tail formula turns it into an expectation.
+10. **Broken stick** You break a stick at two independent uniform points. What is the probability the three pieces form a triangle? State the condition for a triangle and explain why the failure events are disjoint.
+11. **Two red, two black** A shuffled deck has 2 red and 2 black cards. You draw one at a time, win a dollar per red and lose a dollar per black, and can stop whenever you want. What is the game worth under optimal play? Set up the recursion, show the intermediate values, and then say what you would pay to play a version with 3 red and 3 black.
+12. **Stop when ahead** In the red/black stopping game, someone proposes the policy "stop as soon as you are up a dollar." Explain concretely why that is not optimal, using a specific state of the deck where the optimal action disagrees with it. What is the quantity your decision actually depends on?
+13. **Kelly** You have a repeated even-money bet you win 60 percent of the time. What fraction of your bankroll do you bet, and where does that formula come from? Then give two concrete reasons a real trading desk would bet less than that number.
+14. **Log wealth versus wealth** Why does Kelly maximise expected log wealth rather than expected wealth? Say exactly what strategy maximising expected wealth would tell you to do and what happens to you if you follow it.
+15. **Make a market on three dice** Make a market on the sum of three dice. Give your bid and offer, the mean and standard deviation behind them, and your reasoning for that particular width. Then say what you would change about your quote if the counterparty had already seen the roll.
