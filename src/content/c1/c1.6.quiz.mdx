@@ -1,35 +1,38 @@
 ---
 lessonId: c1.6
 chapter: 1
-title: Quiz — Kernel methods & instance-based learning
-description: 12 conceptually difficult questions on SVMs, the kernel trick, kNN, and the curse of dimensionality.
+title: Quiz — Trees & ensembles
+description: 12 conceptually difficult questions on CART, bagging/random forests, boosting/GBDT, and stacking.
 estimatedMinutes: 45
 ---
 
-These 12 questions test whether you understand SVMs and kNN *geometrically* — margins, duality, kernels, and why distance breaks in high dimensions — not whether you can name them. Try to answer before revealing.
+These questions test whether you can explain what an ensemble is doing before reaching for its formula. Start every answer with the behavior you expect, then use the derivation to justify it. The decorrelation identity, functional gradient descent, and the XGBoost objective are evidence for the intuition—not substitutes for it.
 
 <Quiz id="1">
 
-**Q1.** Derive that the SVM margin width is $2/\|w\|$, starting from the canonical margin hyperplanes. Why does maximizing the margin equal minimizing $\tfrac12\|w\|^2$, and why must it be the *geometric* margin, not the functional margin?
+**Q1. Did the split make the groups easier to predict?** A parent node contains 8 class-A and 2 class-B examples. A candidate question sends $\{6A,0B\}$ left and $\{2A,2B\}$ right. Before calculating, explain which child is pure, which remains uncertain, and why child sizes must be used as weights. Then compute the Gini decrease and entropy information gain. Do the criteria agree?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Setup.** Decision function $f(x)=w^\top x + b$; fix the scale so the closest points satisfy $y_i(w^\top x_i+b)=1$. The margin hyperplanes are $w^\top x + b = \pm 1$.
+**Gini.** Parent: $p_A=0.8$, $p_B=0.2$, $G = 1 - (0.8^2 + 0.2^2) = 1 - 0.68 = 0.32$.
+- Left $\{6A,0B\}$: pure, $G_L = 0$.
+- Right $\{2A,2B\}$: $G_R = 1 - (0.5^2 + 0.5^2) = 0.5$.
+- Weighted child Gini: $\frac{6}{10}(0) + \frac{4}{10}(0.5) = 0.2$.
+- **Gini decrease $= 0.32 - 0.2 = 0.12$.**
 
-**Derivation.** Take $x_+$ on the $+1$ plane and $x_-$ on the $-1$ plane: $w^\top x_+ + b = +1$, $w^\top x_- + b = -1$. Subtract: $w^\top(x_+ - x_-) = 2$. The margin width is the component of $x_+ - x_-$ along the unit normal $w/\|w\|$:
+**Entropy** (bits). Parent: $H = -(0.8\log_2 0.8 + 0.2\log_2 0.2) = -(0.8(-0.3219) + 0.2(-2.3219)) \approx 0.722$.
+- Left: pure, $H_L = 0$. Right: $\{2,2\}$, $H_R = 1$.
+- Weighted child entropy: $0.6(0) + 0.4(1) = 0.4$.
+- **Information gain $= 0.722 - 0.4 \approx 0.322$ bits.**
 
-$$\text{margin} = \frac{w^\top (x_+ - x_-)}{\|w\|} = \frac{2}{\|w\|}$$
-
-**Max margin ⇔ min $\tfrac12\|w\|^2$.** Maximizing $2/\|w\|$ is minimizing $\|w\|$, equivalently $\tfrac12\|w\|^2$ (monotone, and the square makes it a smooth convex quadratic with a clean gradient).
-
-**Geometric vs functional.** The functional margin $y_i(w^\top x_i + b)$ can be made arbitrarily large by rescaling $(w,b)\to(cw,cb)$ — it's not scale-invariant, so maximizing it is meaningless. Dividing by $\|w\|$ gives the geometric margin (actual Euclidean distance to the boundary), which is invariant to that rescaling. The canonical constraint $y_i f(x_i)\ge1$ removes the scale degree of freedom.
+Both criteria give a positive decrease, so both agree it's a good split (it perfectly isolates 6 of the A's). In general Gini and entropy rarely disagree on the chosen split — both peak at $p=0.5$, where $G = 0.5$ equals half the entropy *in bits* — and Gini is cheaper (no logarithm).
 
 **Rubric:**
-- Subtract the two canonical plane equations → $w^\top(x_+-x_-)=2$
-- Project onto $w/\|w\|$ → $2/\|w\|$
-- Max margin ⇔ min $\tfrac12\|w\|^2$
-- Functional margin is scale-dependent; geometric (÷‖w‖) is the real distance
+- Parent Gini 0.32; weighted child 0.2; decrease 0.12
+- Parent entropy ≈0.722; weighted child 0.4; gain ≈0.322
+- Both positive → both favor the split
+- Note Gini and entropy track closely (both peak at 0.5, where $G=0.5=H_{\text{bits}}/2$); Gini cheaper
 
 </details>
 
@@ -37,24 +40,26 @@ $$\text{margin} = \frac{w^\top (x_+ - x_-)}{\|w\|} = \frac{2}{\|w\|}$$
 
 <Quiz id="2">
 
-**Q2.** A student says "we can kernelize the primal SVM directly — just replace $x$ with $\phi(x)$." Explain precisely why the **dual** is what makes kernelization possible, and what $w=\sum_i\alpha_i y_i x_i$ implies when $\phi$ is infinite-dimensional.
+**Q2. Why does a forest need disagreement, not merely more trees?** Suppose every tree has variance $\sigma^2$ and every pair has error correlation $\rho$. Derive the variance of their average, separating the part more trees remove from the shared-error floor they cannot remove. Take $B\to\infty$, then quantify what happens when feature subsampling lowers $\rho$ from $0.9$ to $0.5$.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Why the dual.** The dual objective and the decision function depend on the data *only through inner products* $\langle x_i, x_j\rangle$:
+**Derivation.** For $\bar X = \frac1B\sum_b X_b$ with $\operatorname{Var}(X_b)=\sigma^2$ and $\operatorname{Cov}(X_i,X_j)=\rho\sigma^2$ for $i\ne j$:
 
-$$\max_\alpha \sum_i\alpha_i - \tfrac12\sum_{i,j}\alpha_i\alpha_j y_iy_j\langle x_i,x_j\rangle, \qquad f(x)=\sum_i\alpha_i y_i\langle x_i,x\rangle + b$$
+$$\operatorname{Var}(\bar X) = \frac{1}{B^2}\left[\sum_b \operatorname{Var}(X_b) + \sum_{i\ne j}\operatorname{Cov}(X_i,X_j)\right] = \frac{1}{B^2}\left[B\sigma^2 + B(B-1)\rho\sigma^2\right]$$
 
-Every place the data appears is an inner product, so you can substitute $K(x_i,x_j)=\langle\phi(x_i),\phi(x_j)\rangle$ **without ever computing $\phi$**. The primal, by contrast, contains $w$ explicitly and $w^\top\phi(x)$ — to kernelize it you'd need to represent $w$ in feature space.
+$$= \frac{\sigma^2}{B} + \frac{B-1}{B}\rho\sigma^2 = \rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$$
 
-**The infinite-dimensional point.** The optimal weight is $w=\sum_i\alpha_i y_i\phi(x_i)$ (representer theorem). For an RBF kernel $\phi$ is infinite-dimensional, so $w$ is an infinite-dimensional object — you *cannot* store it as a coordinate vector. But you never need to: predictions are $f(x)=\sum_i\alpha_i y_i K(x_i,x)+b$, a finite sum over support vectors. The dual reduces an infinite-dimensional optimization to one over $n$ coefficients $\alpha_i$.
+**Limit.** As $B\to\infty$, $\operatorname{Var}(\bar X) \to \rho\sigma^2$ — a **floor set entirely by the correlation**. Adding trees only helps until you hit it.
+
+**Factor.** The large-$B$ variance is $\rho\sigma^2$, so cutting $\rho$ from 0.9 to 0.5 multiplies it by $0.5/0.9 \approx 0.556$ — about a **44% reduction** in the variance floor. This is precisely why random forests inject per-split feature randomness: to drive $\rho$ down.
 
 **Rubric:**
-- Dual touches data only via inner products → can swap in $K$
-- Primal has $w$/$w^\top\phi(x)$ explicitly → can't kernelize without representing $w$
-- $w=\sum\alpha_i y_i\phi(x_i)$ is infinite-dim for RBF → can't materialize
-- Predictions are a finite sum over SVs; dual = $n$ coefficients
+- Expand $\operatorname{Var}(\bar X)$ into variance + covariance terms
+- Land on $\rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$
+- $B\to\infty$ floor $=\rho\sigma^2$
+- Factor $0.5/0.9\approx0.556$; connect to RF's purpose (lower $\rho$)
 
 </details>
 
@@ -62,24 +67,26 @@ Every place the data appears is an inner product, so you can substitute $K(x_i,x
 
 <Quiz id="3">
 
-**Q3.** For a soft-margin SVM, classify a training point by its dual coefficient: (a) $\alpha_i = 0$, (b) $0 < \alpha_i < C$, (c) $\alpha_i = C$. Give each point's geometric position and which points are used to solve for $b$.
+**Q3. How does resampling create free validation predictions?** A bootstrap sample makes $n$ draws with replacement, so some rows repeat and others are absent. Derive the probability that one particular row is never drawn and its $n\to\infty$ limit. For $n=1000$, distinguish total draws from distinct in-bag rows. With 100 trees, estimate how many can honestly contribute to one row's OOB prediction.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-By the KKT conditions (complementary slackness) of the soft-margin SVM:
+**Derivation.** A bootstrap draws $n$ rows with replacement. The probability a specific row is *not* picked in one draw is $1 - \frac1n$; over $n$ independent draws it's $\left(1-\frac1n\right)^n$. As $n\to\infty$:
 
-- **(a) $\alpha_i = 0$** → $y_i f(x_i) \ge 1$: the point is **outside or on the correct side of the margin**, correctly classified with room to spare. It is **not a support vector** and has zero influence on $w$.
-- **(b) $0 < \alpha_i < C$** → $y_i f(x_i) = 1$ and $\xi_i = 0$: the point lies **exactly on the margin boundary**. This is a **free (margin) support vector**. These are the points used to **solve for $b$** (from $y_i f(x_i) = 1$).
-- **(c) $\alpha_i = C$** → $y_i f(x_i) \le 1$, $\xi_i \ge 0$: the point is **inside the margin or misclassified**. This is a **bounded support vector**.
+$$\left(1 - \frac1n\right)^n \to e^{-1} \approx 0.368$$
 
-Only (b) and (c) — the support vectors — appear in $w=\sum_i\alpha_i y_i x_i$, which is why the solution is sparse.
+So **~36.8% of rows are out-of-bag** per tree, and ~63.2% are in-bag.
+
+**For $n=1000$:** $\approx 368$ rows OOB per tree; expected distinct in-bag $\approx n(1-e^{-1}) \approx 632$.
+
+**With 100 trees:** each row is OOB for ~36.8% of trees, so ~**37 trees** never saw it and contribute to its OOB prediction. Averaging those gives the row's OOB estimate; doing this for all rows yields a near-free, CV-quality error estimate.
 
 **Rubric:**
-- $\alpha=0$: outside margin, correct, not an SV
-- $0<\alpha<C$: on the margin (free SV), used for $b$
-- $\alpha=C$: inside margin / misclassified (bounded SV)
-- Only SVs contribute to $w$ → sparsity
+- $(1-1/n)^n \to e^{-1} \approx 0.368$
+- ~368 OOB, ~632 distinct in-bag for $n=1000$
+- ~37 of 100 trees score a given row OOB
+- Note OOB ≈ free cross-validation
 
 </details>
 
@@ -87,25 +94,30 @@ Only (b) and (c) — the support vectors — appear in $w=\sum_i\alpha_i y_i x_i
 
 <Quiz id="4">
 
-**Q4.** Hinge loss and logistic loss are both convex, calibrated classification surrogates. Explain precisely why minimizing hinge loss produces a *sparse* set of support vectors while logistic regression uses every training point.
+**Q4. How loudly should AdaBoost trust the next classifier?** Derive $\beta=\tfrac12\log((1-\operatorname{err})/\operatorname{err})$ from exponential loss. Interpret a perfect learner and a chance-level learner. Then explain why repeatedly emphasizing misclassified rows helps with hard examples but becomes dangerous when a label is wrong.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-Write both as functions of the margin $m = y f(x)$:
+**Setup.** At stage $m$ we add $\beta G(x)$ to $f_{m-1}$, minimizing exponential loss over the (normalized) weights $w_i \propto e^{-y_i f_{m-1}(x_i)}$:
 
-- **Hinge:** $\ell(m) = \max(0,\, 1 - m)$. For $m \ge 1$ (correctly classified beyond the margin), $\ell(m) = 0$ and $\ell'(m) = 0$.
-- **Logistic:** $\ell(m) = \log(1 + e^{-m})$. This is *strictly positive and strictly decreasing for all finite $m$*; $\ell'(m) = -\sigma(-m) < 0$ everywhere, never reaching zero.
+$$\sum_i w_i\, e^{-y_i \beta G(x_i)} = e^{-\beta}\!\!\sum_{y_i = G(x_i)}\!\! w_i + e^{\beta}\!\!\sum_{y_i \ne G(x_i)}\!\! w_i$$
 
-**Consequence.** In a (sub)gradient method, a point's contribution to the gradient of $w$ is proportional to $\ell'(m_i)\, y_i x_i$. Under hinge loss, every point with $m_i > 1$ has $\ell'(m_i) = 0$ — it contributes **nothing**, so it is not a support vector and could be deleted without changing the solution. Only points with $m_i \le 1$ (on or inside the margin, or misclassified) have nonzero gradient. Under logistic loss, $\ell'(m_i) \ne 0$ for *every* point, so all points contribute (those far on the correct side contribute a tiny but nonzero amount) — hence no sparsity, but you get smooth, probabilistic outputs in exchange.
+Let $W = \sum_i w_i$ and $\text{err} = \frac{\sum_{\text{wrong}} w_i}{W}$. The objective is $W\!\left[e^{-\beta}(1-\text{err}) + e^{\beta}\,\text{err}\right]$.
 
-**The trade-off.** Hinge's flat zero region buys sparsity (memory/speed: store only SVs) at the cost of probabilities; logistic's everywhere-positive loss buys calibrated probabilities at the cost of density.
+**Minimize over $\beta$.** $\frac{d}{d\beta} = -e^{-\beta}(1-\text{err}) + e^{\beta}\,\text{err} = 0 \Rightarrow e^{2\beta} = \frac{1-\text{err}}{\text{err}} \Rightarrow \boxed{\beta = \tfrac12\ln\frac{1-\text{err}}{\text{err}}}$.
+
+(Discrete AdaBoost often quotes the classifier weight $\alpha_m = \ln\frac{1-\text{err}}{\text{err}} = 2\beta$; the factor of 2 washes out under reweight-and-renormalize and doesn't change predicted signs.)
+
+**Edge cases.** $\text{err}\to0 \Rightarrow \beta\to+\infty$ (a perfect learner gets infinite vote); $\text{err}=0.5 \Rightarrow \beta=0$ (a chance learner is ignored); $\text{err}>0.5 \Rightarrow \beta<0$ (flip it).
+
+**Fragility to noise.** Exponential loss $e^{-yf}$ grows *exponentially* in the negative margin, so a persistently misclassified point (e.g. a mislabeled example) gets its weight blown up round after round, and the ensemble keeps contorting to fit it. That's why AdaBoost degrades under label noise, and why gradient boosting with a robust loss (or random forests) is preferred there.
 
 **Rubric:**
-- Hinge is exactly 0 (and gradient 0) for $m\ge1$
-- Logistic is strictly positive / nonzero-gradient for all finite $m$
-- Zero gradient ⇒ point drops out of $w$ ⇒ not an SV ⇒ sparsity
-- Trade-off: sparsity vs probabilities
+- Split exp-loss into correct/incorrect sums; define err
+- Differentiate, solve $e^{2\beta}=(1-\text{err})/\text{err}$ → $\beta=\tfrac12\ln\frac{1-\text{err}}{\text{err}}$
+- Edge cases: err 0 → ∞, 0.5 → 0
+- Exp-loss up-weights mislabeled points exponentially → noise fragility
 
 </details>
 
@@ -113,22 +125,31 @@ Write both as functions of the margin $m = y f(x)$:
 
 <Quiz id="5">
 
-**Q5.** State the bias-variance direction of increasing $C$ and increasing the RBF $\gamma$ *separately*. Then: a model has ~100% training accuracy, near-chance test accuracy, and almost every training point is a support vector. Which knob(s), and which direction, do you turn?
+**Q5. What correction is each new tree being asked to learn?** Define a pseudo-residual as the change that would reduce the current loss fastest at each row. Derive it for squared loss, MAE, and binary log loss, interpreting each in words. Explain why squared-loss boosting literally fits residuals and why a constant leaf update is a mean for squared loss but a median for absolute loss.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**$C$.** $C$ penalizes margin violations. **Large $C$** → the model refuses to tolerate slack → harder margin, fits training data tightly → *less* regularization → **lower bias, higher variance** (overfit). Small $C$ → wider soft margin, more violations allowed → more regularization → higher bias, lower variance.
+**What it fits.** Each tree fits the **negative gradient of the loss w.r.t. the current prediction** (the pseudo-residual), evaluated at $f_{m-1}$:
 
-**$\gamma$ (RBF).** $K(x,x')=\exp(-\gamma\|x-x'\|^2)$. **Large $\gamma$** → small kernel width → each point's influence is very local → a wiggly boundary that can wrap individual points → **high variance** (overfit); in the limit each support vector only matches itself. Small $\gamma$ → wide, smooth bumps → can underfit.
+$$r_{im} = -\left[\frac{\partial L(y_i, f(x_i))}{\partial f(x_i)}\right]_{f = f_{m-1}}$$
 
-**Diagnosis.** Perfect train accuracy + chance test accuracy + nearly all points as SVs is the classic **overfitting** signature for RBF SVM — the boundary has become extremely local. **Decrease $\gamma$** (smooth the kernel) and/or **decrease $C$** (allow a softer margin). Re-tune jointly by cross-validation; $\gamma$ is usually the dominant culprit when "almost every point is an SV."
+This is gradient descent in function space: the tree approximates the steepest-descent direction.
+
+**Specializations.**
+- **Squared loss** $L=\tfrac12(y-f)^2$: $-\partial L/\partial f = (y-f) = r$, the **ordinary residual**.
+- **MAE** $L=|y-f|$: $-\partial L/\partial f = \text{sign}(y-f)$.
+- **Log loss** (binary, $f$ = logit, $p=\sigma(f)$): $-\partial L/\partial f = y - p$.
+
+**Why "fit the residuals."** Because for squared loss the pseudo-residual *is* the residual $y-f$, so each round literally fits a tree to the current residuals and adds it — the classic intuition.
+
+**Mean vs median leaf value.** After fitting the tree's structure, the leaf value is chosen to minimize the *actual loss* on that leaf's points. The constant $c$ minimizing $\sum(y_i - c)^2$ is the **mean**; the constant minimizing $\sum|y_i - c|$ is the **median** (the same mean-vs-median result as c1.2: squared loss → conditional mean, absolute loss → conditional median).
 
 **Rubric:**
-- Large $C$ = less regularization, higher variance (overfit)
-- Large $\gamma$ = more local/wiggly, higher variance (overfit)
-- Diagnose the symptoms as overfitting
-- Fix: lower $\gamma$ and/or $C$; re-tune by CV
+- Each tree fits the negative gradient (pseudo-residual)
+- Squared → residual $y-f$; MAE → $\text{sign}(y-f)$; log → $y-p$
+- L2 pseudo-residual = residual ⇒ "fit the residuals"
+- Leaf value: mean for L2, median for L1 (argmin of the loss)
 
 </details>
 
@@ -136,28 +157,30 @@ Write both as functions of the margin $m = y f(x)$:
 
 <Quiz id="6">
 
-**Q6.** Prove that the Gaussian (RBF) kernel corresponds to an infinite-dimensional feature map. What goes wrong if someone tries to "just compute $\phi(x)$" and run a plain linear model on it?
+**Q6. How large should one XGBoost leaf's correction be?** A leaf gives all its rows the same update $w_j$. Starting from the second-order approximation, collect their gradients into $G_j$ and curvatures into $H_j$, then derive $w_j^\star=-G_j/(H_j+\lambda)$. Interpret the numerator, denominator, and penalty before showing the squared-loss special case. Why does zero curvature make ordinary MAE incompatible with this Newton step?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Proof.** Write $K(x,x') = \exp(-\gamma\|x-x'\|^2) = \exp(-\gamma\|x\|^2)\exp(-\gamma\|x'\|^2)\exp(2\gamma\, x^\top x')$. Expand the cross term as a power series:
+**Objective.** A 2nd-order Taylor expansion of the loss around $f_{m-1}$, plus L2 leaf regularization, gives (per leaf $j$ with instance set $I_j$, $g_i, h_i$ the first/second derivatives):
 
-$$\exp(2\gamma\, x^\top x') = \sum_{k=0}^{\infty} \frac{(2\gamma)^k (x^\top x')^k}{k!}$$
+$$\text{obj}_j(w_j) = G_j w_j + \tfrac12(H_j + \lambda) w_j^2, \qquad G_j = \sum_{i\in I_j} g_i,\ \ H_j = \sum_{i\in I_j} h_i$$
 
-Each term $(x^\top x')^k$ is itself an inner product of the degree-$k$ monomial features of $x$ and $x'$ (the $k$-fold tensor power). Summing over all $k = 0, 1, 2, \dots$ means the feature map $\phi$ contains monomials of *every* degree — infinitely many coordinates:
+**Minimize.** $\frac{d}{dw_j} = G_j + (H_j+\lambda)w_j = 0 \Rightarrow \boxed{w_j^\star = -\dfrac{G_j}{H_j+\lambda}}$. Substituting back gives the structure score contribution $-\tfrac12 G_j^2/(H_j+\lambda)$, which drives the split-gain formula.
 
-$$\phi_k(x) \propto e^{-\gamma\|x\|^2}\,\frac{(2\gamma)^{k/2}}{\sqrt{k!}}\, x^{\otimes k}, \quad k = 0,1,2,\dots$$
+**Squared loss.** $L=\tfrac12(y-f)^2 \Rightarrow g_i = f - y_i = -r_i$, $h_i = 1$. So $G_j = -\sum_{i\in I_j} r_i$, $H_j = n_j$, and
 
-So $\phi$ is infinite-dimensional.
+$$w_j^\star = \frac{\sum_{i\in I_j} r_i}{n_j + \lambda} = \frac{n_j\,\bar r_j}{n_j+\lambda} = \frac{\bar r_j}{1 + \lambda/n_j}$$
 
-**Why you can't materialize it.** There is no finite feature vector $\phi(x)$ to compute or store — it has infinitely many entries. The kernel trick's value is exactly that you evaluate the scalar $K(x,x')$ in $O(d)$ time and *never* touch $\phi$. A "plain linear model on $\phi(x)$" is impossible to even instantiate. The practical price for staying in the dual is the $n\times n$ Gram matrix and $O(n^2)$–$O(n^3)$ training — which is why kernel SVMs don't scale to large $n$. (If you want an *approximate* finite $\phi$, that's what Nyström / random Fourier features provide.)
+— the **mean residual, shrunk** by the regularizer. With $\lambda=0$ it's exactly the mean residual, recovering plain gradient boosting.
+
+**MAE.** $L=|y-f|$ has $h_i = 0$ almost everywhere (it's piecewise linear). Then $w_j^\star = -G_j/\lambda$ — it depends *only* on $\lambda$, and is undefined/degenerate at $\lambda=0$. The Newton leaf step has no curvature to work with. **This is the c1.2 connection:** naive MAE breaks XGBoost's second-order method (the "zero gradient" warning is really zero *Hessian*); the fix is `reg:pseudohubererror` (smooth, positive Hessian) or the special-cased `reg:absoluteerror` (a constant Hessian for split-finding, plus an adaptive leaf-update that sets each leaf to ~the median of its residuals).
 
 **Rubric:**
-- Factor $K$ and power-series-expand $\exp(2\gamma x^\top x')$
-- Identify monomials of all degrees → infinitely many feature coordinates
-- Conclude no finite $\phi$ exists → can't materialize
-- Note the dual's cost instead ($n\times n$ Gram, $O(n^2)$–$O(n^3)$); RFF/Nyström as the approximate escape
+- Per-leaf objective $G_j w + \tfrac12(H_j+\lambda)w^2$
+- Minimize → $w^\star = -G_j/(H_j+\lambda)$
+- Squared loss: $g=f-y$, $h=1$ → shrunk mean residual; $\lambda=0$ → mean (= plain GB)
+- MAE: $h=0$ → degenerate; c1.2 tie (zero Hessian; pseudo-Huber / reg:absoluteerror)
 
 </details>
 
@@ -165,21 +188,22 @@ So $\phi$ is infinite-dimensional.
 
 <Quiz id="7">
 
-**Q7.** State Mercer's condition for a valid kernel. Is $K(x,x') = (x^\top x' + 1)^3$ a valid kernel? Is $K(x,x') = \tanh(x^\top x')$? Justify.
+**Q7. When does bagging have nothing to average away?** Construct a stable learner whose fitted function barely changes across bootstrap samples. Predict whether bagging helps before applying the decorrelation identity, then show which value of $\rho$ explains the result. As an extension, explain how training on bootstrap samples with fewer distinct rows can slightly hurt a stable learner.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Mercer's condition.** $K$ is a valid (Mercer) kernel iff it is **symmetric** and its **Gram matrix** $G_{ij} = K(x_i, x_j)$ is **positive semidefinite (PSD)** for every finite set of points. Equivalently, $K$ then corresponds to an inner product $\langle\phi(x),\phi(x')\rangle$ in some Hilbert space.
+**The learner.** Any **stable, low-variance, high-bias** learner — e.g. **ordinary linear/OLS regression** (or LDA, or large-$k$ kNN). Fit on different bootstrap resamples, OLS produces nearly identical coefficients, so the bagged models are almost perfectly correlated: $\rho \approx 1$.
 
-**$(x^\top x' + 1)^3$ — valid.** It's the polynomial kernel (degree 3, with bias). Build it from closure properties: $x^\top x'$ is a valid kernel (linear); adding the constant $1$ (a valid kernel) preserves validity; and **products and positive integer powers of kernels are kernels** (the Schur product theorem: the elementwise product of PSD matrices is PSD). So $(x^\top x'+1)^3$ is PSD — valid. Its feature map is the finite set of all monomials up to degree 3.
+**Why, via the identity.** Bagging's variance is $\rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$. With $\rho\approx1$ this is $\approx\sigma^2$ for any $B$ — the $\frac{1-\rho}{B}$ term is ~0, so averaging buys nothing. Bagging reduces *variance*, and a stable learner has little variance to remove; it does nothing for the *bias* that dominates such a learner's error. (Bagging helps unstable, high-variance learners — deep trees, small-$k$ kNN — which is exactly why trees are the canonical bagging base learner.)
 
-**$\tanh(x^\top x')$ — not valid in general.** The sigmoid/tanh "kernel" is **not PSD for all parameter values / all data** — one can construct point sets whose Gram matrix has a negative eigenvalue. It's used heuristically in some SVM packages (it "works" sometimes), but it does *not* satisfy Mercer's condition in general, so there's no guaranteed underlying inner-product space and the QP can become non-convex/ill-posed.
+**Bonus — why it can hurt.** Each bootstrap contains only ~63% distinct rows, so each base model is trained on effectively less data than the full set → slightly higher bias/variance *per model*. For a stable learner, averaging near-identical slightly-worse models can't compensate, so bagged error can edge *above* the single full-data fit.
 
 **Rubric:**
-- Mercer: symmetric + PSD Gram matrix for all finite samples ⇔ inner product in a Hilbert space
-- Poly kernel valid via closure (sum/product/power of kernels are kernels; Schur product)
-- tanh kernel not PSD in general → not a valid Mercer kernel (heuristic only)
+- Pick a stable high-bias learner (OLS / LDA / large-$k$ kNN); note $\rho\approx1$
+- Apply identity: $\rho\approx1$ → variance $\approx\sigma^2$ regardless of $B$ → no gain
+- Bagging removes variance, not bias; stable learners are bias-dominated
+- Bonus: ~63% distinct rows → each base model slightly worse → can increase error
 
 </details>
 
@@ -187,25 +211,24 @@ So $\phi$ is infinite-dimensional.
 
 <Quiz id="8">
 
-**Q8.** State the Cover–Hart bound for asymptotic 1-nearest-neighbor error in terms of the Bayes error $R^\star$ (binary case). Interpret "$R \le 2R^\star$." How does using $k \to \infty$ with $k/n \to 0$ change the conclusion?
+**Q8. Why do 5,000 extra trees mean different things in RF and GBDT?** In a forest, another tree is another randomized vote; in boosting, it is another fitted correction to the same training loss. Use that distinction and the forest variance identity to explain why increasing $B$ converges for RF while excessive boosting rounds can fit noise. Then connect the argument to deep forest trees versus shallow boosting trees.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Cover–Hart (1967).** As $n \to \infty$, the binary 1-NN error is squeezed between the Bayes error and twice it:
+**GBDT overfits; RF does not.**
 
-$$R^\star \le R \le 2R^\star(1 - R^\star) \le 2R^\star$$
+**RF (doesn't).** The trees are i.i.d. draws from the same randomized procedure (bootstrap + feature subsampling). Averaging $B$ such trees, the generalization error converges almost surely as $B\to\infty$ (a strong-law-of-large-numbers result — Breiman 2001): more trees drive the Monte Carlo averaging error to zero and the error settles at a fixed limit (the $\rho\sigma^2$-floor regime). Adding trees can only *reduce* the averaging variance — it never increases test error. So RF needs no early stopping.
 
-(The general $M$-class form carries an extra $M/(M-1)$ factor; for the exact statement, ask an AI assistant — an interviewer wants the $2R^\star$ takeaway, not the constant.)
+**GBDT (does).** Boosting is *sequential* and *adaptive*: each round fits the negative gradient of the residual loss, monotonically reducing training loss. Past the point where the signal is captured, additional rounds fit noise — training loss keeps falling while test loss turns up. So more rounds overfit, and early stopping on a validation set is essential.
 
-**Interpretation of $R \le 2R^\star$.** Even the crudest possible classifier — "copy the label of the single closest point" — has asymptotic error no worse than **twice** the best achievable error of *any* classifier (the Bayes classifier, which knows the true $P(y\mid x)$). Put differently, at least **half the achievable information about the label is contained in the single nearest neighbor**. That's a remarkable guarantee for a method that does no training at all.
-
-**$k \to \infty,\ k/n \to 0$.** With $k$ growing (so the vote averages over many neighbors → variance $\to 0$) but slowly enough that the neighborhood still shrinks to the query point ($k/n \to 0$ → bias $\to 0$), kNN becomes **Bayes-consistent**: $R \to R^\star$. So 1-NN pays a factor-of-2 price for using only one neighbor; letting $k$ grow appropriately recovers the optimal error in the limit.
+**Corollary (tree depth).** RF reduces **variance** by averaging, so it wants each tree to be **low-bias** → grow **deep** trees (their high variance is washed out by averaging). GBDT reduces **bias** by adding many small corrections, so each tree should be a **weak, high-bias** learner → **shallow** trees (depth controls the interaction order; deep trees + boosting overfit immediately).
 
 **Rubric:**
-- State the bound (general $M$ and binary $R\le 2R^\star(1-R^\star)\le 2R^\star$)
-- Interpret: 1-NN ≤ 2× Bayes; half the info is in the nearest neighbor
-- $k\to\infty$, $k/n\to0$ ⇒ variance→0 and bias→0 ⇒ Bayes-consistent ($R\to R^\star$)
+- GBDT overfits, RF doesn't
+- RF: i.i.d. trees → LLN convergence → more trees never hurt (Breiman)
+- GBDT: sequential bias reduction → eventually fits noise → early stop
+- Corollary: RF deep (low-bias to average), GBDT shallow (weak learners)
 
 </details>
 
@@ -213,30 +236,22 @@ $$R^\star \le R \le 2R^\star(1 - R^\star) \le 2R^\star$$
 
 <Quiz id="9">
 
-**Q9.** Explain the curse of dimensionality for kNN as a *probability statement*, not a vibe. State the Beyer et al. (1999) condition and conclusion, give the $1/\sqrt{d}$ argument for why distances concentrate, and explain why this drives modern retrieval toward learned embeddings + approximate NN.
+**Q9. Is the stack learning which model generalizes, or which model memorizes?** An engineer trains every base model on all training rows, predicts those same rows, and uses the predictions as meta-features. Explain why those features describe memorization rather than deployment behavior. Use 1-NN to make the failure concrete, then give the exact out-of-fold construction that fixes it.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**The probability statement (Beyer et al. 1999).** Let $\text{Dmin}_d$ and $\text{Dmax}_d$ be the nearest and farthest distances from a query to $n$ points in dimension $d$. **If** the relative variance of distance vanishes,
+**The leak.** Building meta-features from base models' **in-sample** predictions is train/test leakage. Each base model has already seen the rows it's now predicting, so its meta-features reflect *memorization*, not generalization. The meta-learner then learns weights tuned to optimistic, in-sample base predictions that won't hold at test time.
 
-$$\lim_{d\to\infty}\operatorname{Var}\!\left(\frac{D_d}{\mathbb{E}[D_d]}\right) = 0 \qquad (D_d = \text{query-to-point distance in dim } d)$$
+**Why 1-NN makes it catastrophic.** A 1-nearest-neighbor base model has **zero training error** — predicting on the training set, every point's nearest neighbor is itself, so its meta-feature equals the true label exactly. The meta-learner sees a "base model" that's perfectly correct and hands it ~all the weight. At test time the 1-NN generalizes far worse, and the stack collapses. (Any low-bias/high-variance base model produces the same pathology in milder form.)
 
-(true for i.i.d. features and much more broadly), **then** for every $\varepsilon > 0$,
-
-$$\Pr\bigl[\text{Dmax}_d \le (1+\varepsilon)\,\text{Dmin}_d\bigr] \longrightarrow 1.$$
-
-The nearest and farthest points become indistinguishable — the "relative contrast" $(\text{Dmax}-\text{Dmin})/\text{Dmin} \to 0$ in probability.
-
-**Why $1/\sqrt{d}$.** For independent coordinates, $\|x - x'\|^2 = \sum_{j=1}^d (x_j - x_j')^2$ is a sum of $d$ i.i.d. terms. By the law of large numbers its mean grows $\propto d$ while its standard deviation grows $\propto \sqrt{d}$, so the **coefficient of variation** (std/mean) shrinks like $\sqrt{d}/d = 1/\sqrt{d} \to 0$. All pairwise distances bunch around the same value.
-
-**Why retrieval moved to embeddings + ANN.** Raw high-dimensional kNN is meaningless (every point is ~equidistant) and exact search is $O(nd)$ with tree indices collapsing to $O(n)$ past ~20 dimensions. So modern systems (1) **learn low-dimensional embeddings** where semantic similarity gives genuine distance contrast (low *intrinsic* dimension), and (2) use **approximate nearest-neighbor** indices (HNSW, FAISS, ScaNN) for sub-linear, high-recall search. That's the backbone of semantic search and RAG.
+**The fix — out-of-fold (OOF) predictions.** Split the training data into $K$ folds. For each base model, produce each row's meta-feature from a copy trained on the *other* $K-1$ folds (so it never saw that row). Train the meta-learner on these honest OOF meta-features. Then refit each base model on all the data for inference. (This is the c1.1 leakage principle: a feature must be computable without the row's own label.) "Blending" is the simpler one-held-out-set variant.
 
 **Rubric:**
-- State Beyer condition (relative variance → 0) and conclusion ($\Pr[\text{Dmax}\le(1+\varepsilon)\text{Dmin}]\to1$)
-- $1/\sqrt d$ coefficient-of-variation argument (mean $\propto d$, std $\propto\sqrt d$)
-- Consequence: nearest ≈ farthest, distance meaningless
-- Drives learned embeddings (low intrinsic dim) + ANN (HNSW/FAISS) for retrieval/RAG
+- Identify in-sample meta-features as train/test leakage
+- 1-NN has zero training error → its meta-feature = the label → meta over-weights it → collapse
+- Fix: out-of-fold (K-fold) meta-features; refit base models on all data for inference
+- Tie to c1.1 (feature must not use the row's own label)
 
 </details>
 
@@ -244,22 +259,22 @@ The nearest and farthest points become indistinguishable — the "relative contr
 
 <Quiz id="10">
 
-**Q10.** A kNN model uses two features: annual income (range \$0–\$500,000) and a normalized risk score (range 0–1), with raw Euclidean distance. Explain why the model effectively ignores the risk score, and give two distinct fixes naming the metric each implies.
+**Q10. Why can a useless ID look important?** A 1,000-value identifier outranks a genuinely predictive binary feature under impurity importance. Explain how many candidate split points create more chances for accidental training gain. Propose held-out permutation importance, state the question it answers, and explain why correlated predictors can make each other look unimportant unless permuted together.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**The problem.** Euclidean distance is $\sqrt{(\Delta\text{income})^2 + (\Delta\text{score})^2}$. Income differences are on the order of $10^4$–$10^5$; score differences are at most $1$. So $(\Delta\text{income})^2$ dominates the sum by ~$10^8$–$10^{10}$, and $(\Delta\text{score})^2$ is numerically negligible. The "nearest neighbors" are determined almost entirely by income; the risk score has essentially zero influence on the distance, so the model ignores it regardless of how predictive it is.
+**Mechanism.** Impurity (Gini/MDI) importance sums the impurity decrease attributed to each feature across all splits. A high-cardinality feature offers **many candidate cut-points**, so by sheer multiple comparisons it can find a split that reduces impurity *on the training data* by chance — even with no real signal (Strobl et al. 2007). Combined with the fact that MDI is computed **on training data** (so it rewards overfitting), a noise ID column with 1000 distinct values can out-rank a real binary feature. This is a bias of the metric, not a finding about the data.
 
-**Fix 1 — standardize, then Euclidean.** Z-score each feature ($x \mapsto (x-\mu)/\sigma$) or min-max scale to $[0,1]$, so both features have comparable spread. Distance is then Euclidean **on the standardized features**, and the score contributes on equal footing.
+**Use instead — permutation importance on held-out data.** Permute one feature's values in a validation set and measure the drop in performance; an irrelevant feature causes no drop, regardless of cardinality. Because it's measured on held-out data against actual performance, it's not fooled by cardinality or training-set overfitting.
 
-**Fix 2 — Mahalanobis distance.** Use $d(x,x') = \sqrt{(x-x')^\top \Sigma^{-1}(x-x')}$. The $\Sigma^{-1}$ rescales each direction by its variance (and rotates out correlations), so it bakes the standardization (and decorrelation) directly into the metric — no separate scaling step. (For magnitude-invariant data like text/embeddings, **cosine distance** is a third option.)
+**Why permutation is also unreliable under correlation.** If two features are collinear, permuting one barely hurts performance because the model recovers the same information from its correlated partner — so *both* look unimportant even if the underlying signal is crucial. (Same redundancy that defeats drop-column leakage detection in c1.1 and inflates VIF in c1.3.) The fix is to **cluster correlated features and permute the cluster jointly**, or use conditional/grouped permutation importance.
 
 **Rubric:**
-- Identify scale dominance: $(\Delta\text{income})^2 \gg (\Delta\text{score})^2$ → distance ≈ income only
-- Fix 1: standardize/min-max → Euclidean on scaled features
-- Fix 2: Mahalanobis ($\Sigma^{-1}$) bakes in scaling/decorrelation
-- (Bonus) cosine for magnitude-invariant data
+- MDI bias: high-cardinality → many cut-points → spurious impurity decrease (Strobl 2007); computed on train data
+- Use permutation importance on held-out data
+- Permutation also fails under collinearity (partner carries the info) → both look unimportant
+- Fix: cluster/permute correlated features jointly (c1.1/c1.3 tie)
 
 </details>
 
@@ -267,22 +282,25 @@ The nearest and farthest points become indistinguishable — the "relative contr
 
 <Quiz id="11">
 
-**Q11.** Express kNN regression as a local-averaging estimator and relate it to Nadaraya–Watson kernel regression. What plays the role of "bandwidth" in kNN, and how does $k$ trade bias against variance in the regression risk?
+**Q11. A score of 0.8 should mean 80%—does it?** Explain what a calibration curve compares, then sketch the typical curve for an uncalibrated random forest and AdaBoost. Explain the mechanism that compresses their predictions toward the middle. Name the standard post-hoc calibrators and say why the more flexible one needs more data.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**kNN as local averaging.** kNN regression predicts $\hat f(x) = \frac1k \sum_{i\in N_k(x)} y_i$, the average target over the $k$ nearest neighbors $N_k(x)$. This is a weighted average of all training targets with weights that are $1/k$ on the $k$ nearest and $0$ elsewhere.
+**Both are sigmoid-distorted — under-confident at the extremes.** The counterintuitive part: RF *and* AdaBoost push their probabilities *toward* 0.5 (away from 0 and 1), so both have the same qualitative reliability shape, for different reasons (Niculescu-Mizil & Caruana 2005).
 
-**Relation to Nadaraya–Watson.** N–W is $\hat f(x) = \frac{\sum_i K_h(x,x_i)\,y_i}{\sum_i K_h(x,x_i)}$, a kernel-weighted average with a *fixed* bandwidth $h$. kNN is the special case using a **uniform kernel over the $k$-NN ball** with an **adaptive bandwidth**: instead of a fixed radius $h$, the radius is whatever distance contains exactly $k$ neighbors. So both estimate $\mathbb{E}[Y \mid X = x]$ by averaging nearby points; kNN's bandwidth adapts to local density (wider in sparse regions, narrower in dense ones), N–W's is fixed. kNN's estimate is a step function; a Gaussian-kernel N–W estimate is smooth.
+**Random forest.** RF probabilities are the *average* of many trees' bounded $[0,1]$ votes. Averaging bounded values compresses the result toward the middle, so the forest rarely outputs values near 0 or 1 — for a prediction of, say, 0.8 the empirical accuracy is *higher* than 0.8. The reliability curve is sigmoidal, lying above the diagonal at the high-confidence end: under-confident at the extremes.
 
-**$k$ as bandwidth and the bias-variance trade.** $k$ is the (inverse) bandwidth knob. The regression risk decomposes as irreducible noise + bias$^2$ + variance. The variance of the average of $k$ neighbors is $\approx \sigma^2/k$ — **decreasing in $k$**. The bias **increases with $k$**: a larger neighborhood reaches farther from $x$, averaging in points whose true mean differs, so $\hat f$ is smoothed away from $f(x)$. Small $k$ → low bias, high variance ($k=1$ interpolates the data); large $k$ → high bias, low variance ($k=n$ predicts the global mean). Optimal $k$ balances the two and grows with $n$.
+**AdaBoost.** AdaBoost maximizes margins; mapping its margin scores to $[0,1]$ pushes the probability mass *away* from 0 and 1, so its predictions are also too moderate — again a sigmoidal curve, under-confident at the extremes (*not* over-confident, despite the exponential loss).
+
+**Fixes.** Post-hoc calibration on a held-out set: **Platt scaling** (fit a logistic/sigmoid to the scores) or **isotonic regression** (fit a monotonic step function). Wrap with `CalibratedClassifierCV`. **Isotonic is more flexible but needs more data** (it can overfit on small calibration sets, where Platt's two-parameter sigmoid is safer). Verify with a reliability diagram + ECE/Brier (c1.2).
 
 **Rubric:**
-- kNN regression = $\frac1k\sum_{i\in N_k}y_i$, a local average
-- Relate to Nadaraya–Watson: kNN = uniform kernel + *adaptive* bandwidth vs N–W fixed $h$
-- Bandwidth role played by $k$ (radius to $k$-th neighbor)
-- Variance $\propto \sigma^2/k$ (↓ with $k$), bias ↑ with $k$; optimal $k$ balances, grows with $n$
+- BOTH RF and AdaBoost are under-confident at the extremes (sigmoid curves; probabilities pushed toward 0.5) — Niculescu-Mizil & Caruana 2005
+- RF mechanism: averaging bounded tree votes compresses toward the middle; AdaBoost mechanism: margin maximization pushes mapped scores away from 0/1
+- Fixes: Platt (sigmoid) / isotonic on held-out data
+- Isotonic needs more data (overfits small sets); Platt safer when small
+- (c1.2 tie: reliability diagram, ECE, Brier)
 
 </details>
 
@@ -290,74 +308,44 @@ The nearest and farthest points become indistinguishable — the "relative contr
 
 <Quiz id="12">
 
-**Q12.** A quant has 5 million rows of high-dimensional, sparse features. Explain precisely why `SVC(kernel='rbf')` is the wrong choice (cite the computational reason), and name scalable alternatives that preserve a margin/linear-SVM flavor — including one kernel-approximation route. Bonus: what does sklearn's `gamma='scale'` compute, and why does `LinearSVC` differ from `SVC(kernel='linear')`?
+**Q12. Does the default actually decorrelate regression trees?** You call current scikit-learn's `RandomForestRegressor()` expecting roughly $p/3$ candidate features per split. State the real `max_features` default, explain what randomness remains, and trace the consequence through correlation $\rho$ to the variance floor. Give the setting that restores feature subsampling. As a version-awareness extension, name XGBoost's default `tree_method` since v2.0.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Why not `SVC(kernel='rbf')`.** Kernel SVM training (libsvm) scales **$O(n^2)$ to $O(n^3)$** in the number of samples — it forms/operates on the $n \times n$ Gram matrix. sklearn's own docs warn the fit time "scales at least quadratically … impractical beyond tens of thousands of samples." At $n = 5\text{M}$ this is completely infeasible (memory for the Gram matrix alone is $\sim n^2$). The model also stores all support vectors, which can be a large fraction of 5M.
+**What actually happens.** Modern scikit-learn's `RandomForestRegressor` defaults to **`max_features=1.0`** — i.e. it considers **all $p$ features at every split**. With no per-split feature randomness, the only randomization left is bootstrapping, so you've actually built **bagged trees, not a random forest**. (The classifier still defaults to `max_features="sqrt"`; the regressor's `1.0` default is the trap — it changed from `"auto"` in the 1.x line.)
 
-**Scalable alternatives.**
-- **`LinearSVC`** (liblinear) or **`SGDClassifier(loss='hinge')`** — solve the *linear* SVM (hinge + L2) directly in the input space, scaling roughly linearly in $n$. Ideal here because high-dimensional sparse data (e.g. text-like features) is usually linearly separable enough that a linear margin is competitive.
-- **Kernel approximation:** if you genuinely need RBF-like nonlinearity, map features through **Nyström** or **random Fourier features** (`sklearn.kernel_approximation.RBFSampler`) to an explicit *finite* approximate feature space, then fit a linear SVM / SGD on those — recovering most of the RBF benefit at linear cost.
+**Effect on variance.** Considering all features at each split makes the trees pick the same dominant splits, so they're **more correlated** — $\rho$ is higher. By the decorrelation identity, the large-$B$ variance floor $\rho\sigma^2$ is **higher**, so the ensemble has more variance (worse generalization) than a true RF would. **Fix:** set `max_features="sqrt"` or `max_features=1/3` to restore per-split feature subsampling and decorrelate the trees.
 
-**Bonus — `gamma='scale'`.** It sets $\gamma = \dfrac{1}{n_{\text{features}} \cdot \operatorname{Var}(X)}$ — concretely `1 / (n_features * X.var())`, where `X.var()` is the variance over *all* entries of the training matrix (so it implicitly assumes roughly comparable feature scales — standardize anyway). It's the default since sklearn 0.22; the older `gamma='auto'` is $1/n_{\text{features}}$. `'scale'` adapts to feature spread, making it more robust to unscaled data (though you should still standardize).
-
-**Bonus — `LinearSVC` vs `SVC(kernel='linear')`.** They optimize *different* objectives: `LinearSVC` (liblinear) defaults to **squared hinge** loss and regularizes the intercept differently, while `SVC(kernel='linear')` (libsvm) uses plain hinge via the dual. `LinearSVC` scales far better to large $n$; `SVC` returns exact support vectors and supports `predict_proba` only if `probability=True` (off by default; Platt scaling fit via internal cross-validation, which can disagree with `decision_function`). So they give different coefficients on the same data.
+**Bonus.** Since **XGBoost 2.0**, the default `tree_method` is **`"hist"`** (histogram-based split finding — fast, the former LightGBM-style approach), replacing the older auto-selection of exact/approximate methods. (Also: the unified `device="cpu"/"cuda"` parameter replaced `gpu_hist`.)
 
 **Rubric:**
-- Kernel SVM is $O(n^2)$–$O(n^3)$ (Gram matrix); infeasible at 5M (cite the scaling)
-- `LinearSVC` / `SGDClassifier(hinge)` for the linear margin at scale
-- Kernel approximation (Nyström / random Fourier features) for approximate RBF
-- Bonus: `gamma='scale'` $= 1/(n_\text{features}\cdot\operatorname{Var}(X))$ vs `'auto'` $=1/n_\text{features}$
-- Bonus: `LinearSVC` (squared hinge, liblinear) ≠ `SVC(linear)` (hinge, libsvm)
+- `max_features=1.0` default (regressor) → all features per split → **bagged trees, not RF**
+- Higher $\rho$ → higher variance floor $\rho\sigma^2$ → worse than a true RF
+- Fix: `max_features="sqrt"` or `1/3`
+- Bonus: XGBoost ≥2.0 default `tree_method="hist"`
 
 </details>
 
 </Quiz>
 
-## Rapid-fire: SVMs, kernels & margins
+## Rapid-fire: Trees & ensembles
 
-1. **Separable data, diverging weights.** What happens to logistic regression's weights on a perfectly linearly separable dataset, and in which *direction* does the gradient-descent iterate converge (Soudry et al. 2018 — the implicit-bias result)? Why does the SVM have no such pathology, and what does this reveal about the two losses at large margins?
-2. **The hinge minimizer.** Derive the population minimizer of hinge loss at a point with $\eta = \Pr[y{=}1 \mid x]$ and show it is $\operatorname{sign}(2\eta - 1)$ — a hard label, with no invertible map back to $\eta$. Contrast with the logistic-loss minimizer, and explain why this makes hinge classification-calibrated but *not* a proper scoring rule — so Platt scaling is *structurally* necessary rather than a convenience. What exactly does Platt scaling fit, on what data, and name two ways it silently fails (sigmoid misspecification; scores from the same data the SVM was trained on).
-3. **Subgradient at the kink.** Hinge is non-differentiable at margin $m = 1$. Write its subdifferential there, explain why subgradient/SGD methods converge anyway, and say what squared hinge changes analytically — and what it costs you in outlier sensitivity.
-4. **Duplicate a point.** You duplicate one training example and refit a soft-margin SVM. Show the solution is unchanged if the point had $\alpha_i = 0$, and explain exactly why it *can* move the boundary if the point was a support vector. What does this say about which points "own" the solution?
-5. **The leave-one-out bound.** Prove that the leave-one-out error of a hard-margin SVM is at most $\#\text{SV}/n$ (removing a non-support-vector changes nothing). What does this bound say about a trained model where 90% of points are support vectors, and why is that the kernel-SVM analogue of "your model memorized the data"?
-6. **When hard margin loses on separable data.** Show that the soft-margin solution converges to the hard-margin solution as $C \to \infty$ on separable data. Then challenge the default: construct a linearly separable configuration (one near-boundary outlier suffices) where a *finite* $C$ provably yields a larger geometric margin on the remaining points and better generalization. What does this say about "use hard margin whenever the data is separable"?
-7. **Scale sensitivity of margins.** Is the SVM invariant to per-feature rescaling? Show how anisotropic scaling changes which hyperplane maximizes the margin, and why standardization is as mandatory for SVMs as for kNN — even though the isotropic L2 penalty "looks" symmetric.
-8. **Kernel algebra, prove and break.** Given valid kernels $K_1, K_2$: which of $K_1 + K_2$, $K_1 K_2$, $\alpha K_1$ for $\alpha > 0$, $f(x)K_1(x,x')f(x')$, $\exp(K_1)$, and $K_1 - K_2$ are guaranteed valid? Prove one of the valid closures from the PSD definition, construct an explicit counter-example (points plus a Gram matrix with a negative eigenvalue) for the invalid one, and use the $f\,K\,f$ rule to prove the cosine-normalized kernel $K(x,x')/\sqrt{K(x,x)\,K(x',x')}$ is valid.
-9. **Surprising kernels.** Is $K(x,x') = \min(x, x')$ on $[0,\infty)$ a Mercer kernel? Is $-\|x - x'\|$? Prove or refute each — and explain what "conditionally positive definite" means and why RBF-like kernels built from distances can still be valid.
-10. **The two limits of $\gamma$.** Derive what the RBF Gram matrix degenerates to as $\gamma \to \infty$ (identity) and as $\gamma \to 0$ (rank-one all-ones). Work out what $K \approx I$ implies for the dual solution and the support-vector count, and how the resulting predictor relates to 1-NN; then explain how $C$ must scale (like $1/\gamma$) for the $\gamma \to 0$ limit to be a linear SVM rather than a trivial constant classifier (Keerthi and Lin 2003).
-11. **Margin beats dimension.** SVMs run in an infinite-dimensional RBF feature space yet generalize. Reconcile this with the curse of dimensionality via margin-based generalization bounds — which quantities (margin, radius of the data) replace dimension in the bound, and when does the reconciliation fail?
-12. **Representer theorem — and why L2.** Explain why the minimizer of any regularized empirical risk in an RKHS is a finite sum $\sum_i c_i\,K(x_i,\cdot)$, and identify exactly which ingredient forces it — the loss, or the norm penalty? What breaks if you drop the penalty? Then flip it: an L1-regularized SVM (feature-sparse, solvable as a linear program) is a perfectly good model, yet it cannot be kernelized — which step of the argument requires the L2 norm, and what does that reveal about how load-bearing the "regularizer = RKHS norm" pairing is in everything kernel-related?
-13. **Kernelize it or not.** State the single property an algorithm needs for the kernel trick to apply, then classify: perceptron, ridge regression, PCA, $k$-means, decision trees. For kernel PCA, write the Gram-matrix centering step in feature space — the step everyone forgets.
-14. **SVR and the tube.** Write the $\varepsilon$-insensitive loss, explain the geometric role of the $\varepsilon$-tube, and show why support-vector *regression* — unlike kernel ridge — has sparse solutions. What plays the role of a support vector when there are no classes?
-15. **One-vs-one, one-vs-rest.** libsvm's multi-class `SVC` trains $\binom{M}{2}$ pairwise classifiers while `LinearSVC` trains one-vs-rest. Derive the OvO vote-counting decision rule, explain why raw decision values from different binary problems are not comparable, and construct a regime where OvO's $O(M^2)$ models are actually *cheaper* to train than OvR's $M$.
-16. **Kernel ridge vs. GP.** Show that the kernel-ridge predictor $\hat f(x) = k(x)^\top (K + \lambda I)^{-1} y$ is *identical* to the Gaussian-process posterior mean with noise variance $\sigma^2 = \lambda$. What does the GP framework add that KRR cannot express — and why do quant-research loops care about that extra output? Then name the shared $O(n^3)$ cost both pay and the parallel escape hatches (Nyström / random features vs. inducing points).
-17. **Random Fourier features.** Via Bochner's theorem, derive why $\sqrt{2/D}\,\cos(\omega^\top x + b)$ features with $\omega$ drawn from the kernel's spectral density give an unbiased finite-dimensional approximation of any shift-invariant kernel, and state the $O(1/\sqrt{D})$ Monte-Carlo error rate (Rahimi and Recht 2007). When do you prefer Nyström instead, and what makes Nyström data-dependent?
-18. **Why kernels lost — and the NTK twist.** Give the two structural reasons kernel methods lost to deep learning at scale (the $n \times n$ Gram bottleneck; fixed features vs learned features). Then reconcile with the neural-tangent-kernel result that infinite-width networks *are* kernel regression: if deep nets are secretly kernels, why do finite-width trained networks reliably beat their own NTK — and name three regimes where kernel methods still win today.
-19. **Class-weighted margins.** Your fraud dataset is 1000:1 and the SVM predicts the majority class everywhere. Explain what `class_weight` (a per-class $C$) changes in the primal objective, how that shifts the boundary geometrically, and why you would still pick the operating threshold from a PR curve afterwards.
-20. **MMD drift test.** Using kernel mean embeddings, define the maximum mean discrepancy between your training distribution and live traffic, state why a *characteristic* kernel makes $\mathrm{MMD} = 0$ exactly when the distributions match (Gretton et al. 2012), and sketch how a permutation test turns it into a p-value. Cross-validation is unavailable in two-sample testing — so justify the median heuristic for the RBF bandwidth by naming the failure at each extreme it guards against. This is the kernel answer to "how would you detect feature drift?"
+These 16 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
 
-## Rapid-fire: kNN, distance geometry & vector search
-
-1. **Lazy has a price.** kNN trains in $O(1)$ and predicts in $O(nd)$. Construct one deployment where that trade is unacceptable and one where it's ideal — then reconcile "no training" with the very real, training-like cost of building an ANN index.
-2. **All-pairs, no loops.** Derive the vectorized pairwise squared-distance identity $\|x - z\|^2 = \|x\|^2 + \|z\|^2 - 2\,x^\top z$ at the matrix level, name the floating-point pitfall it introduces (tiny negative distances from cancellation) and the fix, and state the memory cost of the full $n \times n$ result. This is the kNN/k-means from-scratch round at Meta, Uber, and Microsoft.
-3. **Compute the shell.** For uniform data on the unit hypercube in $d = 100$, compute the fraction of volume within $0.01$ of the boundary, $1 - 0.98^{100}$. Then compute the sub-cube edge length needed to capture 1% of uniform data in $d = 10$, i.e. $0.01^{1/10}$. Do both, and state what each number does to "local" averaging.
-4. **The Gaussian soap bubble.** Show that the norm of a standard Gaussian vector in $d$ dimensions concentrates around $\sqrt{d}$ with $O(1)$ fluctuation. What does this imply about where high-dimensional embeddings actually live, and about Euclidean vs. cosine geometry on that shell?
-5. **Why KD-trees die.** Explain the *mechanism* by which KD-tree branch-and-bound collapses to a linear scan in high dimensions — why can the query ball no longer exclude most cells once distances concentrate? And why do ball trees only postpone, not prevent, the collapse?
-6. **$k \approx \sqrt{n}$ is folklore.** Is the popular rule $k \approx \sqrt{n}$ convention or mathematics? State the actual optimal-rate result — under second-order smoothness, $k^\star \propto n^{4/(4+d)}$ — find the one dimension where the folklore agrees with it, and say what should actually choose $k$ in practice.
-7. **Invert Cover–Hart.** You measure 8% test error with 1-NN on a large sample. Using the binary bound $R \le 2R^\star(1 - R^\star)$, solve for a lower bound on the Bayes error $R^\star$. Then say precisely what makes the estimate optimistic at finite $n$ — what is asymptotic in Cover–Hart, and how does dimension enter the rate at which the nearest neighbor becomes "near" (the $(k/n)^{1/d}$ neighbor-distance scaling)? This turns a c1.6 theorem into a working estimator, which is exactly how quant loops like it.
-8. **kNN vote as a probability.** The vote fraction $\hat\eta(x) = \frac1k\sum_{i \in N_k(x)} \mathbf{1}[y_i{=}1]$ is an estimator of $\eta(x) = P(y{=}1\mid x)$. Characterize its bias and variance as functions of $k$, and explain why small-$k$ kNN "probabilities" are both quantized and badly calibrated. What does this share with the SVM's probability problem, and what does it not?
-9. **Distance weighting won't save you.** Distance-weighted kNN (weights $\propto 1/d_i$) is the standard fix for the arbitrariness of the $k$-th-neighbor cutoff. Which failure of large $k$ does it mitigate, which does it *not*, and why does it incidentally dissolve the even-$k$ tie problem in binary classification? Then show that in the distance-concentration regime the weights become approximately uniform — so the fix does nothing exactly where kNN is already failing. What does that imply about *any* re-weighting scheme built on concentrated distances?
-10. **kNN as density estimate.** Write the kNN density estimator via the volume of the ball reaching the $k$-th neighbor, contrast it with fixed-bandwidth KDE, and use it to justify distance-to-$k$-th-neighbor anomaly scoring. Which part breaks first in high dimensions?
-11. **MNIST shouldn't work.** Raw MNIST is 784-dimensional, yet 1-NN reaches roughly 97% accuracy. Reconcile this with distance concentration: which hypothesis of the Beyer et al. condition fails for such data? Define *intrinsic* vs. ambient dimension, give two ways to estimate intrinsic dimension from data (PCA eigen-spectrum decay; nearest-neighbor-ratio estimators), and say how you would use the estimate to predict *in advance* whether kNN will work.
-12. **Irrelevant features are a slow poison.** Append $m$ pure-noise coordinates to a dataset where 2 features carry all the signal. Quantify what happens to the expected distance contribution of signal vs noise as $m$ grows, and explain why kNN degrades where a tree or an L1-regularized linear model would not. Then frame metric learning (NCA, LMNN, learned Mahalanobis) as the supervised fix: what objective is it actually optimizing?
-13. **Cosine vs. Euclidean, precisely.** Prove that on unit-normalized vectors, ranking by Euclidean distance, cosine similarity, and dot product all coincide ($\|a - b\|^2 = 2 - 2\,a^\top b$), and give a concrete case where normalizing destroys real signal. Explain why *unnormalized* dot-product retrieval biases toward high-norm (popular) items — and when a recommender wants exactly that bias. Then explain why maximum-inner-product search is not a metric-space problem (no triangle inequality), why that breaks tree- and graph-based indexes, and state the standard reduction of MIPS to NN search.
-14. **Mahalanobis needs an inverse.** With 500 features and 2,000 samples, your Mahalanobis-kNN pipeline needs $\Sigma^{-1}$. Explain why the sample covariance is severely ill-conditioned in this $p/n = 1/4$ regime (eigenvalue spreading à la Marchenko–Pastur), how Ledoit–Wolf shrinkage repairs it, and derive the equivalence between Mahalanobis distance and Euclidean distance after PCA whitening. A quant-loop staple: estimator quality *is* the distance.
-15. **Learn the metric.** Hand-crafted distances plateau, so modern retrieval learns them: explain how contrastive training with hard-negative mining shapes an embedding space so that cosine neighbors are semantically meaningful, and connect it to why two-tower retrieval is just "kNN in a learned space."
-16. **ANN without guarantees.** LSH comes with provable sublinear query bounds; HNSW dominates it in practice with *no* worst-case guarantee. Explain the mechanism behind each, then give two production failure modes of HNSW: out-of-distribution queries, and heavy delete/update churn silently degrading the graph. Why does neither show up in an offline benchmark built from the training distribution?
-17. **Filters break graphs.** Adding a metadata filter ("only in-stock items") to HNSW search can silently destroy recall. Explain the mechanism — graph connectivity under restriction — compare pre-filtering vs. post-filtering, and describe an index design that fixes it.
-18. **Recall is not the metric.** Your ANN index reports recall@10 of 0.95 against exact search. First: how do you even *measure* ANN recall in production, given ground truth requires the exact search you built the index to avoid? Then design the evaluation that determines whether the missing 5% hurts the *downstream* system (RAG answer quality, recommendation engagement) — and construct a case where 0.95 index recall is catastrophic.
-19. **Design retrieval at billion scale.** You must serve embedding retrieval for RAG over $10^8$–$10^9$ 768-dimensional vectors. Walk through metric choice (cosine vs. dot product, and whether to normalize); index choice — compare HNSW and IVF-PQ on memory, recall, build time, and update cost, explain what product quantization actually compresses (per-subvector codebooks) and what its approximate distances cost you, and pick one under a fixed-RAM budget; how you'd measure recall against a brute-force sample; and how you'd handle embedding-model upgrades and index refresh without a recall cliff — justifying each choice against the distance-concentration and ANN failure modes above.
-20. **Neighbors that peek.** A quant backtest finds the nearest historical neighbors of today's market-feature vector and averages their next-day returns. Identify the leakage (serially-correlated samples adjacent in time landing in the neighbor set), connect it to c1.1's purge/embargo discipline, and explain why non-stationarity makes old neighbors quietly stale even *without* leakage.
+1. **Bagging vs boosting** In under a minute: does bagging attack bias or variance, and does boosting attack bias or variance? Say which one trains its trees independently and which trains them sequentially, and explain why that structural difference forces the answer.
+2. **Why forests beat plain bagging** Averaging $B$ trees only helps so much, because the trees are correlated with each other. Given that, what does a random forest do that plain bagging does not, and what does it buy you? What goes wrong if you push `max_features` all the way down to 1?
+3. **Five thousand more trees** You add 5,000 trees to a random forest and 5,000 more rounds to an XGBoost model, changing nothing else. One of them gets worse on the test set. Which one, what is the mechanism, and what does that say about which model needs early stopping?
+4. **What the next tree fits** In gradient boosting, what is the target that each new tree is fit to? Give it for squared loss and for binary log loss, and say why the squared-loss case is where "boosting just fits the residuals" comes from.
+5. **Deep trees or shallow** Random forests grow deep unpruned trees, while GBDT usually runs at depth 3 to 6. Explain both defaults from what each ensemble is trying to reduce. What typically happens if you boost depth-15 trees?
+6. **Overfitting XGBoost** Your XGBoost model has near-zero training loss and a large validation gap. Name four parameters you would change and the direction for each. Then explain why `learning_rate` and `n_estimators` have to be tuned together rather than one at a time.
+7. **The ID that looks important** Your random forest's top feature by default importance is a customer ID with 40,000 distinct values. Explain the mechanism that produces this. What would you use instead, and what does that replacement still get wrong when two features are highly correlated?
+8. **Predicting next year** You train a GBDT on 2015 to 2022 revenue, including a time index feature, and predict 2024. Revenue has grown every single year. What does the model predict, and why is that structural rather than a tuning problem? Give two fixes.
+9. **NaNs without imputation** How do XGBoost and LightGBM handle missing values without you imputing anything, and why does that usually beat mean imputation for a tree model? Then give a case where that same mechanism silently encodes leakage.
+10. **Ten thousand merchant IDs** You have a merchant ID feature with 10,000 levels feeding a GBDT. Compare one-hot encoding, mean-target encoding, and LightGBM or CatBoost native categorical splits. Which one cripples the trees, which one leaks the label, and how do you do target encoding safely?
+11. **Trees or logistic regression** You need a credit default model on 50,000 rows and 30 mostly numeric features. Make the case for a GBDT, then make the case for regularized logistic regression. What single constraint or piece of evidence would decide it for you?
+12. **0.8 that means 0.92** Your random forest scores a batch of loans at 0.8, but 92% of them actually default. Which direction is an out-of-the-box random forest miscalibrated, and what mechanism causes it? How would you fix it, and what data does the fix need?
+13. **Free validation** What is out-of-bag error, and roughly what fraction of rows are out-of-bag for any given tree? Give a situation where you would not trust OOB error as a stand-in for cross-validation.
+14. **Is that actually a forest** A teammate calls `RandomForestRegressor()` with all defaults in current scikit-learn. Is the resulting model really a random forest? Say what `max_features` defaults to for the regressor, what that does to how similar the trees are, and what you would set instead.
+15. **XGBoost over plain GBM** Name three things XGBoost adds over a vanilla gradient boosting machine, and say which of them matters most on wide, sparse data. Separate what actually changes the fitted model from what only changes wall-clock time.
+16. **One split, by hand** A node holds 8 positives and 2 negatives. A candidate split sends 6 positives and 0 negatives left, and 2 positives and 2 negatives right. Compute the Gini impurity decrease. Why must the child impurities be weighted by child size?
