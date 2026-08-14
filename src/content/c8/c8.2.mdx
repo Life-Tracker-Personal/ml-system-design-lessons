@@ -1,0 +1,308 @@
+---
+id: c8.2
+chapter: 8
+title: Autocorrelation, ARIMA and volatility
+subtitle: Why returns look like noise but their squares do not
+refs: []
+estimatedMinutes: 55
+---
+
+## TL;DR
+
+The autocorrelation function tells you how a series remembers its own past, and the partial autocorrelation function tells you how much of that memory is direct rather than relayed through the lags in between. Reading the two together is the Box-Jenkins identification recipe: an AR process has a PACF that cuts off and an ACF that decays, an MA process has the mirror image. For an AR(1) the single coefficient $\phi$ carries everything. If $|\phi|$ is less than 1 the series is stationary and mean-reverting with half-life $-\ln 2 / \ln \phi$; at $\phi = 1$ you have a random walk with a unit root and permanent shocks; above 1 it explodes. The "I" in ARIMA is just differencing, applied $d$ times to kill a unit root before you fit ARMA to what is left.
+
+Apply that machinery to daily equity returns and you find almost nothing. Sample autocorrelations of returns sit inside the noise band at every lag. **Then square the returns and the autocorrelation is large and dies out over weeks.** That single asymmetry is volatility clustering, and it is the empirical fact that ARCH and GARCH exist to model. GARCH(1,1) makes tomorrow's variance a weighted blend of a long-run level, yesterday's squared return and yesterday's variance estimate. Its two parameters split cleanly: $\alpha$ is how hard the model reacts to new shocks, $\beta$ is how long it remembers. When $\alpha + \beta$ approaches 1 volatility shocks persist for months. And because a random variance mixes normals of different widths, GARCH generates fat tails without ever assuming a fat-tailed innovation.
+
+## What you'll be able to do after this lesson
+
+- Compute an ACF and a PACF by hand for AR(1) and MA(1) and explain why each one cuts off where it does.
+- Identify AR order versus MA order from a pair of correlogram plots, and say what "both tail off" means.
+- Convert an AR(1) coefficient into a half-life in days and use it to argue a holding period.
+- Say exactly what differencing buys you, what it costs, and how to spot over-differencing from the ACF.
+- Derive the GARCH(1,1) variance recursion, its unconditional variance, and its multi-step forecast.
+- Explain why $\alpha + \beta$ is the persistence parameter and what happens when it equals 1.
+- Show that a time-varying variance forces unconditional kurtosis above 3, and compute how much of the observed fat tail GARCH actually accounts for.
+
+## Part 1 — What the ACF and the PACF each measure
+
+The autocorrelation function is the simplest possible memory statistic. For a stationary series $x_t$ with mean $\mu$, define the autocovariance at lag $k$ and normalize it:
+
+$$
+\gamma_k = \mathrm{Cov}(x_t, x_{t-k}), \qquad \rho_k = \frac{\gamma_k}{\gamma_0}
+$$
+
+So $\rho_k$ is the ordinary Pearson correlation between the series and a copy of itself shifted $k$ steps. Nothing more.
+
+The problem is that correlation at lag 2 can be entirely secondhand. If today depends on yesterday and yesterday depends on the day before, then today and the day before are correlated with no direct link between them. The ACF cannot tell the two cases apart.
+
+The partial autocorrelation function can. Define $\phi_{kk}$ as the correlation between $x_t$ and $x_{t-k}$ **after regressing both on the intervening lags** $x_{t-1}, \dots, x_{t-k+1}$. Equivalently, and this is the version you compute, it is the last coefficient in the best linear predictor of order $k$:
+
+$$
+x_t = \phi_{k1} x_{t-1} + \phi_{k2} x_{t-2} + \cdots + \phi_{kk} x_{t-k} + e_t
+$$
+
+Fit that regression for each $k$ and collect the final coefficient each time. That sequence is the PACF.
+
+### Working it out for AR(1)
+
+Take $x_t = \phi x_{t-1} + \varepsilon_t$ with $\varepsilon_t$ white noise. Multiply both sides by $x_{t-k}$ and take expectations. Since $\varepsilon_t$ is independent of everything dated $t-k$ or earlier, $\gamma_k = \phi \gamma_{k-1}$, so
+
+$$
+\rho_k = \phi^k
+$$
+
+With $\phi = 0.6$ the ACF reads $0.6,\ 0.36,\ 0.216,\ 0.130, \dots$ — geometric decay, never exactly zero.
+
+Now the PACF. Solve the order-2 Yule-Walker system
+
+$$
+\rho_1 = \phi_{21} + \phi_{22}\rho_1, \qquad \rho_2 = \phi_{21}\rho_1 + \phi_{22}
+$$
+
+which gives
+
+$$
+\phi_{22} = \frac{\rho_2 - \rho_1^2}{1 - \rho_1^2}
+$$
+
+For AR(1), $\rho_2 = \phi^2 = \rho_1^2$ exactly, so the numerator is zero and $\phi_{22} = 0$. With $\phi = 0.6$: $(0.36 - 0.36)/(1 - 0.36) = 0$. The same collapse happens at every higher lag. **Once you know yesterday, the day before adds nothing.** That is the definition of AR(1), and the PACF is the statistic that reads it off directly.
+
+### Working it out for MA(1)
+
+Take $x_t = \varepsilon_t + \theta \varepsilon_{t-1}$. Then $\gamma_0 = \sigma^2(1 + \theta^2)$ and $\gamma_1 = \theta\sigma^2$, and for $k \ge 2$ the two windows share no innovation at all, so $\gamma_k = 0$ exactly.
+
+$$
+\rho_1 = \frac{\theta}{1+\theta^2}, \qquad \rho_k = 0 \ \text{ for } k \ge 2
+$$
+
+With $\theta = 0.6$: $\rho_1 = 0.6/1.36 = 0.441$, and everything after is a hard zero. The ACF cuts off.
+
+The PACF does not. Plug into the same formula: $\phi_{22} = (0 - 0.441^2)/(1 - 0.441^2) = -0.1946/0.8054 = -0.242$. Nonzero, and $\phi_{33}$, $\phi_{44}$ follow with alternating signs and shrinking size. The reason is that an invertible MA(1) can be rewritten as an infinite AR, $x_t = \theta x_{t-1} - \theta^2 x_{t-2} + \cdots + \varepsilon_t$, so every lag has a small direct role.
+
+## Part 2 — Box-Jenkins identification
+
+The identification step of Box-Jenkins is exactly this contrast, and it is symmetric.
+
+- **AR(p)**: ACF tails off geometrically, PACF cuts off after lag $p$.
+- **MA(q)**: ACF cuts off after lag $q$, PACF tails off.
+- **ARMA(p,q)**: both tail off, and neither plot gives you the order cleanly. This is why people fall back to AIC or BIC over a grid.
+
+"Cuts off" means the sample value falls inside the noise band. Under a white-noise null, sample autocorrelations are approximately $N(0, 1/T)$, so the band is $\pm 1.96/\sqrt{T}$. With ten years of daily data, $T = 2520$ and the band is $\pm 1.96/50.2 = \pm 0.039$. Anything smaller than about four percent is not evidence of anything. That number matters enormously in Part 4.
+
+To test lags jointly rather than one at a time, use Ljung-Box: $Q = T(T+2)\sum_{k=1}^{m} \rho_k^2/(T-k)$, distributed $\chi^2$ with $m$ degrees of freedom under the null of no autocorrelation.
+
+## Part 3 — What $\phi$ actually means
+
+Write AR(1) with an intercept, $x_t = c + \phi x_{t-1} + \varepsilon_t$. The unconditional mean solves $\mu = c + \phi\mu$, so $\mu = c/(1-\phi)$. Work in deviations, $y_t = x_t - \mu$, and iterate forward:
+
+$$
+E_t[y_{t+h}] = \phi^h y_t
+$$
+
+A shock decays geometrically toward the mean. The **half-life** is the $h$ at which the expected deviation is halved:
+
+$$
+\phi^h = \tfrac12 \;\Longrightarrow\; h = \frac{-\ln 2}{\ln \phi}
+$$
+
+Real numbers, since interviewers want these instantly. $\phi = 0.5$ gives $h = 1$ day. $\phi = 0.9$ gives $0.6931/0.10536 = 6.6$ days. $\phi = 0.95$ gives $13.5$ days. $\phi = 0.98$ gives $0.6931/0.02020 = 34.3$ days. $\phi = 0.99$ gives $69$ days.
+
+Variance is where stationarity bites. Iterating the recursion, $\mathrm{Var}(y_t) = \sigma^2(1 + \phi^2 + \phi^4 + \cdots)$, which sums to
+
+$$
+\mathrm{Var}(y_t) = \frac{\sigma^2}{1-\phi^2}
+$$
+
+and that geometric series converges only when $|\phi|$ is less than 1. Three regimes:
+
+1. $|\phi| < 1$. Stationary and mean-reverting. Finite variance, shocks decay, half-life is finite.
+2. $\phi = 1$. A unit root, i.e. a random walk. The variance formula blows up; the correct statement is $\mathrm{Var}(y_t) = t\sigma^2$, growing without bound. Shocks are permanent and there is no mean to revert to. Half-life is infinite.
+3. $|\phi| > 1$. Explosive. Shocks amplify, the series leaves any bounded region, and nothing in finance stays here for long.
+
+The half-life is not a curiosity. It is the number that sizes a mean-reversion trade. A spread with $\phi = 0.98$ takes about 34 days to travel halfway home, so a strategy that round-trips it every two days is paying costs 17 times over to collect the same reversion.
+
+> **Stop and think.** You estimate $\phi = 0.98$ on a spread and quote a 34-day half-life. Now suppose the estimate is off by one hundredth in each direction. Compute the half-life at $0.97$ and at $0.99$ before reading on, and decide whether a point estimate is a defensible thing to hand a trader. (Whether the series is a unit root at all is a testing question, and that is c8.1.)
+
+The answer: $\phi = 0.97$ gives 22.8 days and $\phi = 0.99$ gives 69.0 days. One hundredth of movement in $\phi$ triples the holding period. The half-life is a convex function of $\phi$ and it blows up as $\phi \to 1$, so near the boundary the estimate you can actually get is far less precise than the number it produces. Quote a range.
+
+## Part 4 — The "I" in ARIMA
+
+ARIMA(p,d,q) means: difference the series $d$ times, then fit ARMA(p,q) to the result. The differencing operator is $\Delta y_t = y_t - y_{t-1}$, and $d$ is how many times you apply it.
+
+The purpose is narrow. ARMA is defined only for stationary series, so a series with a unit root cannot be fit directly. Differencing a random walk gives white noise, so ARIMA(0,1,0) is exactly "this is a random walk." Log prices need $d=1$. **Returns are already the difference of log prices, so for returns $d=0$ and the I machinery is irrelevant.**
+
+Differencing is not free. It removes level information the predictor may have needed, and it is blunt: it takes a full unit of memory or none. Over-differencing has an ACF signature. If $y_t$ is already white noise and you difference anyway, $\Delta y_t = \varepsilon_t - \varepsilon_{t-1}$ is MA(1) with $\theta = -1$, and
+
+$$
+\rho_1 = \frac{\theta}{1+\theta^2} = \frac{-1}{2} = -0.5
+$$
+
+A sharp $-0.5$ at lag 1 that appeared after you differenced means you differenced one time too many. The resulting MA is also non-invertible, which makes estimation ill-behaved.
+
+## Part 5 — The one empirical fact that matters
+
+Run the machinery above on daily equity index returns and the result is almost embarrassing. Sample autocorrelations of returns are tiny at every lag, typically between $-0.05$ and $+0.05$ at lag 1 and smaller after, which with $T = 2520$ sits at or inside the $\pm 0.039$ noise band. Fit ARIMA to returns and you get a model indistinguishable from "tomorrow's return is unforecastable." That is an equilibrium, not an accident: a lag-1 autocorrelation of $0.2$ in a liquid index is a trivially tradable trend rule, and trading it removes the autocorrelation.
+
+Now square the returns and rerun the same code. The ACF of $r_t^2$ at lag 1 is commonly $0.15$ to $0.25$, still clearly positive at lag 20, and often detectable past lag 100. Absolute returns $|r_t|$ show the same pattern, usually stronger. The decay is slow, closer to hyperbolic than geometric.
+
+Read the two together. **Returns are unpredictable in sign, but the magnitude of returns is highly predictable.** Big days cluster with big days and quiet days with quiet days. That is volatility clustering, and it survives because no cheap trade arbitrages it away the way one does for a directional autocorrelation.
+
+Two consequences. Returns are not independent even though they are uncorrelated, because uncorrelated constrains only the first moment and the dependence lives in the second. And the standard test for whether you need a volatility model is Ljung-Box on squared residuals, or Engle's LM test, which regresses $r_t^2$ on its own lags.
+
+## Part 6 — ARCH, then GARCH(1,1)
+
+Engle's 1982 move was to notice that the last paragraph is literally an AR model on squares. Write the return as a random scale times a standardized shock:
+
+$$
+r_t = \sigma_t z_t, \qquad z_t \ \text{i.i.d.},\ E[z_t] = 0,\ E[z_t^2] = 1
+$$
+
+with $\sigma_t$ known one step ahead. ARCH(1) sets $\sigma_t^2 = \omega + \alpha r_{t-1}^2$. To see why that produces the observed correlogram, define the surprise $v_t = r_t^2 - \sigma_t^2 = \sigma_t^2(z_t^2 - 1)$, which has mean zero by construction. Then
+
+$$
+r_t^2 = \omega + \alpha r_{t-1}^2 + v_t
+$$
+
+Squared returns follow an AR(1) with coefficient $\alpha$. The model was reverse-engineered from the plot.
+
+The trouble is that the empirical decay is slow, so one lag is not enough and you end up fitting ARCH(10) with ten free parameters. Bollerslev's 1986 fix adds one lagged variance term:
+
+$$
+\sigma_t^2 = \omega + \alpha r_{t-1}^2 + \beta \sigma_{t-1}^2
+$$
+
+with $\omega > 0$, $\alpha \ge 0$, $\beta \ge 0$. That is GARCH(1,1), and it is the workhorse.
+
+### Why one $\beta$ replaces ten ARCH lags
+
+Substitute the recursion into itself:
+
+$$
+\sigma_t^2 = \omega + \alpha r_{t-1}^2 + \beta\bigl(\omega + \alpha r_{t-2}^2 + \beta\sigma_{t-2}^2\bigr) = \omega(1+\beta) + \alpha\bigl(r_{t-1}^2 + \beta r_{t-2}^2\bigr) + \beta^2\sigma_{t-2}^2
+$$
+
+Keep going. When $\beta$ is less than 1 the trailing term vanishes and
+
+$$
+\sigma_t^2 = \frac{\omega}{1-\beta} + \alpha \sum_{j=0}^{\infty} \beta^{\,j} r_{t-1-j}^2
+$$
+
+GARCH(1,1) is ARCH($\infty$) with exponentially decaying weights, achieved with three parameters instead of infinitely many. That is the entire argument for it.
+
+### Unconditional variance and the persistence parameter
+
+Take unconditional expectations of the recursion. In a stationary state $E[\sigma_t^2] = E[\sigma_{t-1}^2] = \bar\sigma^2$, and $E[r_{t-1}^2] = E[\sigma_{t-1}^2] = \bar\sigma^2$ as well, so
+
+$$
+\bar\sigma^2 = \omega + \alpha\bar\sigma^2 + \beta\bar\sigma^2 \quad\Longrightarrow\quad \bar\sigma^2 = \frac{\omega}{1 - \alpha - \beta}
+$$
+
+which is positive and finite only when $\alpha + \beta$ is less than 1. Substituting back gives the readable form
+
+$$
+\sigma_t^2 = (1-\alpha-\beta)\,\bar\sigma^2 + \alpha\, r_{t-1}^2 + \beta\, \sigma_{t-1}^2
+$$
+
+Tomorrow's variance is a convex combination of three things: the long-run level, yesterday's news, and yesterday's estimate. The weights sum to one.
+
+Now repeat the trick from ARCH. Using $\sigma_{t-1}^2 = r_{t-1}^2 - v_{t-1}$,
+
+$$
+r_t^2 = \omega + (\alpha+\beta)\, r_{t-1}^2 + v_t - \beta v_{t-1}
+$$
+
+Squared returns are ARMA(1,1) with autoregressive coefficient $\alpha + \beta$. So the ACF of $r_t^2$ decays like $(\alpha+\beta)^k$, and the half-life of a volatility shock is $-\ln 2/\ln(\alpha+\beta)$, the same formula as Part 3.
+
+Typical daily equity index estimates are $\alpha \approx 0.08$, $\beta \approx 0.90$. Then $\alpha + \beta = 0.98$ and the half-life is $0.6931/0.02020 = 34$ trading days. A volatility spike takes about seven weeks to decay halfway back. That is what "highly persistent" means numerically.
+
+The two parameters do different jobs. **$\alpha$ is reactivity**: how much a single large squared return moves tomorrow's variance. Raise $\alpha$ and the variance path gets spiky. **$\beta$ is memory**: how much of yesterday's level carries forward regardless of news. Raise $\beta$ and the path gets smooth and slow. Their sum controls persistence.
+
+At $\alpha + \beta = 1$ you have IGARCH, where $\bar\sigma^2$ does not exist and shocks to variance never die. Setting $\omega = 0$, $\beta = \lambda$, $\alpha = 1-\lambda$ with $\lambda = 0.94$ gives exactly the RiskMetrics exponentially weighted moving average. EWMA is a boundary case of GARCH with no mean reversion, which is precisely why it cannot produce a volatility term structure.
+
+### What it forecasts, and what it does not
+
+One step ahead, $\sigma_{t+1}^2$ is known at time $t$: it is a deterministic function of data you already have. For $h$ steps, use $E_t[r_{t+h-1}^2] = E_t[\sigma_{t+h-1}^2]$ to get $E_t[\sigma_{t+h}^2] = \omega + (\alpha+\beta)E_t[\sigma_{t+h-1}^2]$. Subtracting the fixed point $\bar\sigma^2$ and iterating,
+
+$$
+E_t\bigl[\sigma_{t+h}^2\bigr] = \bar\sigma^2 + (\alpha+\beta)^{h-1}\bigl(\sigma_{t+1}^2 - \bar\sigma^2\bigr)
+$$
+
+That is the term structure of volatility: today's level pulled geometrically toward the long-run level. With $\alpha+\beta = 0.98$ it is still 82 percent of the way from long-run to current at a 10-day horizon and 55 percent there at 30 days. Under EWMA the factor is $1^{h-1} = 1$ and the forecast is flat forever, which is the concrete cost of $\alpha + \beta = 1$.
+
+What GARCH does not give you:
+
+- **Any forecast of the return itself.** The conditional mean is untouched. GARCH says nothing about direction.
+- **The realized variance path.** It gives the conditional expectation of variance. Realized variance scatters around it widely, because with Gaussian $z$, $\mathrm{Var}(z_t^2) = 2$, so a single squared return has a standard deviation larger than its mean.
+- **Asymmetry.** A $-5\%$ day and a $+5\%$ day raise tomorrow's variance identically, since only $r_{t-1}^2$ enters. Equity markets do not behave that way. That leverage effect is what GJR-GARCH and EGARCH add.
+- **Regime breaks.** The $h$-step forecast always drifts back to the estimated $\bar\sigma^2$, so the model cannot call a permanent shift in the volatility level.
+
+## Part 7 — Where the fat tails come from
+
+Daily equity returns have far more extreme observations than a normal distribution allows. The interesting claim is that you can generate a good chunk of that without assuming anything fat-tailed in the model.
+
+Let $z_t$ be standard normal, so the *conditional* distribution of $r_t$ given yesterday is exactly Gaussian. The unconditional distribution is a mixture of Gaussians with different widths. Compute its kurtosis using the fact that $\sigma_t$ is known at $t-1$ and independent of $z_t$:
+
+$$
+E[r_t^4] = E[\sigma_t^4 z_t^4] = E[\sigma_t^4]\,E[z_t^4] = 3\,E[\sigma_t^4], \qquad E[r_t^2] = E[\sigma_t^2]
+$$
+
+$$
+\kappa = \frac{E[r_t^4]}{\bigl(E[r_t^2]\bigr)^2} = 3\,\frac{E[\sigma_t^4]}{\bigl(E[\sigma_t^2]\bigr)^2} = 3\left(1 + \frac{\mathrm{Var}(\sigma_t^2)}{\bigl(E[\sigma_t^2]\bigr)^2}\right)
+$$
+
+The last step is just $E[X^2] = \mathrm{Var}(X) + (E X)^2$ applied to $X = \sigma_t^2$. The bracket is at least 1, so $\kappa \ge 3$ always, with equality only if the variance is constant. **Any randomly varying variance produces excess kurtosis, mechanically.** Mixing a narrow bell and a wide bell puts more mass in the far tails and more mass in the center than either bell alone.
+
+For GARCH(1,1) specifically you can get a closed form. Write $\sigma_t^2 = \omega + (\alpha z_{t-1}^2 + \beta)\sigma_{t-1}^2$, square it, and take expectations with $E[z^2]=1$, $E[z^4]=3$:
+
+$$
+E[\sigma_t^4] = \omega^2 + 2\omega(\alpha+\beta)\bar\sigma^2 + A\,E[\sigma_t^4], \qquad A \equiv 3\alpha^2 + 2\alpha\beta + \beta^2
+$$
+
+Solve, divide by $(\bar\sigma^2)^2 = \omega^2/(1-s)^2$ with $s = \alpha+\beta$, and note $A = s^2 + 2\alpha^2$:
+
+$$
+\kappa = \frac{3\,(1 - s^2)}{1 - s^2 - 2\alpha^2}
+$$
+
+finite only when $s^2 + 2\alpha^2$ is less than 1. Put in the standard estimates $\alpha = 0.08$, $\beta = 0.90$. Then $s^2 = 0.9604$, $2\alpha^2 = 0.0128$, and
+
+$$
+\kappa = \frac{3(0.0396)}{0.0396 - 0.0128} = \frac{0.1188}{0.0268} = 4.43
+$$
+
+Excess kurtosis $1.43$, from purely Gaussian innovations. Be honest about what that buys you: daily S&P 500 returns show kurtosis around 8 to 12 over long samples, so Gaussian GARCH explains part of the fat tail and not all of it. That gap is exactly why practitioners fit GARCH with Student-$t$ innovations, typically with 5 to 8 degrees of freedom. Notice also that $\alpha$ alone drives the excess kurtosis in the formula, while $\beta$ enters only through $s$. Reactivity makes tails, memory makes persistence.
+
+## Tradeoff matrix
+
+| Model | What it assumes | What it forecasts | Identified by | Breaks when |
+|---|---|---|---|---|
+| AR(p) | Direct dependence on $p$ lags | Conditional mean | PACF cuts off at $p$ | Series has a unit root |
+| MA(q) | Dependence on $q$ past shocks | Conditional mean | ACF cuts off at $q$ | Non-invertible, $\lvert\theta\rvert \ge 1$ |
+| ARIMA(p,d,q) | Stationary after $d$ differences | Conditional mean of the level | ACF/PACF of the differenced series | Over-differencing, or memory you needed |
+| ARCH(q) | Variance depends on $q$ past squared returns | Conditional variance | ACF of $r_t^2$ | Slow decay needs too many lags |
+| GARCH(1,1) | Variance is AR in itself plus news | Conditional variance, with term structure | ARMA(1,1) shape in $r_t^2$ | Asymmetry, regime shifts, $\alpha+\beta \ge 1$ |
+| EWMA / RiskMetrics | IGARCH with $\omega = 0$ | Current variance level only | Fixed $\lambda = 0.94$, nothing estimated | You need a horizon term structure |
+
+## Production failure modes
+
+1. **Fitting ARIMA to returns and shipping the forecast.** The coefficients land inside the noise band. The backtest looks fine because the model predicts near-zero and near-zero is nearly right, but there is no signal and the trading costs are real.
+2. **Over-differencing.** Differencing an already-stationary series injects a $-0.5$ lag-1 autocorrelation and a non-invertible MA root, so the estimator fights a boundary and the standard errors are meaningless.
+3. **Confusing uncorrelated with independent.** A risk system that reads zero return autocorrelation as independence sizes positions with an i.i.d. variance rule, and is worst exactly during clustered high-volatility weeks.
+4. **Ignoring an $\alpha + \beta$ estimate near 1.** Values like $0.995$ on daily equity data usually reflect an unmodelled break in the volatility level, not genuine near-infinite persistence. A break inflates fitted persistence.
+5. **Scoring the volatility model on daily $R^2$.** A single squared return is an unbiased but extremely noisy proxy for $\sigma_t^2$, so $R^2 \approx 0.05$ from regressing $r_t^2$ on $\hat\sigma_t^2$ can still be a good model. Score against realized variance from intraday bars, or by likelihood.
+6. **Reading a sample ACF without the noise band.** With $T=250$ the band is $\pm 0.124$, so a lag-1 autocorrelation of 0.10 on one year of data is nothing. It gets traded anyway.
+
+## Interview gotchas
+
+- **"Returns show almost no autocorrelation, but squared returns show a lot. What model captures this?"** GARCH, and say why: squared returns under GARCH(1,1) are ARMA(1,1) with AR coefficient $\alpha+\beta$, which is exactly a slowly decaying ACF in the squares with no mean predictability. Add that the return ACF is near zero because it gets arbitraged away, and the variance ACF survives because variance is not directly tradable at zero cost.
+- **"How do you tell an AR(2) from an MA(2) off the plots?"** AR(2) has a PACF that cuts off after lag 2 and an ACF that decays. MA(2) is the mirror image. If both tail off it is mixed, and you select on BIC rather than eyeballing.
+- **"Your AR(1) coefficient is 0.98. What is the holding period?"** A 34-day half-life. Compute $-\ln 2/\ln 0.98$ out loud. Then volunteer the sensitivity: $0.97$ gives 23 days and $0.99$ gives 69 days, so quote a range rather than a point. (If the follow-up is whether the series has a unit root at all, that is the ADF power argument in c8.1.)
+- **"What does the I in ARIMA do?"** Differences the series $d$ times to remove a unit root so ARMA applies. Volunteer the cost: differencing discards level information, and returns already have $d=0$.
+- **"Write down GARCH(1,1) and tell me what $\alpha$ and $\beta$ mean."** $\sigma_t^2 = \omega + \alpha r_{t-1}^2 + \beta\sigma_{t-1}^2$. $\alpha$ is the weight on new information, $\beta$ the weight on the previous estimate, $\omega/(1-\alpha-\beta)$ the long-run variance, and $\alpha+\beta$ the persistence.
+- **"What if $\alpha + \beta = 1$?"** IGARCH. No unconditional variance, volatility shocks never decay, and the multi-step forecast is flat at the current level. Note that RiskMetrics EWMA with $\lambda = 0.94$ is exactly this, which is why EWMA has no volatility term structure.
+- **"Do you need fat-tailed innovations to get fat-tailed returns?"** No. A random variance gives $\kappa = 3(1 + \mathrm{Var}(\sigma^2)/(E\sigma^2)^2) \ge 3$ automatically. With $\alpha=0.08$, $\beta=0.90$ Gaussian GARCH gives $\kappa = 4.4$ against an observed 8 to 12, so it explains part of the gap. That residual gap is why Student-$t$ innovations are standard.
+- **"Your ACF shows $-0.5$ at lag 1 after you differenced. What happened?"** You over-differenced. That is the MA(1) signature with $\theta = -1$, and the model is now non-invertible.
+
+## Take the quiz
+
+**[Take the quiz →](/c/c8/c8.2/quiz)**
