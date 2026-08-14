@@ -1,0 +1,284 @@
+---
+id: c9.1
+chapter: 9
+title: What makes an estimator good
+subtitle: Bias, variance, MSE, consistency and BLUE, derived from the sample mean up
+refs: []
+estimatedMinutes: 70
+---
+
+## TL;DR
+
+An estimator is a function of the sample. The sample is random, so the estimator is a random variable with its own distribution, and every question about whether an estimator is any good is a question about that distribution. Three numbers summarise it. **Bias** is how far the centre of that distribution sits from the truth. **Variance** is how wide it is. **Mean squared error** combines them, and for a scalar estimator it splits exactly into bias squared plus variance, with no leftover term. Those three plus **consistency** (does the distribution collapse onto the truth as the sample grows) and **efficiency** (is the variance as small as it is allowed to be) are the whole vocabulary.
+
+One question drives everything that follows. Estimate a population mean with the running averages $T_1 = X_1$, $T_2 = (X_1+X_2)/2$, up through $T_n$, then average all $n$ of them together. Bias stays exactly zero. Variance gets exactly $2 - H_n/n$ times worse than the plain sample mean, converging to **double**, because $X_1$ sits in every single running average and ends up carrying roughly $\ln(n)$ times the weight it deserves. Pulling on that thread with one application of Cauchy-Schwarz proves the sample mean is the minimum-variance linear unbiased estimator, which is the Gauss-Markov theorem with the design matrix stripped away. The last part goes further: unbiasedness is a weaker virtue than its reputation suggests, and a deliberately biased estimator beats it whenever MSE is the thing you care about.
+
+## What you'll be able to do after this lesson
+
+- Say precisely why an estimator has a distribution at all, and what "bias" and "variance" are properties *of*.
+- Derive $\text{MSE} = \text{bias}^2 + \text{variance}$ in three lines, and state the vector version with the trace of the covariance matrix.
+- Give a counterexample in each direction for "unbiased implies consistent" and "consistent implies unbiased".
+- State the Cramér-Rao lower bound in words and say exactly which class of estimators it constrains.
+- Work the averaged-running-means problem end to end: harmonic weights, unbiasedness, exact variance $\sigma^2(2n - H_n)/n^2$, the limit of 2, and the over-counting intuition.
+- Prove in one line that equal weights minimise variance among linear unbiased estimators, and connect that to BLUE and Gauss-Markov with every qualifier pinned down.
+- Explain when a deliberately biased estimator is strictly better, with arithmetic.
+
+> **Symbols used throughout.** $X_1, \dots, X_n$ are the observations, independent and identically distributed (iid) with mean $\mu$ and variance $\sigma^2$. $\theta$ is a generic unknown parameter. A hat, as in $\hat\theta$, marks an estimator of it. A bar, as in $\bar X$, marks an average. $H_m = 1 + 1/2 + \dots + 1/m$ is the $m$-th **harmonic number**, with $H_0 = 0$. $\mathbb{E}$ is expectation, $\operatorname{Var}$ variance, $\operatorname{Cov}$ covariance, $\operatorname{tr}$ the trace of a matrix (sum of diagonal entries).
+
+## Part 1 — An estimator is a random variable
+
+Fix a parameter you want to know, say the mean daily return $\mu$ of some strategy. You cannot see $\mu$. You see $n$ days of returns. An **estimator** is any rule that turns those $n$ numbers into a guess: a function $\hat\theta = g(X_1, \dots, X_n)$ with no unknown parameters inside it.
+
+The observations are random. Run the world again and you get different numbers, so $g$ produces a different guess. That is the single fact everything else is built on: **the estimator has a sampling distribution**, and it is that distribution, not any one realised value, that we are judging.
+
+An **estimate** is one realised number, 0.0031. An estimator is the machine that produced it. The estimate carries none of the randomness; the estimator carries all of it, and every property below is a property of the machine.
+
+Two estimators of $\mu$ that behave very differently: the sample mean $\bar X = \frac1n\sum_{i=1}^n X_i$, and "just use the first day", $T = X_1$. Both are legitimate functions of the sample. Both have distributions centred at $\mu$. One of them is useless, and the vocabulary below is what makes "useless" precise.
+
+## Part 2 — Bias, variance, and the decomposition
+
+**Bias** is how far the estimator's average value sits from the truth:
+
+$$
+\operatorname{Bias}(\hat\theta) = \mathbb{E}[\hat\theta] - \theta .
+$$
+
+An estimator with zero bias for every possible value of $\theta$ is called **unbiased**. Both $\bar X$ and $X_1$ are unbiased for $\mu$: averaging linearly, $\mathbb{E}[\bar X] = \frac1n \sum \mathbb{E}[X_i] = \mu$, and $\mathbb{E}[X_1] = \mu$ directly.
+
+**Variance** is the spread of the estimator around its own mean, $\operatorname{Var}(\hat\theta) = \mathbb{E}[(\hat\theta - \mathbb{E}[\hat\theta])^2]$. For iid data, $\operatorname{Var}(\bar X) = \sigma^2/n$ and $\operatorname{Var}(X_1) = \sigma^2$. That ratio of $n$ is the entire difference between the two estimators, and bias cannot see it.
+
+**Mean squared error** is the thing you actually care about, the expected squared distance from the truth:
+
+$$
+\operatorname{MSE}(\hat\theta) = \mathbb{E}\!\left[(\hat\theta - \theta)^2\right].
+$$
+
+Add and subtract the estimator's own mean, $m = \mathbb{E}[\hat\theta]$, and expand:
+
+$$
+\mathbb{E}\!\left[\big((\hat\theta - m) + (m - \theta)\big)^2\right]
+= \mathbb{E}[(\hat\theta - m)^2] + 2(m-\theta)\,\mathbb{E}[\hat\theta - m] + (m-\theta)^2 .
+$$
+
+The middle term dies because $m - \theta$ is a constant and $\mathbb{E}[\hat\theta - m] = 0$ by construction. What survives is variance plus bias squared:
+
+$$
+\operatorname{MSE}(\hat\theta) = \operatorname{Var}(\hat\theta) + \operatorname{Bias}(\hat\theta)^2 .
+$$
+
+This is exact, not asymptotic, and it needs no distributional assumption beyond a finite second moment. The cross term vanishing is the whole trick, and it vanishes because bias is deterministic while the deviation is centred.
+
+For a vector parameter $\theta \in \mathbb{R}^p$ with estimator $\hat\theta$, the natural loss is squared Euclidean distance, and the same argument componentwise gives
+
+$$
+\mathbb{E}\!\left[\|\hat\theta - \theta\|^2\right] = \|\operatorname{Bias}(\hat\theta)\|^2 + \operatorname{tr}\!\big(\operatorname{Cov}(\hat\theta)\big).
+$$
+
+The variance term becomes the **trace** of the covariance matrix, the sum of the per-coordinate variances. Off-diagonal covariances do not appear. People routinely mis-state this as "bias squared plus the covariance matrix", which is a type error, adding a scalar to a matrix.
+
+## Part 3 — Consistency, and why it is a different axis from bias
+
+Bias and variance are properties at a fixed sample size $n$. **Consistency** is a property of the whole sequence of estimators as $n$ grows: $\hat\theta_n$ is consistent for $\theta$ if $\hat\theta_n \to \theta$ in probability, meaning for any tolerance $\varepsilon > 0$, $\Pr(|\hat\theta_n - \theta| > \varepsilon) \to 0$.
+
+A sufficient condition that covers most cases: if $\operatorname{Bias}(\hat\theta_n) \to 0$ and $\operatorname{Var}(\hat\theta_n) \to 0$, then $\operatorname{MSE} \to 0$, and MSE going to zero forces convergence in probability by Chebyshev's inequality. Convergence in MSE is the easy route to consistency.
+
+The two ideas are independent, and the counterexamples are the fastest way to prove you understand that.
+
+**Unbiased but not consistent.** Take $T_n = X_1$ for every $n$. It ignores the other $n-1$ observations. $\mathbb{E}[T_n] = \mu$ exactly, at every $n$, so it is unbiased forever. Its variance is $\sigma^2$ at every $n$, so its distribution never narrows. $\Pr(|X_1 - \mu| > \varepsilon)$ is some fixed positive number that does not depend on $n$ at all. Perfectly centred, never converging.
+
+**Consistent but not unbiased.** The maximum likelihood estimator of $\sigma^2$ under a normal model divides by $n$:
+
+$$
+\hat\sigma^2_{\text{MLE}} = \frac1n \sum_{i=1}^n (X_i - \bar X)^2 .
+$$
+
+Its expectation is $\frac{n-1}{n}\sigma^2$, so its bias is $-\sigma^2/n$, negative at every finite $n$. It systematically underestimates, because the deviations are taken around $\bar X$, which is itself pulled toward the data and makes the squared deviations too small. The bias shrinks like $1/n$ and the variance shrinks like $1/n$, so the MSE goes to zero and the estimator is consistent. Dividing by $n-1$ instead removes the bias exactly; that is all the $n-1$ is doing.
+
+There is a second twist. The biased-by-$1/n$ MLE version actually has *lower MSE* than the unbiased $n-1$ version under normality. Removing the bias costs more variance than the bias was worth.
+
+## Part 4 — Efficiency and the floor on variance
+
+Among unbiased estimators, lower variance is strictly better, because MSE reduces to variance. **Relative efficiency** of $\hat\theta_A$ against $\hat\theta_B$ is the ratio $\operatorname{Var}(\hat\theta_B)/\operatorname{Var}(\hat\theta_A)$. Comparing $\bar X$ against $X_1$ gives an efficiency of $n$: the sample mean does with 1 observation what $X_1$ would need $n$ of.
+
+There is a floor. For a parametric model with a well-behaved likelihood, define the **Fisher information** $I(\theta)$ as the expected squared derivative of the log-likelihood with respect to $\theta$, a measure of how sharply the likelihood responds to changes in $\theta$. The result, in words: *no unbiased estimator of $\theta$ can have variance below the reciprocal of the Fisher information in the sample.* Sharper likelihood, more information, lower achievable variance. This is the **Cramér-Rao lower bound**, and an unbiased estimator attaining it is called **efficient**.
+
+Two qualifiers carry the weight. The bound constrains **unbiased** estimators only, so a biased estimator sitting below it is not a contradiction (shrinkage estimators do this routinely). And it requires regularity conditions, chiefly that the support of the distribution does not depend on $\theta$, which is why the uniform-on-$[0,\theta]$ family escapes it entirely.
+
+## Part 5 — The averaged running means
+
+Here is the question that puts every definition above under load at once.
+
+> Estimate $\mu$ with the running averages $T_1 = X_1$, $T_2 = (X_1+X_2)/2$, $T_3 = (X_1+X_2+X_3)/3$, up through $T_n = \bar X$. Now average all of them: $\bar T = \frac1n \sum_{k=1}^n T_k$. What happens to the bias and the variance?
+
+The instinct is that averaging $n$ estimators must reduce variance. Hold that instinct and check it.
+
+### Bias
+
+Every $T_k = \frac1k\sum_{i=1}^k X_i$ is an average of iid draws with mean $\mu$, so $\mathbb{E}[T_k] = \mu$ for each $k$. Expectation is linear, so
+
+$$
+\mathbb{E}[\bar T] = \frac1n \sum_{k=1}^n \mathbb{E}[T_k] = \frac1n \cdot n\mu = \mu .
+$$
+
+Bias is **exactly zero**, at every $n$. Any weighted average of unbiased estimators with weights summing to one is unbiased. That kills the first half of the question in one line, and it is a trap: the interesting behaviour is all in the second moment.
+
+### Rewriting as a weighted sum of the raw data
+
+To get the variance, collapse $\bar T$ into a single linear combination of the $X_i$. Observation $X_i$ appears inside $T_k$ exactly when $k \ge i$, and when it does, it carries coefficient $1/k$. So the total coefficient on $X_i$ is
+
+$$
+w_i = \frac1n \sum_{k=i}^{n} \frac{1}{k} = \frac{H_n - H_{i-1}}{n},
+$$
+
+and $\bar T = \sum_{i=1}^n w_i X_i$. Check the weights sum to one by swapping the order of summation: $\sum_{i=1}^n \sum_{k=i}^n \frac1k$ counts each $\frac1k$ once for every $i \le k$, which is $k$ times, giving $\sum_k k \cdot \frac1k = n$, and dividing by $n$ gives 1. Weights summing to one re-confirms unbiasedness from a second direction.
+
+Take $n = 4$ and do the arithmetic. $H_1 = 1$, $H_2 = 3/2$, $H_3 = 11/6$, $H_4 = 25/12$.
+
+$$
+w_1 = \tfrac{25}{48},\quad w_2 = \tfrac{13}{48},\quad w_3 = \tfrac{7}{48},\quad w_4 = \tfrac{3}{48}.
+$$
+
+They sum to $48/48 = 1$. Equal weights would be $12/48$ each. The first observation gets more than half the total weight; the last gets one sixteenth.
+
+### Variance
+
+For iid observations the cross terms vanish, so $\operatorname{Var}\!\left(\sum_i w_i X_i\right) = \sigma^2 \sum_i w_i^2$. At $n=4$:
+
+$$
+\sum_i w_i^2 = \frac{625 + 169 + 49 + 9}{2304} = \frac{852}{2304} = \frac{71}{192} \approx 0.3698,
+$$
+
+against $\sum_i (1/4)^2 = 0.25$ for the sample mean. Already 1.479 times worse with four observations.
+
+There is a closed form, and the cleanest route to it goes through covariances rather than weights. For $j \le k$, the two running means share the first $j$ observations, so $\operatorname{Cov}(T_j, T_k) = \frac{1}{jk} \cdot j\sigma^2 = \sigma^2/k$. In general $\operatorname{Cov}(T_j, T_k) = \sigma^2/\max(j,k)$. Now count: the number of ordered pairs $(j,k)$ with $\max(j,k) = m$ is $2m-1$. So
+
+$$
+\operatorname{Var}(\bar T) = \frac{1}{n^2}\sum_{j,k} \frac{\sigma^2}{\max(j,k)} = \frac{\sigma^2}{n^2}\sum_{m=1}^n \frac{2m-1}{m} = \frac{\sigma^2}{n^2}\left(2n - H_n\right).
+$$
+
+At $n=4$ that gives $\sigma^2(8 - 25/12)/16 = 71\sigma^2/192$, matching the weight calculation exactly. The ratio against the sample mean's $\sigma^2/n$ is
+
+$$
+\frac{\operatorname{Var}(\bar T)}{\operatorname{Var}(\bar X)} = 2 - \frac{H_n}{n} \;\longrightarrow\; 2 .
+$$
+
+Since $H_n \approx \ln n + 0.5772$, the correction decays like $\ln(n)/n$, which is slow. The numbers:
+
+| $n$ | ratio $2 - H_n/n$ |
+|---|---|
+| 5 | 1.5433 |
+| 10 | 1.7071 |
+| 100 | 1.9481 |
+| 1000 | 1.9925 |
+| 10000 | 1.9990 |
+
+A 200,000-trial simulation at $n=50$ with $\sigma^2=1$ gives sample mean of $\bar T$ equal to $+0.00019$ (bias indistinguishable from zero) and variance $0.03831$, against the predicted $0.03820$ and the sample mean's $0.02000$. Ratio $1.915$.
+
+### The continuous version, for the limit
+
+The same limit falls out of an integral, which is the route to reach for when the asymptotics are what matter rather than the exact formula. For large $n$ and $i$ not tiny, $H_n - H_{i-1} \approx \ln n - \ln i = \ln(n/i)$, so $w_i \approx \ln(n/i)/n$. Then
+
+$$
+n \sum_{i=1}^n w_i^2 \approx \frac1n \sum_{i=1}^n \left(\ln \frac{n}{i}\right)^2 \;\longrightarrow\; \int_0^1 (\ln u)^2 \, du = 2 ,
+$$
+
+treating $u = i/n$ as a Riemann sum. Substituting $u = e^{-t}$ turns the integral into $\int_0^\infty t^2 e^{-t}\,dt$, which integrates by parts twice to $2$.
+
+### The intuition, which is the point
+
+$X_1$ appears in every one of the $n$ running means. Its total weight is $w_1 = H_n/n \approx \ln(n)/n$, which is about $\ln(n)$ times the $1/n$ it deserves. At $n = 50$, $H_{50} \approx 4.499$, so the first observation carries 9% of the weight instead of 2%. Meanwhile the last observation appears in exactly one running mean, $T_n$, with coefficient $1/n$, giving $w_n = 1/n^2$. At $n=50$ that is $0.0004$, fifty times less than its share.
+
+Averaging estimators helps when the estimators bring independent information. Averaging $m$ **independent** unbiased estimators divides variance by $m$. These $n$ estimators are the opposite of independent: $\operatorname{Corr}(T_j, T_k) = \sqrt{j/k}$ for $j \le k$, and every one of them contains $X_1$. There is nothing to average away. What the averaging does instead is silently reweight the data toward the observations that happen to be early, which is an ordering that carries no information.
+
+A compact way to say the damage: the **effective sample size** of a weighted mean is $1/\sum_i w_i^2$. Here that is $n^2/(2n - H_n) \approx n/2$. Averaging the running means throws away half the data.
+
+## Part 6 — From one inequality to Gauss-Markov
+
+Generalise. Consider any estimator of $\mu$ that is linear in the observations, $\hat\mu = \sum_{i=1}^n w_i X_i$, with fixed weights. Unbiasedness for every possible $\mu$ requires $\mathbb{E}[\hat\mu] = \mu\sum_i w_i = \mu$, so the constraint is $\sum_i w_i = 1$. Variance is $\sigma^2 \sum_i w_i^2$. So the question "which linear unbiased estimator has the smallest variance" is: minimise $\sum_i w_i^2$ subject to $\sum_i w_i = 1$.
+
+Cauchy-Schwarz applied to the weight vector and the all-ones vector:
+
+$$
+1 = \left(\sum_{i=1}^n w_i \cdot 1\right)^2 \le \left(\sum_{i=1}^n w_i^2\right)\left(\sum_{i=1}^n 1^2\right) = n \sum_{i=1}^n w_i^2 ,
+$$
+
+so $\sum_i w_i^2 \ge 1/n$, with equality if and only if $w$ is proportional to the all-ones vector, which combined with $\sum w_i = 1$ forces $w_i = 1/n$ for every $i$. Equal weights is the sample mean.
+
+That is a complete proof that **the sample mean has strictly smaller variance than every other linear unbiased estimator of $\mu$ built from iid data**. It required no distributional assumption beyond finite variance, and it explains the running-means result without any harmonic numbers: those weights are not equal, so they must lose, and the only question was by how much.
+
+### The same statement with a design matrix
+
+Now let the mean vary across observations. Write $y = X\beta + \varepsilon$, where $y$ is the $n$-vector of outcomes, $X$ is the $n \times p$ matrix of regressors (the **design matrix**), $\beta$ is the unknown $p$-vector of coefficients, and $\varepsilon$ is the noise vector. Assume $\mathbb{E}[\varepsilon \mid X] = 0$, $\operatorname{Var}(\varepsilon \mid X) = \sigma^2 I$ (equal variances, zero correlation across observations), and $X$ of full column rank. The ordinary least squares (OLS) estimator is $\hat\beta = (X^{\top}X)^{-1}X^{\top}y$.
+
+Under those assumptions, $\hat\beta$ has the smallest variance among all estimators that are linear in $y$ and unbiased for $\beta$. Precisely: for any other linear unbiased $\tilde\beta$, the matrix $\operatorname{Var}(\tilde\beta) - \operatorname{Var}(\hat\beta)$ is positive semidefinite, which means every scalar combination $c^{\top}\beta$ is estimated at least as precisely by OLS. This is the **Gauss-Markov theorem**, and the property is abbreviated **BLUE**, best linear unbiased estimator.
+
+Set $X$ to a single column of ones. Then $X^{\top}X = n$, $X^{\top}y = \sum y_i$, and $\hat\beta = \bar y$. Gauss-Markov collapses to exactly the Cauchy-Schwarz argument above. Same theorem, extra bookkeeping.
+
+Every word in "best linear unbiased" is load-bearing:
+
+- **Best** means minimum variance, in the positive-semidefinite ordering. It does not mean minimum MSE and it does not mean best in any other loss.
+- **Linear** means linear in $y$, of the form $Ay$ for a matrix $A$ that may depend on $X$ but not on $y$. Nonlinear estimators are outside the comparison class, and under heavy tails a nonlinear estimator like the median can crush OLS.
+- **Unbiased** is a constraint, not a reward. It is what makes the optimisation non-trivial, and it excludes better biased estimators. Ridge regression is linear in $y$ and biased, and it can have lower MSE than OLS at every value of $\beta$ when $X^{\top}X$ is ill-conditioned. That does not violate Gauss-Markov, because ridge is not in the feasible set.
+- **Nothing requires Gaussian errors.** The theorem needs first and second moments and nothing more. Gaussianity buys two separate things: exact finite-sample $t$ and $F$ distributions for hypothesis tests, and the stronger claim that OLS is minimum-variance among *all* unbiased estimators rather than only the linear ones.
+
+The assumption that actually breaks in practice is $\operatorname{Var}(\varepsilon \mid X) = \sigma^2 I$. With heteroskedasticity or correlated errors, OLS stays unbiased but stops being best, and generalised least squares (weighting each observation by the inverse of its noise variance) takes the title.
+
+## Part 7 — Unbiasedness is weaker than its reputation
+
+Unbiasedness says: repeat the experiment infinitely many times and the average of your guesses lands on the truth. You get one sample. The guarantee is about an ensemble you will never observe.
+
+Concretely, shrink the sample mean toward zero: $\hat\mu_c = c\bar X$ for some $c \in [0,1]$. Its bias is $(c-1)\mu$ and its variance is $c^2\sigma^2/n$, so
+
+$$
+\operatorname{MSE}(\hat\mu_c) = c^2\frac{\sigma^2}{n} + (1-c)^2\mu^2 .
+$$
+
+Differentiate and set to zero: the optimum is $c^{\star} = \mu^2 / (\mu^2 + \sigma^2/n)$, which is strictly less than 1 for any finite $n$. Some shrinkage always beats no shrinkage. With $\mu = 1$, $\sigma^2 = 1$, $n = 4$: $\sigma^2/n = 0.25$, $c^{\star} = 1/1.25 = 0.8$, and
+
+$$
+\operatorname{MSE} = 0.64 \times 0.25 + 0.04 \times 1 = 0.16 + 0.04 = 0.20 ,
+$$
+
+against $0.25$ for the unbiased $\bar X$. Twenty percent lower error from an estimator that is wrong on average. The catch is that $c^{\star}$ depends on the unknown $\mu$, which is what empirical Bayes and James-Stein shrinkage estimate from the data.
+
+Two more cracks in unbiasedness. It is not preserved by nonlinear transformation: the sample variance $s^2$ is unbiased for $\sigma^2$, but $s$ is biased downward for $\sigma$, by Jensen's inequality applied to the concave square root. And unbiasedness alone can produce absurd estimators. For $X \sim \text{Poisson}(\lambda)$, the unique unbiased estimator of $e^{-2\lambda}$ is $(-1)^X$, which returns $-1$ half the time for a quantity that lives in $(0,1)$.
+
+The practical position: unbiasedness is a useful tiebreaker and a clean constraint that makes optimisation tractable. It is not the objective. MSE is closer to the objective, and the decision the estimate feeds into is the actual objective.
+
+## Tradeoff matrix
+
+| Criterion | What it measures | Fixed $n$ or asymptotic | Fails to catch |
+|---|---|---|---|
+| Bias | Distance from truth to the estimator's mean | Fixed $n$ | Unbounded variance; $X_1$ is unbiased and useless |
+| Variance | Spread of the sampling distribution | Fixed $n$ | Being centred on the wrong value; a constant has zero variance |
+| MSE | Expected squared error, $= \text{bias}^2 + \text{variance}$ | Fixed $n$ | Asymmetric losses; tail risk; anything not squared error |
+| Consistency | Collapse onto the truth as $n \to \infty$ | Asymptotic | Everything about the sample you actually have |
+| Efficiency | Variance against the Cramér-Rao floor | Either | Only defined within the unbiased class |
+| BLUE | Minimum variance among linear unbiased | Fixed $n$ | Biased estimators and nonlinear estimators, both of which can win |
+
+## Production failure modes
+
+1. **Averaging correlated estimators and reporting a variance reduction.** Averaging $m$ signal estimates built from overlapping data divides variance by $m$ only when the pieces are uncorrelated. Once they share observations the reduction stalls, and the running-means example is the extreme case where the sharing is near total.
+2. **Overlapping-window return estimates.** Monthly returns computed on a 21-day rolling window share 20 of 21 days. The effective sample size is a fraction of the row count, standard errors come out far too small, and a backtest looks significant when it is not.
+3. **Quoting a $1/\sqrt{n}$ standard error on weighted data.** Once weights are unequal, the right denominator is the effective sample size $1/\sum_i w_i^2$, not $n$. Survey weights, importance weights and exposure weights all trigger this.
+4. **Switching between $n$ and $n-1$ denominators across a pipeline.** Two services report "volatility" and disagree by a factor of $\sqrt{n/(n-1)}$. Harmless at $n=1000$, material at $n=20$.
+5. **Chasing unbiasedness into high variance.** Removing a small bias by conditioning on more, or by using a leave-one-out correction, often costs more variance than the bias was worth. Compare MSE, not bias.
+6. **Trusting Gauss-Markov under heteroskedastic errors.** OLS stays unbiased so nothing looks broken, but the standard errors are wrong and the estimator is no longer efficient. Robust standard errors fix the inference; weighting fixes the efficiency.
+7. **Reporting consistency as a finite-sample guarantee.** "The estimator is consistent" says nothing about the 60 observations in front of you.
+
+## Interview gotchas
+
+- **"Estimate the mean with $T_1 = X_1$, $T_2 = (X_1+X_2)/2$, up to $T_n$, then average them all. What happens to bias and variance?"** Bias is exactly zero, because every $T_k$ is unbiased and the weights on them sum to one. Variance is worse by a factor $2 - H_n/n$, converging to exactly 2. Derive it either way: weight $w_i = (H_n - H_{i-1})/n$ then $\sigma^2\sum w_i^2$, or covariance $\operatorname{Cov}(T_j,T_k) = \sigma^2/\max(j,k)$ giving $\sigma^2(2n-H_n)/n^2$. Then give the intuition unprompted: $X_1$ is in every term and carries $\ln(n)/n$ weight instead of $1/n$.
+- **"Give me an unbiased estimator that is not consistent."** $T_n = X_1$. Unbiased at every $n$, variance never shrinks. The reverse direction: the MLE of $\sigma^2$ dividing by $n$, biased by $-\sigma^2/n$ at every $n$, consistent because both bias and variance vanish.
+- **"Write the bias-variance decomposition for a vector parameter."** Squared bias norm plus the **trace** of the covariance matrix. Saying "plus the covariance matrix" adds a scalar to a matrix and gets caught.
+- **"What does BLUE stand for and what does each word constrain?"** Best = minimum variance in the positive-semidefinite order, linear = linear in $y$, unbiased = a constraint that excludes better biased estimators like ridge, estimator. State that Gauss-Markov needs no normality, only zero conditional mean, constant variance, no correlation and full rank.
+- **"Where does normality actually enter OLS?"** Not in unbiasedness, not in BLUE. It gives exact finite-sample $t$ and $F$ distributions, and it upgrades OLS from best-linear-unbiased to best-unbiased overall.
+- **"Prove the sample mean is the best linear unbiased estimator of $\mu$."** Weights sum to one for unbiasedness, variance is $\sigma^2\sum w_i^2$, Cauchy-Schwarz gives $\sum w_i^2 \ge 1/n$ with equality only for equal weights. Three lines.
+- **"Ridge is biased and can beat OLS on MSE. Does that contradict Gauss-Markov?"** No. Ridge is not unbiased, so it is outside the class the theorem quantifies over.
+- **"Can an estimator beat the Cramér-Rao bound?"** Only by being biased, or by breaking the regularity conditions (support depending on the parameter, as in uniform on $[0,\theta]$). Within the regular unbiased class, no.
+- **"Would you ever prefer a biased estimator?"** Yes, whenever MSE drops. Shrinking to $c\bar X$ with $c^{\star} = \mu^2/(\mu^2 + \sigma^2/n) < 1$ always lowers MSE. Have the arithmetic ready: $\mu=1$, $\sigma^2=1$, $n=4$ gives $c^{\star}=0.8$ and MSE $0.20$ against $0.25$.
+- **"Averaging usually reduces variance. Why not here?"** Averaging divides variance by the count only when the pieces are uncorrelated. These running means share nearly all their data, with $\operatorname{Corr}(T_j,T_k) = \sqrt{j/k}$ for $j \le k$, so there is nothing left to average away. Correlation is the whole story in both directions.
+
+## Take the quiz
+
+**[Take the quiz →](/c/c9/c9.1/quiz)**
