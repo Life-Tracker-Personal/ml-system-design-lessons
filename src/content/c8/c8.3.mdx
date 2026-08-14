@@ -1,0 +1,255 @@
+---
+id: c8.3
+chapter: 8
+title: The statistics of a track record
+subtitle: Sharpe as an estimator, multiple testing, and why backtests lie
+refs: []
+estimatedMinutes: 60
+---
+
+## TL;DR
+
+A Sharpe ratio is not a number, it is an estimate with a standard error, and that standard error is enormous relative to the Sharpes anyone actually runs. For independent returns the standard error of the Sharpe is roughly $1/\sqrt{n}$ in per-period units, which collapses to one clean fact worth memorising: **the t-statistic of a track record is $t = SR_{\text{ann}} \times \sqrt{T_{\text{years}}}$**. A Sharpe of 1 needs about four years of daily data before it is even nominally significant, and about eight before you would reliably detect it. That is why a backtest is evidence about a search procedure, not evidence about a strategy.
+
+Everything else in this lesson is a consequence. An absurdly large claimed Sharpe is refuted in days rather than years, because the required sample size scales as $1/SR^2$. Positive autocorrelation makes the naive $\sqrt{252}$ annualization overstate the Sharpe, sometimes by more than half. Testing 100 signals and finding 5 at $p < 0.05$ is exactly what pure noise produces, which is what Bonferroni, Benjamini-Hochberg and the Deflated Sharpe Ratio exist to correct. And in high dimensions the covariance matrix you feed the optimizer is not merely noisy, it is singular, which means the optimizer can find portfolios the data claims have zero risk.
+
+## What you'll be able to do after this lesson
+
+- Derive the standard error of the Sharpe ratio by the delta method and convert it into $t = SR\sqrt{T}$.
+- Compute how many years of daily data separate a Sharpe of 1 from a Sharpe of 0, at 5 percent and at 80 percent power.
+- Answer the Sharpe-8 question cold: how many losing days it takes to reject the claim, and why the answer is days rather than years.
+- Apply the Lo (2002) autocorrelation correction and say which direction the naive $\sqrt{q}$ scaling errs.
+- Decompose in-sample-to-live Sharpe decay into overfitting, multiple testing, alpha decay, regime change and costs, with the cost arithmetic done explicitly.
+- Run Bonferroni and Benjamini-Hochberg on a real p-value list, and explain what the Deflated Sharpe Ratio adds on top of the Probabilistic Sharpe Ratio.
+- Explain exactly which observations leak under k-fold CV on a forward-return label, and size the purge and the embargo.
+- Diagnose a singular or negative-eigenvalue covariance matrix and name the fixes.
+
+## Part 1 — The Sharpe ratio is an estimator
+
+Start with what you are actually computing. Over $n$ periods you observe returns $r_1, \dots, r_n$ and form
+
+$$\widehat{SR} = \frac{\hat\mu}{\hat\sigma}, \qquad \hat\mu = \frac{1}{n}\sum r_t, \qquad \hat\sigma^2 = \frac{1}{n}\sum (r_t - \hat\mu)^2$$
+
+Both the numerator and the denominator are random. The population quantity $SR = \mu/\sigma$ is fixed, your estimate is not, and the question is how far apart they can be.
+
+Assume returns are iid normal for a moment. Then $\hat\mu$ and $\hat\sigma$ are independent, $\mathrm{Var}(\hat\mu) = \sigma^2/n$, and $\mathrm{Var}(\hat\sigma^2) = 2\sigma^4/n$. The delta method on $\hat\sigma = \sqrt{\hat\sigma^2}$ gives $\mathrm{Var}(\hat\sigma) \approx \left(\frac{1}{2\sigma}\right)^2 \cdot \frac{2\sigma^4}{n} = \frac{\sigma^2}{2n}$.
+
+Apply the delta method again to $g(\mu, \sigma) = \mu/\sigma$, with partials $1/\sigma$ and $-\mu/\sigma^2$:
+
+$$\mathrm{Var}(\widehat{SR}) \approx \frac{1}{\sigma^2}\cdot\frac{\sigma^2}{n} + \frac{\mu^2}{\sigma^4}\cdot\frac{\sigma^2}{2n} = \frac{1}{n}\left(1 + \frac{SR^2}{2}\right)$$
+
+$$\boxed{\;\mathrm{SE}(\widehat{SR}) \approx \sqrt{\frac{1 + SR^2/2}{n}}\;}$$
+
+Two things to notice. The leading term is $1/\sqrt{n}$ and does not depend on the strategy at all. And the $SR^2/2$ correction is negligible at the frequency you usually work: a daily Sharpe of $0.063$ makes it $1.002$, a 0.1 percent effect. So in daily units, **the standard error of the Sharpe is $1/\sqrt{n}$ and nothing else matters**.
+
+### The one formula to memorise
+
+Convert to annualized units. If the sampling period is daily, $\widehat{SR}_{\text{day}} = SR_{\text{ann}}/\sqrt{252}$ and $n = 252\,T$ for $T$ years. The t-statistic is
+
+$$t = \frac{\widehat{SR}_{\text{day}}}{\mathrm{SE}} \approx \widehat{SR}_{\text{day}}\sqrt{n} = \frac{SR_{\text{ann}}}{\sqrt{252}}\sqrt{252\,T} = SR_{\text{ann}}\sqrt{T}$$
+
+The sampling frequency cancels. Sampling more often does not buy you significance, only more calendar time does. This is the single most useful line in the whole chapter, and it is the correct opening move for any question of the form "is this backtest real."
+
+### Working the arithmetic
+
+How long to distinguish a Sharpe of 1 from a Sharpe of 0? At the two-sided 5 percent level you need $t \ge 1.96$, so $\sqrt{T} \ge 1.96$ and $T \ge 3.84$ years. That is only the coin-flip threshold, because at exactly $T = 3.84$ your *expected* t-statistic sits on the critical value. For 80 percent power you need the expected t to clear it by $z_{0.20} = 0.84$, so $t \ge 2.80$ and $T \ge 7.84$ years.
+
+Because $T$ scales as $1/SR^2$ the picture degrades fast: a Sharpe of $0.5$ needs $(2.80/0.5)^2 = 31$ years, a Sharpe of $2$ needs $2.0$ years. Almost every strategy anyone actually runs sits in the region where a decade of honest data cannot prove it works.
+
+> **Stop and think.** Your backtest reports Sharpe 1.5 over 3 years of daily data. Is it significant? Compute $t$ before reading on, then ask yourself what you would want to know before believing it. The number is easy; the follow-up is the interview.
+
+$t = 1.5 \times \sqrt{3} = 1.5 \times 1.732 = 2.60$, one-sided $p \approx 0.005$. That looks strong. Part 5 is the reason it usually is not.
+
+## Part 2 — The Sharpe-8 question
+
+Here is the question as reported: a strategy claims a Sharpe of 8, and after $n$ days it has lost money. What must $n$ be before you reject the claim?
+
+Most people reach for "you need years of track record" because that is the lesson of Part 1. That is the wrong instinct here, and getting it wrong is the point of the question. **An absurd claim is refuted absurdly fast.** An annualized Sharpe of 8 means a daily Sharpe of
+
+$$SR_{\text{day}} = \frac{8}{\sqrt{252}} = \frac{8}{15.875} = 0.504$$
+
+Under the claim, the cumulative return over $n$ days has mean $n\mu$ and standard deviation $\sigma\sqrt{n}$, so the probability of being down after $n$ days is
+
+$$P(S_n \le 0) = \Phi\!\left(-\frac{n\mu}{\sigma\sqrt{n}}\right) = \Phi\!\left(-SR_{\text{day}}\sqrt{n}\right) = \Phi(-0.504\sqrt{n})$$
+
+Reject one-sided at 5 percent when $0.504\sqrt{n} \ge 1.645$, so $\sqrt{n} \ge 3.265$ and $n \ge 10.7$. **Eleven trading days.** Check it: at $n = 11$, $0.504 \times 3.317 = 1.672$, giving $p = 0.047$. Two and a bit weeks of flat-to-down PnL and the claim is dead.
+
+Now the same computation for an ordinary claim. Sharpe 1 means $SR_{\text{day}} = 0.063$, so $0.063\sqrt{n} \ge 1.645$ gives $n \ge 682$ days, about 2.7 years of losing money before you can reject at 5 percent. The general result is worth carrying:
+
+$$n^\star = \left(\frac{1.645}{SR_{\text{ann}}/\sqrt{252}}\right)^2 = \frac{682}{SR_{\text{ann}}^2}\ \text{trading days}$$
+
+Sharpe 8 gives 11 days, Sharpe 2 gives 170 days, Sharpe 1 gives 682 days. The contrast is the payload. A big claimed Sharpe is a big claim in the statistical sense, and it hands you the sample size to kill it with. A modest claimed Sharpe is nearly unfalsifiable on any timescale a fund will wait.
+
+## Part 3 — Annualization when returns are autocorrelated
+
+The $\sqrt{252}$ in Part 1 assumed independence. Where does it come from, and what happens when it fails?
+
+The annual return is the sum of $q$ period returns. Its mean is $q\mu$. Its variance is
+
+$$\mathrm{Var}\left(\sum_{t=1}^{q} r_t\right) = q\sigma^2 + 2\sigma^2\sum_{k=1}^{q-1}(q-k)\rho_k$$
+
+where $\rho_k$ is the lag-$k$ autocorrelation and the $(q-k)$ weight counts pairs of observations $k$ apart. If all $\rho_k = 0$ the sum is $q\sigma^2$, the standard deviation is $\sigma\sqrt{q}$, and the Sharpe scales by $\sqrt{q}$. That is the only case where $\sqrt{252}$ is correct. In general (Lo 2002) the scaling factor is
+
+$$\eta(q) = \frac{q}{\sqrt{q + 2\sum_{k=1}^{q-1}(q-k)\rho_k}}$$
+
+With positive autocorrelation the sum under the square root exceeds $q$, so $\eta(q) < \sqrt{q}$ and **the naive $\sqrt{q}$ scaling overstates the annualized Sharpe**.
+
+Work Lo's own illustration with monthly data, $q = 12$, AR(1) autocorrelation $\rho = 0.5$ so $\rho_k = 0.5^k$. The sum is $11(0.5) + 10(0.25) + 9(0.125) + 8(0.0625) + \dots = 5.5 + 2.5 + 1.125 + 0.5 + 0.219 + 0.094 + \dots \approx 10.0$. So the denominator is $\sqrt{12 + 20} = \sqrt{32} = 5.657$ and $\eta = 12/5.657 = 2.12$, against a naive $\sqrt{12} = 3.464$. The naive number is $3.464/2.12 = 1.63$ times too big, a 63 percent overstatement. A milder $\rho = 0.2$ gives sum $\approx 2.69$, denominator $\sqrt{17.375} = 4.17$, $\eta = 2.88$, and a 20 percent overstatement.
+
+Positive autocorrelation in a reported return stream is usually a symptom, not a feature. Illiquid positions marked to stale prices smooth the series, and monthly marks on private or thinly traded assets do the same. A fund reporting a monthly Sharpe of 2 on a book with $\rho_1 = 0.4$ is inflating it by tens of percent through the annualization alone, before anyone argues about alpha. Checking the lag-1 autocorrelation of a claimed track record is a thirty-second sanity test that most candidates never think to run.
+
+## Part 4 — Why the in-sample Sharpe does not survive
+
+The reported question is blunt: why does backtest Sharpe not hold up live? A good answer separates five distinct mechanisms, because they have different fixes.
+
+**1. Overfitting.** You tuned parameters to the sample. The reported Sharpe is the maximum over a grid, and the maximum of noisy estimates is biased upward even when every configuration is worthless.
+
+**2. Multiple testing.** You tested many candidate signals, not one. This is Part 5, and it is the largest single term in most decays.
+
+**3. Alpha decay.** The edge was real and is being competed away. Published anomalies decay measurably as capital arrives, so monitor rolling signal quality and expect a half-life rather than assuming the edge is stationary.
+
+**4. Regime change.** The relationship held under one volatility, rate or liquidity environment and not another. Note that regime change and overfitting look identical after a single break. One break does not let you distinguish them, and saying so is a better answer than picking one.
+
+**5. Transaction costs.** Usually simulated optimistically or omitted. Sharpe is scale-free and cost is not, so you cannot subtract a cost from a Sharpe directly.
+
+Take a gross backtest Sharpe of 3 with 100 percent daily turnover and 5 basis points round-trip cost. Cost drag is $252 \times 1.0 \times 0.0005 = 12.6$ percent per year. To subtract it you need the return level, which means you need the volatility. At 10 percent annualized volatility, gross return is $3 \times 0.10 = 30$ percent, net is $17.4$ percent, and net Sharpe is $1.74$. At 5 percent volatility, gross return is 15 percent, net is 2.4 percent, and net Sharpe collapses to $0.48$. Same gross Sharpe, same costs, opposite verdicts. Capacity finishes the job: market impact grows roughly as the square root of participation rate, so the cost term rises with assets under management until net Sharpe hits zero.
+
+A useful drill is the three-number triage. Backtest 1.8, paper 1.2, live 0.4, account for each 0.6. The first gap is a research-process failure (overfitting, look-ahead, unrealistic fills). The second is an execution failure (implementation shortfall, market impact, adverse selection, queue position). Different people diagnose them with different data, and conflating them is the mistake.
+
+When you defend a modelling choice here, HRT's published rubric is a good script: **simplicity** (prefer the linear model when it ties), **reproducibility** (stable across seeds, hyperparameters, implementations), **generality** (works across problems, not one benchmark). Jump's named rejection reason is failure to articulate methodology choices, so three words to hang an answer on beat an extra technique.
+
+## Part 5 — Multiple testing is the central sin
+
+The question: you test 100 signals and 5 come back at $p < 0.05$. What do you conclude?
+
+Nothing. Under the global null that every signal is worthless, the number of false positives is Binomial$(100, 0.05)$ with mean exactly 5 and standard deviation $\sqrt{100 \times 0.05 \times 0.95} = 2.18$. Observing 5 is the modal outcome of pure noise, and $P(X \ge 5) \approx 0.56$. You have observed precisely what nothing looks like.
+
+### Bonferroni and Benjamini-Hochberg
+
+**Bonferroni** controls the family-wise error rate, the probability of even one false positive, by testing each hypothesis at $\alpha/m$. With $m = 100$ and $\alpha = 0.05$ the threshold is $0.0005$. It holds under any dependence structure and it is brutally conservative, which matters because trading signals are heavily correlated and the effective number of independent tests is far below 100.
+
+**Benjamini-Hochberg** controls the false discovery rate $E[V/R]$, the expected fraction of your rejections that are false. Sort the p-values ascending, find the largest $k$ with $p_{(k)} \le k\alpha/m$, and reject the first $k$.
+
+Worked example, $m = 100$, $\alpha = 0.10$, sorted p-values $0.0001, 0.0008, 0.004, 0.03, \dots$. The thresholds $k\alpha/m$ are $0.001, 0.002, 0.003, 0.004$. Then $0.0001 \le 0.001$ passes, $0.0008 \le 0.002$ passes, $0.004 > 0.003$ fails, $0.03 > 0.004$ fails. The largest passing $k$ is 2, so reject the top two, where Bonferroni at $\alpha = 0.05$ kept only the first. FDR is the right frame for a research pipeline, where you want a batch of candidates with a bounded junk rate rather than certainty about any one.
+
+### The trap follow-up
+
+Return to Sharpe 1.5 over 3 years, $t = 2.60$. Now the interviewer says: it was the best of 200 configurations you tried. Bonferroni needs $p \le 0.05/200 = 0.00025$, so $z \ge 3.48$, so $SR\sqrt{3} \ge 3.48$ and you needed a Sharpe of $2.01$. Your 1.5 does not clear it.
+
+### Probabilistic and Deflated Sharpe
+
+The **Probabilistic Sharpe Ratio** (PSR) asks: what is the probability that the true Sharpe exceeds a benchmark $SR^\star$, given the observed Sharpe, the track-record length, and the higher moments? In per-period units,
+
+$$\mathrm{PSR}(SR^\star) = \Phi\!\left(\frac{(\widehat{SR} - SR^\star)\sqrt{n-1}}{\sqrt{1 - \gamma_3\widehat{SR} + \frac{\gamma_4 - 1}{4}\widehat{SR}^2}}\right)$$
+
+with $\gamma_3$ the skewness and $\gamma_4$ the kurtosis (not excess) of the per-period returns. The denominator is the corrected standard error: negative skew makes $-\gamma_3\widehat{SR}$ positive and inflates it, and fat tails do the same through $\gamma_4$. Set $\gamma_3 = 0$ and $\gamma_4 = 3$ and it collapses back to $\sqrt{1 + \widehat{SR}^2/2}$, which is Part 1.
+
+The **Deflated Sharpe Ratio** (DSR) is the PSR evaluated against a benchmark that is not zero but the *expected maximum* Sharpe across $N$ independent trials. Using an extreme-value approximation,
+
+$$E[\max_N \widehat{SR}] \approx \sigma_{\widehat{SR}}\left[(1-\gamma)\,\Phi^{-1}\!\left(1 - \tfrac{1}{N}\right) + \gamma\,\Phi^{-1}\!\left(1 - \tfrac{1}{Ne}\right)\right]$$
+
+with $\gamma \approx 0.5772$ the Euler-Mascheroni constant and $\sigma_{\widehat{SR}}$ the cross-trial standard deviation of the Sharpes you observed. So DSR = PSR with a multiple-testing benchmark. You cannot explain DSR without PSR, which is why they belong in the same breath.
+
+Run the numbers on our example: $N = 200$ trials whose Sharpes had cross-sectional standard deviation $0.5$. Then $\Phi^{-1}(0.995) = 2.576$ and $\Phi^{-1}(1 - 1/543.7) = 2.905$, so $E[\max] \approx 0.5[0.4228(2.576) + 0.5772(2.905)] = 1.38$. **The expected best-of-200 Sharpe under the null is 1.38 annualized.** Your 1.5 is barely above the noise ceiling.
+
+Deflate it. In daily units $\widehat{SR} = 1.5/15.875 = 0.0945$ and $SR^\star = 1.38/15.875 = 0.0871$, with $n = 756$. The numerator is $(0.0945 - 0.0871)\sqrt{755} = 0.203$, and with normal moments the denominator is $1.002$. So
+
+$$\mathrm{DSR} = \Phi(0.203) = 0.58$$
+
+against $\mathrm{PSR}(0) = \Phi(0.0945 \times 27.48 / 1.002) = \Phi(2.59) = 0.995$. The same track record goes from 99.5 percent confidence to 58 percent purely by accounting for the search. That gap is the entire lesson.
+
+One honest caveat on the moment terms. At daily frequency $\widehat{SR}$ is tiny, so the skew and kurtosis corrections barely move the answer even with $\gamma_4 = 15$. They bite at low frequency where $\widehat{SR}$ per period is large. At monthly frequency the same annualized 1.5 gives $\widehat{SR} = 0.433$, and with $\gamma_3 = -1.5$, $\gamma_4 = 8$ the denominator becomes $\sqrt{1 + 0.650 + 0.328} = 1.41$ against $1.05$ under normality, a 34 percent inflation of the standard error. Short-volatility strategies reporting monthly are exactly where this correction earns its keep.
+
+## Part 6 — Why k-fold cross-validation is invalid here
+
+Standard k-fold shuffles observations into folds. On financial time series this breaks in two independent ways, and a strong answer names both.
+
+**Ordering.** Shuffling trains the model on the future to predict the past. Any relationship that exists only because you already know how the period ended is available in training and is not available live. That alone disqualifies shuffled k-fold no matter how the folds are cut.
+
+**Label overlap.** This is the mechanical leak, and the discriminating question is how much you must drop. Suppose the label is a 5-day forward return, so the label at time $t$ is a function of prices over $[t, t+5]$. If $t$ sits in a training fold and $t+3$ sits in the test fold, the two labels share three days of realized return. They are not independent observations, and the model can score well on the test fold by memorising overlapping outcomes.
+
+The fix is **purging**: remove from training every observation whose label interval overlaps a test label interval. For a contiguous test block that means the $h$ observations immediately before the block, whose labels reach into it, and the $h$ immediately after the block end, whose labels overlap those of the last test points. **Purge width equals the label horizon**, so a 5-day label costs 5 observations on each side.
+
+Purging is not enough, because features are serially correlated too. A 20-day moving average computed just after the test block still carries information from inside it. So you add an **embargo**: extra observations dropped after the test block, sized by the memory of your features, commonly 1 percent of the sample. On 1000 daily observations with 5 folds, a 5-day label and a 10-day embargo, you lose roughly $5 \times (5 + 5 + 10) = 100$ observations. That is the price of an honest estimate.
+
+**Walk-forward** is the other standard: train on $[0, T_1]$, test on $[T_1, T_2]$, roll forward, never look back. It is the closest analogue of live deployment and the easiest to defend. The costs are real. Early folds train on little data, and you get far fewer test observations than k-fold, so the out-of-sample Sharpe is itself noisy in exactly the way Part 1 described. Expanding windows are more stable, rolling windows adapt faster to regime change, and choosing between them is a judgement to defend rather than a setting.
+
+Naming purged CV is table stakes. Sizing the purge is the discriminator.
+
+## Part 7 — Covariance in high dimensions
+
+The last piece is the input to every portfolio construction step. The question as asked: you estimate the sample covariance of 500 stocks from 60 months of data. What is the problem?
+
+Count parameters first. A $500 \times 500$ covariance matrix has $500 \times 501/2 = 125\,250$ free parameters. You have $500 \times 60 = 30\,000$ numbers. You are estimating four times more parameters than you have data points, and no amount of cleverness fixes that arithmetic.
+
+The consequence is structural, not statistical. The sample covariance $\hat\Sigma = \frac{1}{T}\sum_t (r_t - \bar r)(r_t - \bar r)^\top$ is a sum of $T$ rank-one matrices, minus one degree of freedom for the mean, so
+
+$$\mathrm{rank}(\hat\Sigma) \le \min(N,\, T-1) = 59$$
+
+A $500 \times 500$ matrix of rank 59 has at least 441 exactly zero eigenvalues. It is singular, so $\hat\Sigma^{-1}$ does not exist and mean-variance optimization has no solution. Worse than "no solution": every vector $w$ in the null space satisfies $w^\top \hat\Sigma w = 0$, a portfolio the data asserts has literally zero risk. Hand that to an optimizer and it levers the position without bound. This is Michaud's "error maximizer" in its purest form, because the optimizer does not find the best portfolio, it finds the largest estimation error.
+
+Even when $T > N$ the matrix is ill-conditioned, and random matrix theory says how badly. For pure noise with true covariance $I$, the Marchenko-Pastur law puts the sample eigenvalues in $[(1-\sqrt{q})^2, (1+\sqrt{q})^2]$ with $q = N/T$. At $N = 500$, $T = 60$, $q = 8.33$ and the upper edge is $(1 + 2.887)^2 = 15.1$, so noise alone produces eigenvalues fifteen times the true value. With five years of daily data, $T = 1260$, $q = 0.397$ and the edge is $2.66$: everything below 2.66 is still indistinguishable from noise.
+
+### The negative eigenvalue
+
+"You get a negative eigenvalue, what do you do?" Start with what it proves. A genuine sample covariance is positive semi-definite by construction, since $w^\top\hat\Sigma w = \frac{1}{T}\sum_t (w^\top(r_t - \bar r))^2 \ge 0$. So a negative eigenvalue means the matrix was not built that way. The usual causes:
+
+- Pairwise-complete estimation, where each pair uses a different window because of missing data or different listing histories.
+- Ad-hoc edits: overriding a correlation by hand, blending in a view, flooring or capping entries.
+- Mixing estimators, such as a shrunk correlation matrix combined with unshrunk volatilities.
+- Floating-point noise on eigenvalues that are truly zero. Diagnose by magnitude: around $10^{-16}$ times the trace is numerical, not structural.
+
+The fixes have names and you are expected to produce at least one. Project to the nearest positive semi-definite matrix by clipping negative eigenvalues to zero and reconstructing (Higham 1988). Clip below the Marchenko-Pastur edge and replace the noise bulk with its average, preserving the trace. Or shrink: $\hat\Sigma_{\text{shrunk}} = \delta F + (1-\delta)\hat\Sigma$ with $F$ a structured target such as a constant-correlation matrix, a scaled identity, or a factor model. **Ledoit-Wolf** chooses $\delta$ analytically by minimizing expected Frobenius loss, and shrinkage guarantees invertibility because the target is positive definite. Nobody will ask you to derive Ledoit-Wolf. Everybody expects you to say the name.
+
+## Tradeoff matrix
+
+| Correction | What it fixes | Assumption | Cost of using it | When it is the wrong tool |
+|---|---|---|---|---|
+| $t = SR\sqrt{T}$ | naive belief in a Sharpe | iid returns | none, it is arithmetic | autocorrelated or fat-tailed returns |
+| Lo $\eta(q)$ | annualization under autocorrelation | stationary $\rho_k$ | need to estimate $\rho_k$ | short samples where $\hat\rho$ is noise |
+| Bonferroni | family-wise error over $m$ tests | any dependence | very low power when tests correlate | exploratory research pipelines |
+| Benjamini-Hochberg | false discovery rate | independence or positive dependence | some false positives by design | when even one false positive is fatal |
+| PSR | length, skew, kurtosis | known higher moments | needs $\ge 100$ obs for stable moments | tiny samples |
+| Deflated Sharpe | number of trials on top of PSR | you can count and characterise trials | requires honest $N$ and trial dispersion | when $N$ is unknowable |
+| Purged CV + embargo | label overlap and feature memory | you know the label horizon | 10 percent or more of the sample | when ordering itself is the problem |
+| Walk-forward | ordering and regime realism | future is like the recent past | few test points, noisy estimate | very short histories |
+| Shrinkage / eigenvalue clipping | singular or ill-conditioned $\hat\Sigma$ | target is roughly right | bias toward the target | when $T \gg N$ and $\hat\Sigma$ is fine |
+
+## Numbers to have on reflex
+
+| Quantity | Formula | Example |
+|---|---|---|
+| t-stat of a track record | $t = SR_{\text{ann}}\sqrt{T_{\text{years}}}$ | $SR=1.5$, 3 yrs $\Rightarrow t = 2.60$ |
+| SE of the Sharpe | $\sqrt{(1 + SR^2/2)/n}$ | daily, $n=756 \Rightarrow 0.0364$ |
+| Daily from annual Sharpe | $SR_{\text{ann}}/\sqrt{252}$ | $8 \Rightarrow 0.504$ |
+| Days of losses to reject $SR$ | $682/SR_{\text{ann}}^2$ | $SR=8 \Rightarrow 11$ days |
+| Probability of a losing year | $\Phi(-SR)$ | $SR=1 \Rightarrow 16$ percent |
+| Lo annualization factor | $q/\sqrt{q + 2\sum(q-k)\rho_k}$ | $q=12$, $\rho=0.5 \Rightarrow 2.12$ vs $3.46$ |
+| Marchenko-Pastur noise edge | $(1 + \sqrt{N/T})^2$ | $500/60 \Rightarrow 15.1$ |
+| Rank of $\hat\Sigma$ | $\min(N, T-1)$ | $500$ stocks, $60$ months $\Rightarrow 59$ |
+
+## Production failure modes
+
+1. **Reporting the maximum of a grid search as the strategy's Sharpe.** Every parameter sweep, feature set and universe filter is a trial. Teams that log 3 configurations and try 300 cannot compute a DSR, because the trial count is the input they destroyed.
+2. **Annualizing a smoothed return series with $\sqrt{12}$.** Illiquid marks create positive autocorrelation. The reported Sharpe is inflated by tens of percent before anyone argues about alpha. Check $\hat\rho_1$ on any track record you are handed.
+3. **Subtracting costs from a Sharpe instead of from a return.** Sharpe is scale-free, cost is not. You must convert to return space using the volatility, and low-volatility strategies die from costs that high-volatility strategies shrug off.
+4. **Shuffled k-fold in a research library's default settings.** `sklearn`'s `cross_val_score` shuffles by default in some splitters and never knows your label horizon. The out-of-sample number it prints on a forward-return label is not out of sample.
+5. **Re-using the same holdout.** A holdout used fifty times is an in-sample set with extra steps. The multiple-testing correction applies to holdout evaluations too.
+6. **Feeding a singular covariance to an optimizer with a pseudo-inverse.** The pseudo-inverse silently ignores the null space rather than erroring, so the position sizes look finite and are still built on directions with zero estimated risk.
+7. **Building correlations pairwise across assets with different histories.** It produces a non-PSD matrix, which surfaces later as a negative portfolio variance and a risk report nobody trusts.
+
+## Interview gotchas
+
+- **"A strategy claims Sharpe 8 and has lost money over $n$ days. How large must $n$ be to reject the claim?"** Eleven trading days. Daily Sharpe is $8/\sqrt{252} = 0.504$, $P(\text{down after } n) = \Phi(-0.504\sqrt{n})$, and you reject one-sided at 5 percent once $0.504\sqrt{n} \ge 1.645$. Say explicitly that the answer is days *because* the claim is extreme, and contrast it with Sharpe 1 needing 682 days.
+- **"Your backtest has Sharpe 1.5 over 3 years of daily data. Significant?"** $t = 1.5\sqrt{3} = 2.60$. Then volunteer the follow-up yourself: how many configurations were tried. If it was best-of-200, you needed Sharpe 2.01 under Bonferroni.
+- **"You test 100 signals and 5 come back at $p < 0.05$. What do you conclude?"** Nothing. Expected false positives under the global null is exactly 5. Then name Bonferroni for FWER, Benjamini-Hochberg for FDR, and DSR for the Sharpe-specific version.
+- **"What does the Deflated Sharpe Ratio deflate by?"** By the expected maximum Sharpe over $N$ trials, estimated from the dispersion of your trial Sharpes via an extreme-value approximation. It is the PSR with a non-zero benchmark, and the PSR is where the skew and kurtosis corrections live.
+- **"Does positive autocorrelation make the annualized Sharpe too high or too low?"** Too high. The $q$-period variance is $q\sigma^2 + 2\sigma^2\sum(q-k)\rho_k$, so the true denominator exceeds $\sigma\sqrt{q}$ and $\eta(q) < \sqrt{q}$. Lo's illustration reaches 65 percent overstatement.
+- **"Why can't you use k-fold CV here?"** Two reasons, and give both: shuffling trains on the future, and forward-return labels overlap across the fold boundary. Then size it: purge equal to the label horizon on each side, plus a separate embargo for serially correlated features.
+- **"Sample covariance of 500 stocks from 60 months. What's the problem?"** Rank at most 59, so it is singular and has 441 zero eigenvalues, meaning portfolios the data claims are riskless. Add the Marchenko-Pastur edge at $(1+\sqrt{8.33})^2 = 15.1$ to show noise eigenvalues dwarf real ones.
+- **"You get a negative eigenvalue. What do you do?"** First say it proves the matrix was not computed as a single sample covariance, because those are PSD by construction. Then check the magnitude for floating-point noise, then name the fixes: nearest-PSD projection, eigenvalue clipping at the MP edge, or Ledoit-Wolf shrinkage.
+- **"The model worked 2010 to 2019 and broke in 2020. Regime change or overfit?"** You cannot tell from one break, and saying so is the correct answer. Then describe what would distinguish them: rolling-window parameter stability, a Chow test at the break, CUSUM, and whether the degradation was gradual or discontinuous.
+
+## Take the quiz
+
+**[Take the quiz →](/c/c8/c8.3/quiz)**

@@ -1,0 +1,431 @@
+---
+lessonId: c8.1
+chapter: 8
+title: Quiz — Stationarity and spurious regression
+description: Questions on strict vs weak stationarity, the spurious-regression rate argument, ADF and KPSS null directions and power, differencing costs, and cointegration.
+estimatedMinutes: 70
+---
+
+These eight questions check whether you can derive the results rather than recall them. Almost every one has a version where the interviewer keeps pushing for five minutes, so answer out loud and notice the step you would normally skip. The rapid-fire section at the bottom is self-contained and is the part to drill the night before.
+
+<Quiz id="1">
+
+**Q1. What independence was actually buying you.** (a) Name the two limit theorems OLS inference rests on and say precisely what each one delivers. (b) State strict and weak stationarity, and give a process that satisfies each one but not the other. (c) Stationarity alone is not enough to restore those theorems. What is the second condition, and what does it add? (d) An interviewer says "the series is stationary, so the usual standard errors are fine." Where is that wrong?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Two things, and they do different jobs.
+
+The law of large numbers gives $\frac{1}{T}\sum_t x_t^2 \to Q$, a finite positive constant. That is what makes the design matrix stabilize, so $\hat\beta$ converges to something.
+
+The central limit theorem gives $\frac{1}{\sqrt{T}}\sum_t x_t \epsilon_t \Rightarrow N(0, \sigma^2 Q)$. That is what makes the estimation error shrink at rate $1/\sqrt{T}$ and be asymptotically normal, which is the only reason comparing a t-statistic to 1.96 means anything.
+
+Note the division of labor: the LLN gives you consistency, the CLT gives you inference. They can fail separately, and in Part 3 of the lesson both fail at once.
+
+**(b)** *Strict stationarity*: for every $k$, every set of times $t_1,\dots,t_k$ and every shift $h$, the joint law of $(X_{t_1},\dots,X_{t_k})$ equals the joint law of $(X_{t_1+h},\dots,X_{t_k+h})$. The whole probabilistic structure is shift-invariant.
+
+*Weak (covariance) stationarity*: only the first two moments are shift-invariant.
+
+$$
+E[X_t] = \mu, \qquad \operatorname{Var}(X_t) = \sigma^2 < \infty, \qquad \operatorname{Cov}(X_t, X_{t+h}) = \gamma(h)
+$$
+
+Neither implies the other. An iid sequence of Cauchy variables is strictly stationary, since every joint distribution is trivially shift-invariant, but not weakly stationary, because the variance does not exist. Going the other way, a process with constant mean and constant autocovariance whose third moment alternates in sign with $t$ has shift-invariant first two moments and a time-varying skewness, so it is weakly but not strictly stationary. The two notions coincide for Gaussian processes, which are pinned down entirely by mean and covariance.
+
+**(c)** *Ergodicity*: time averages along one realized path converge to ensemble averages across paths. Stationarity says the ensemble does not move with calendar time. Ergodicity says your single path explores that ensemble.
+
+This matters because you only ever get one path. A counterexample makes it concrete: let $X_t = Z$ for all $t$, where $Z \sim N(0,1)$ is drawn once. That process is strictly stationary, and yet $\frac{1}{T}\sum_t X_t \to Z$, not to $0$. The time average converges to a random variable, so no amount of data tells you the ensemble mean. Stationarity plus ergodicity together restore the LLN and CLT, with a variance correction for the autocorrelation.
+
+**(d)** Two problems.
+
+First, stationarity restores the *rate*, not the *variance formula*. Autocorrelated data carries less information per observation than iid data, so the correct asymptotic variance is the long-run variance $\sum_{h=-\infty}^{\infty}\gamma(h)$, not $\gamma(0)$. The textbook OLS standard error uses the wrong one and is typically too small under positive autocorrelation. That is what heteroskedasticity-and-autocorrelation-consistent (HAC) standard errors, Newey-West being the standard one, exist to fix.
+
+Second, "the series is stationary" is usually asserted on the basis of failing to reject an ADF test, which is not evidence of stationarity at all. See Q4.
+
+**Rubric:**
+- Names both theorems and separates their roles: LLN for the stabilizing design matrix, CLT for root-$T$ normality
+- Correct definitions of both stationarity notions, including the finite-variance requirement in the weak one
+- A counterexample in each direction, and states that they coincide for Gaussian processes
+- Names ergodicity and gives the constant-path counterexample, or an equivalent one
+- Distinguishes "the rate is fine" from "the variance formula is wrong", and names HAC / Newey-West
+- Flags that "stationary" was probably inferred from a non-rejection
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. Derive spurious regression from a counting argument.** Let $x_t$ and $y_t$ be independent driftless random walks. You regress $y_t = \alpha + \beta x_t + u_t$ by OLS. (a) Compute the growth rate of $\sum_t x_t^2$ and compare it to the stationary case. (b) Show that $\hat\beta$ is not consistent, and say what it converges to instead. (c) Derive the stochastic order of $s^2$, of $\operatorname{se}(\hat\beta)$, and of the t-statistic. (d) What does Granger and Newbold's 1974 simulation report, and what does "more data" do here?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** A driftless random walk has $\operatorname{Var}(x_t) = t\,\sigma_x^2$, so
+
+$$
+E\!\left[\sum_{t=1}^{T} x_t^2\right] = \sigma_x^2 \sum_{t=1}^{T} t = \sigma_x^2\,\frac{T(T+1)}{2} = O(T^2)
+$$
+
+For a stationary regressor with variance $\sigma^2$ the same sum is $T\sigma^2 = O(T)$. One extra factor of $T$, and that single fact drives everything else.
+
+**(b)** Because the sum is $O(T^2)$, the normalization that converges is $T^{-2}\sum x_t^2$, not $T^{-1}\sum x_t^2$. Under that normalization a functional central limit theorem applies and
+
+$$
+T^{-2}\sum_t x_t^2 \;\Rightarrow\; \sigma_x^2 \int_0^1 W_1(r)^2\,dr
+$$
+
+The limit is a **random variable**, a functional of Brownian motion, not a constant. The LLN has been replaced by a functional CLT and the denominator never settles down.
+
+The numerator behaves the same way, $T^{-2}\sum_t x_t y_t \Rightarrow \sigma_x\sigma_y\int_0^1 W_1 W_2$, and the key point is that this limit is **not zero even though $W_1$ and $W_2$ are independent**. Independence makes the *expectation* zero, not the realization. Two independent Brownian paths each wander away from zero and stay away for long stretches, so on any single realization the product integral is generically nonzero. Hence
+
+$$
+\hat\beta \;\Rightarrow\; \frac{\sigma_y}{\sigma_x}\cdot\frac{\int_0^1 W_1 W_2}{\int_0^1 W_1^2}
+$$
+
+$\hat\beta$ converges in distribution to a spread-out random variable rather than in probability to $0$. OLS is not consistent. That is Phillips (1986).
+
+**(c)** The residuals $\hat u_t = y_t - \hat\alpha - \hat\beta x_t$ are a linear combination of two random walks, hence themselves I(1). So the residual variance estimate grows with the sample:
+
+$$
+s^2 = \frac{1}{T-2}\sum_t \hat u_t^2 = O_p(T)
+$$
+
+Feed that in:
+
+$$
+\operatorname{se}(\hat\beta)^2 = \frac{s^2}{\sum_t \tilde x_t^2} = \frac{O_p(T)}{O_p(T^2)} = O_p(T^{-1}) \implies \operatorname{se}(\hat\beta) = O_p(T^{-1/2})
+$$
+
+But $\hat\beta = O_p(1)$ from part (b), so
+
+$$
+t_{\hat\beta} = \frac{\hat\beta}{\operatorname{se}(\hat\beta)} = \frac{O_p(1)}{O_p(T^{-1/2})} = O_p(\sqrt{T})
+$$
+
+The t-statistic diverges. It has no limiting distribution at all, so there is no critical value that fixes this.
+
+**(d)** Granger and Newbold simulated independent random walks at $T = 50$ and found $|t| > 2$ in roughly **75% of trials**, against a nominal size of 5%. Yule had reported the phenomenon in 1926 without the theory, with a 0.95 correlation between the Church of England marriage rate and the standardized mortality rate.
+
+More data makes it strictly worse, at rate $\sqrt{T}$. If the honest t-statistic for a nonexistent relationship should hover around 1, you will see roughly 10 at $T = 100$ and roughly 100 at $T = 10{,}000$. This is the one place in statistics where the reflex "collect more observations" is exactly backwards.
+
+**Rubric:**
+- Gets $E[\sum x_t^2] = \sigma^2 T(T+1)/2 = O(T^2)$ and contrasts with $O(T)$
+- Identifies $T^{-2}$ as the right normalization and says the limit is random, not constant
+- Explains why $\int W_1 W_2$ is nonzero despite independence (expectation zero, realization not)
+- States that $\hat\beta$ is inconsistent, cites Phillips (1986) or equivalent
+- Full chain: residuals I(1), $s^2 = O_p(T)$, $\operatorname{se} = O_p(T^{-1/2})$, $t = O_p(\sqrt{T})$
+- 75% at nominal 5%, and says more data hurts
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. The high-R-squared claim, examined.** The standard framing is "two unrelated random walks show $R^2$ above 0.5 over thousands of observations, what is going on?" (a) Is a high $R^2$ a property of spurious regressions? Say what $R^2$ actually converges to. (b) If a colleague shows you a levels-on-levels regression with $R^2 = 0.04$, what have you learned? (c) Give the two-number diagnostic and derive why the second number behaves the way it does. (d) A regression has $R^2 = 0.62$ and Durbin-Watson $= 0.21$. Walk through what you do next, in order.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** No. $R^2$ in a spurious regression converges to a **nondegenerate random variable supported on $[0,1)$** — a ratio of Brownian functionals, exactly like $\hat\beta$. The genuinely shocking result is that it does not converge to zero, which is what independence would suggest. But it does not converge to any particular high number either. The limiting distribution is diffuse, and plenty of independent random-walk pairs produce an $R^2$ of 0.05.
+
+So when an interviewer says "above 0.5", they are describing one draw they happened to see, not stating a theorem. The correct move is to name the mechanism, which is the $O_p(\sqrt{T})$ divergence of the t-statistic, and then treat the high $R^2$ as a frequently-occurring symptom. Candidates who assert "spurious regressions always have high $R^2$" have memorized the anecdote rather than the result.
+
+**(b)** Almost nothing. A low $R^2$ does not acquit a levels-on-levels regression, because the $R^2$ was a draw from a diffuse distribution and a low draw is entirely ordinary. The t-statistic is still $O_p(\sqrt{T})$ regardless of which $R^2$ you happened to get, so the reported significance is still fiction. You still have to check the integration order of the inputs.
+
+**(c)** $R^2$ paired with the Durbin-Watson statistic on the residuals:
+
+$$
+DW = \frac{\sum_{t=2}^{T}(\hat u_t - \hat u_{t-1})^2}{\sum_{t=1}^{T}\hat u_t^2} \approx 2(1 - \hat\rho_1)
+$$
+
+The approximation follows by expanding the numerator: $\sum(\hat u_t - \hat u_{t-1})^2 = \sum \hat u_t^2 + \sum \hat u_{t-1}^2 - 2\sum \hat u_t \hat u_{t-1} \approx 2\sum \hat u_t^2 (1 - \hat\rho_1)$ for large $T$, since the two sums of squares are nearly equal and $\hat\rho_1 = \sum \hat u_t \hat u_{t-1}/\sum \hat u_t^2$.
+
+With iid residuals $\hat\rho_1 \approx 0$ and $DW \approx 2$. With random-walk residuals $\hat\rho_1 \to 1$ and $DW \to 0$. Granger and Newbold's rule of thumb: **if $R^2 > DW$, do not believe the regression.** Say it is a heuristic, because it is one.
+
+**(d)** In order.
+
+1. Note that $R^2 > DW$ and that $DW = 0.21$ implies $\hat\rho_1 \approx 0.9$, so the residuals are close to a random walk. The standard errors are not usable.
+2. Run ADF on each input series to establish integration order, and also on the residuals. Do not skip the inputs, since the residual test alone does not tell you which side is I(1).
+3. If both inputs are I(1), the question becomes whether they are cointegrated. Test the residuals with **Phillips-Ouliaris** critical values, not ADF ones, because $\beta$ was estimated by minimizing exactly the residual variance being tested.
+4. If they are not cointegrated, refit in differences and see whether anything survives. Usually nothing does, which is the answer.
+5. If they are cointegrated, keep the levels regression but report the error-correction form, and go look for the economic mechanism that makes the trend common.
+
+**Rubric:**
+- Says explicitly that $R^2$ converges to a random variable on $[0,1)$, not to a constant or to a high value
+- Frames the interviewer's "above 0.5" as one draw, and names the diverging t-statistic as the mechanism
+- Says a low $R^2$ does not clear the regression, with the reason
+- Writes DW and derives or justifies $\approx 2(1-\hat\rho_1)$
+- Converts $DW = 0.21$ to $\hat\rho_1 \approx 0.9$
+- An ordered plan that tests the inputs, not only the residuals, and reaches Phillips-Ouliaris for the cointegration step
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. ADF and KPSS, in both directions.** (a) Write the ADF regression, state its null in words, and say why the statistic is not compared to a t table. (b) State the KPSS null. (c) You run ADF on a spread of two years of daily data and get a p-value of 0.31. Write down the exact sentence you would put in a research note. (d) Quantify ADF's power problem using the local-to-unity parameter, with real arithmetic. (e) Both tests reject. What does that mean?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Fit
+
+$$
+\Delta x_t = \alpha + \gamma x_{t-1} + \sum_{i=1}^{p}\delta_i \Delta x_{t-i} + \epsilon_t
+$$
+
+and test $H_0: \gamma = 0$. Read what that null asserts: $\gamma = 0$ collapses the equation to $x_t = x_{t-1} + \dots$, which is a **unit root**. So ADF's null is the *presence* of a unit root, and rejecting is evidence of stationarity. The lagged difference terms are the "augmented" part, included to absorb serial correlation so the error term is white.
+
+The statistic is $\hat\gamma/\operatorname{se}(\hat\gamma)$ but it does **not** have a t distribution, because under the null the regressor $x_{t-1}$ is I(1) and everything from Q2 applies: the normalization is $T^{-2}$, the limit is a Brownian functional, and the distribution is nonstandard and skewed left. So you compare against Dickey-Fuller critical values, which are far more negative than $-1.96$: about $-2.86$ at 5% with a constant, $-3.41$ with a constant and trend.
+
+**(b)** KPSS decomposes $x_t = \xi t + r_t + \epsilon_t$ with $r_t$ a random walk of innovation variance $\sigma_u^2$, and nulls $H_0: \sigma_u^2 = 0$, meaning there is **no random-walk component**, i.e. the series is stationary. That is the opposite direction from ADF, which is the entire reason you run both.
+
+**(c)** "The ADF test failed to reject the null of a unit root at conventional levels ($p = 0.31$). Given $T = 500$, the test has low power against the near-unit-root alternatives relevant here, so this is not evidence that the spread is non-stationary."
+
+The trap, and it is the single most common ding on this topic, is writing "the spread has a unit root" or "the spread is non-stationary." You never accept a null. Failing to reject is what happens both when the null is true and when you have no power, and those two are indistinguishable from the p-value alone.
+
+**(d)** Power depends on the **local-to-unity parameter** $T(1-\phi)$, not on $(1-\phi)$ alone. Take a genuinely mean-reverting spread with $\phi = 0.98$, which is exactly the regime a pairs trade lives in. Its half-life is
+
+$$
+h = \frac{-\ln 2}{\ln 0.98} = \frac{0.6931}{0.020203} = 34.3 \text{ days}
+$$
+
+With two years of daily data, $T = 500$:
+
+$$
+T(1-\phi) = 500 \times 0.02 = 10
+$$
+
+That is well inside the underpowered region, so you will routinely fail to reject on a series that is genuinely stationary with a 34-day half-life. To push $T(1-\phi)$ to around 25 at the same $\phi$ you need $T = 25/0.02 = 1250$ observations, five years of daily data. The scaling is the point: doubling your sample doubles $T(1-\phi)$, so power is bought with calendar time, not with a better test.
+
+**(e)** Not a contradiction to be averaged away. Both tests rejecting means the series is neither I(1) with constant parameters nor I(0) with constant parameters, so your model class is wrong. The usual cause is a **structural break** in the middle of the sample, which makes a stationary series look trending to ADF and a broken series look non-stationary to KPSS. Other causes are long memory (fractionally integrated, $0 < d < 1$) and a variance shift. Plot it, split the sample at the candidate break, and re-test each half.
+
+The four-outcome table is worth having ready: agree-stationary, agree-unit-root, both fail to reject (underpowered, get more data), both reject (structural break). The third and fourth rows are what separate someone who has run these tests from someone who has read about them.
+
+**Rubric:**
+- Writes the ADF regression and reads $\gamma = 0$ as a unit root, not the reverse
+- Explains the nonstandard distribution via the I(1) regressor, gives roughly the right critical values
+- KPSS null is stationarity, and says the opposition is the reason to run both
+- The research-note sentence never claims a unit root is present
+- Correct half-life arithmetic and $T(1-\phi) = 10$, plus the $T = 1250$ requirement
+- "Both reject" read as structural break, with a concrete next action
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. The bill for differencing.** Your predictor and target are both prices. You difference both, ADF now passes on everything, and the signal has vanished. (a) Explain what differencing does in the frequency domain, with the filter gain. (b) Name a second cost that shows up if the series was already stationary. (c) What is fractional differencing, how do you choose $d$, and what values are typical on equity prices? (d) Someone proposes differencing the predictor but keeping the target in levels. What happens?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Differencing is the filter $1 - L$, where $L$ is the lag operator. Its frequency response is
+
+$$
+|1 - e^{-i\omega}| = 2\left|\sin\!\left(\frac{\omega}{2}\right)\right|
+$$
+
+which is $0$ at $\omega = 0$ and maximal at the Nyquist frequency $\omega = \pi$. So it is a high-pass filter. It annihilates the low-frequency content completely and amplifies the high-frequency content by up to a factor of 2.
+
+That matters because of where the two things you care about live. Predictive information in prices tends to sit at low frequencies: valuation levels, slow mean reversion, multi-week trends. Microstructure noise, bid-ask bounce and quantization sit at high frequencies. Differencing removes exactly the band with signal and boosts exactly the band with noise. You passed the stationarity test by deleting the reason you ran the regression.
+
+**(b)** Over-differencing. If the series was already I(0), then $\Delta$ of it produces an error process that is MA(1) with $\theta = -1$, which is **non-invertible**: the moving-average polynomial $1 - L$ has a root on the unit circle, so there is no convergent autoregressive representation. Practically, maximum-likelihood ARMA fits pile up at the boundary, standard errors go strange, and forecasts get worse than the undifferenced model. There is also a variance cost: $\operatorname{Var}(\Delta x_t) = 2\gamma(0)(1 - \rho_1)$, which for a weakly autocorrelated stationary series is close to $2\gamma(0)$, so you nearly doubled the noise for nothing.
+
+**(c)** Fractional differencing (Hosking 1981, brought to finance by Lopez de Prado 2018) applies $(1-L)^d$ with real $d \in (0,1)$ via the binomial expansion:
+
+$$
+(1-L)^d = \sum_{k=0}^{\infty} w_k L^k, \qquad w_k = (-1)^k \binom{d}{k}
+$$
+
+At $d = 1$ the weights truncate after two terms, $1$ and $-1$, which is why integer differencing has no memory. At non-integer $d$ the weights decay hyperbolically rather than terminating, so the transformed series keeps a long-memory tail of the original levels.
+
+The procedure is a one-dimensional search: sweep $d$ upward from $0$ and take the **minimum $d$ at which ADF rejects**. That is the least memory destruction consistent with stationarity. In practice you truncate the weight sequence when $|w_k|$ falls below a threshold, which is a second hyperparameter worth disclosing. Equity price series commonly pass around $d \approx 0.3$ to $0.5$, far short of the $d = 1$ that integer differencing forces on you.
+
+**(d)** You have created an integration-order mismatch: an I(0) regressor against an I(1) target. The target's variance grows like $t$ while the regressor's does not, so no fixed coefficient can track it, and $\hat\beta$ is driven toward zero while the residual keeps the entire unit root. The regression reports "no relationship," and someone concludes the signal is dead when it was only mismatched. **Always state the integration order of both sides before interpreting a coefficient.** The valid combinations are I(0) on I(0), I(1) on I(1) when cointegrated, and $\Delta$I(1) on $\Delta$I(1).
+
+**Rubric:**
+- Names $1-L$ as a high-pass filter and gives the gain $2|\sin(\omega/2)|$, with the zero at $\omega = 0$
+- Connects the killed band to where signal actually lives, not just "you lose information"
+- Non-invertible MA(1) with $\theta = -1$ for over-differencing, and why that breaks ARMA fitting
+- Fractional differencing with the binomial weights, and the minimum-$d$-that-passes-ADF rule
+- Quotes a plausible $d$ range for equities
+- Diagnoses the mismatch case as an integration-order error, with $\hat\beta \to 0$ as the symptom
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. Why cointegration can exist at all.** (a) Generically a linear combination of two I(1) series is I(1). Construct the non-generic case and show exactly where the non-stationarity cancels. (b) State the error-correction representation and explain which term makes it a trade. (c) Two series both have unit roots and are 0.9 correlated in levels. Are they cointegrated? (d) You find a cointegrating vector on 500 names by scanning all pairs. Size the problem.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Suppose both series are driven by one **common stochastic trend** $W_t$, itself a random walk, plus their own stationary idiosyncratic parts:
+
+$$
+y_t = \gamma_y W_t + \tilde y_t, \qquad x_t = \gamma_x W_t + \tilde x_t
+$$
+
+with $\tilde y_t$ and $\tilde x_t$ both I(0). Each of $y_t$ and $x_t$ is I(1), because of the $W_t$ term, and each individually fails ADF. Now take $\beta = \gamma_y/\gamma_x$:
+
+$$
+y_t - \beta x_t = \gamma_y W_t - \frac{\gamma_y}{\gamma_x}\gamma_x W_t + \tilde y_t - \beta\tilde x_t = \tilde y_t - \beta\,\tilde x_t
+$$
+
+The $W_t$ terms cancel exactly, and what remains is a linear combination of two I(0) series, hence I(0). That is a cointegrating vector, and this construction shows it exists precisely when the two series share their non-stationary driver. Two random walks with independent drivers have no such $\beta$, because there is nothing to cancel: any $\beta$ leaves $\gamma_y W_t^{(1)} - \beta\gamma_x W_t^{(2)}$, still I(1).
+
+The right one-line version out loud: cointegration means the number of independent stochastic trends is smaller than the number of series.
+
+**(b)** The Granger representation theorem says cointegration is equivalent to the existence of an error-correction form:
+
+$$
+\Delta y_t = \alpha\,(y_{t-1} - \beta x_{t-1}) + \text{lagged differences} + \epsilon_t, \qquad \alpha < 0
+$$
+
+The tradeable term is $\alpha(y_{t-1} - \beta x_{t-1})$: the *level* of last period's spread predicts this period's *change*. A wide spread pulls back, and $\alpha$ is literally the speed. That is the whole statistical basis of pairs trading, and it is why cointegration is worth more than correlation: correlation tells you the two move together, error correction tells you what happens next when they do not.
+
+The equivalence also runs the other way and is the reason the theorem matters. If a stationary linear combination exists, an error-correction representation must exist. You cannot have cointegration without predictability.
+
+**(c)** You cannot tell, and the correct answer is that correlation in levels is almost uninformative here. Two independent random walks routinely show level correlations above 0.9 over a sample; that is the entire spurious-regression phenomenon from Q2 restated as a correlation. Correlation in levels between I(1) series is itself a random quantity with a wide distribution and no probability limit.
+
+What you actually do: establish that each series is I(1), estimate $\beta$, and test whether the residual is I(0) with Phillips-Ouliaris critical values. And separately, ask what economic mechanism would make their trends common. If you cannot name one, a passing test is a coincidence with a p-value attached.
+
+**(d)** With 500 names there are
+
+$$
+\binom{500}{2} = \frac{500 \times 499}{2} = 124{,}750
+$$
+
+pairs. Test each at a 5% level with no correction and you expect roughly $0.05 \times 124{,}750 \approx 6{,}200$ pairs to look cointegrated from pure noise. Worse, the pairs you then *select* are the ones where the residual happened to look most stationary in-sample, which is a maximum-selection bias on top of the false-positive count, so the selected pairs have the most overfit half-lives and the tightest in-sample spreads.
+
+The cointegration-specific mitigations are to restrict the search space by economic prior before you test anything, so you are testing dozens of pairs and not $10^5$, and to hold out a period the pair search never saw and require the relationship to survive there with a $\beta$ estimated before the holdout. The general machinery for pricing a search of this size — error-rate corrections and the deflated Sharpe ratio — is c8.3; what belongs here is recognising that a cointegration scan is a search, and reporting how large it was.
+
+**Rubric:**
+- Writes the common-trend decomposition and shows $W_t$ cancelling at $\beta = \gamma_y/\gamma_x$
+- States that both series must be I(1) individually for the question to be meaningful
+- Says cointegration means fewer stochastic trends than series
+- Correct error-correction form with $\alpha < 0$, and identifies the level term as the tradeable part
+- Rejects level correlation as evidence, connecting it back to spurious regression
+- $124{,}750$ pairs and roughly $6{,}200$ false positives, plus selection bias on top of the count
+- Names a concrete mitigation — economic prior first, then a holdout the search never saw
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Choose an estimator, then size the trade.** (a) Compare Engle-Granger and Johansen: what each estimates, what each assumes, and what each costs you. Then pick one for two liquid ETFs with an obvious hedge direction and defend it out loud. (b) Why is the second step of Engle-Granger not an ordinary ADF test? (c) A pair has $\beta = 1.2$, residual spread standard deviation \$0.80, and an AR(1) fit on the spread gives $\phi = 0.97$. Size a trade against 5bps-per-side costs. (d) Now the half-life is 200 days instead. What changed and what did not?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** **Engle-Granger (1987)**, two steps. Step 1: OLS of $y$ on $x$ to get $\hat\beta$. Step 2: unit-root test on the residuals $\hat z_t$. The step-1 estimate is **superconsistent**, converging at rate $T$ rather than $\sqrt{T}$, because the regressor's sample second moment is $O(T^2)$ rather than $O(T)$. That is the same fact from Q2 working in your favor for once: under true cointegration the signal in the levels swamps the residual noise, so $\hat\beta$ is nailed down fast and its first-order asymptotic bias does not matter. Costs: it is asymmetric, so regressing $x$ on $y$ can give a different verdict in finite samples; it finds only one relationship; and it gives you no likelihood-ratio machinery for testing restrictions on $\beta$.
+
+**Johansen (1988, 1991)** estimates a vector error-correction model (VECM) by maximum likelihood and tests the **rank** of the long-run impact matrix through its eigenvalues, using trace and maximum-eigenvalue statistics. It handles $n$ series simultaneously, finds up to $n-1$ independent cointegrating vectors, is symmetric in the variables, and supports formal tests of restrictions such as $\beta = (1,-1)$. Costs: it assumes a Gaussian VAR, it is sensitive to lag-order selection, and on short samples with many series it will happily report rank that is not there.
+
+For two liquid ETFs with an obvious hedge direction, take **Engle-Granger**, and here is the defense. I know a priori which series is the dependent one, so the asymmetry costs me nothing. There is one relationship by construction, so rank testing has nothing to find. The step-1 $\beta$ is superconsistent, which is the strongest estimator property available here. And critically, the output is one number I can explain to a risk manager in a sentence: hedge ratio 1.2, this many shares against that many. Johansen would add a Gaussian VAR assumption and a lag-order hyperparameter in exchange for machinery I have no use for on two series. Prefer the simpler model when it ties.
+
+I would switch to Johansen for a basket of five sector names where I do not know in advance which combination is stationary, since that is exactly the case rank testing was built for.
+
+**(b)** Because $\hat\beta$ was estimated by minimizing the sum of squared residuals, which is the very quantity the second-step test examines. OLS chose the linear combination that looks most stationary in this sample, so the residuals are more stationary-looking than a randomly chosen combination would be, and standard ADF critical values over-reject. You need **Phillips-Ouliaris** critical values, which are shifted further to the left and depend on the number of regressors. Using ADF tables here makes essentially every pair look cointegrated, and it is a common production bug precisely because the code runs without error.
+
+**(c)** Half-life first:
+
+$$
+h = \frac{-\ln 2}{\ln 0.97} = \frac{0.6931}{0.030459} = 22.8 \text{ days}
+$$
+
+Enter at $z = 2$, which is two spread standard deviations, or \$1.60, away from the mean. Over one half-life expect to capture about half of that deviation, so roughly \$0.80 of gross edge per unit.
+
+Cost it. On \$100 of the long leg the short leg is $1.2 \times 100 = 120$ dollars, so gross notional is \$220. Round-trip at 5bps per side is $2 \times 0.0005 \times 220 = 0.22$ dollars.
+
+Edge-to-cost is about $0.80/0.22 \approx 3.6$ to 1, and one round trip takes roughly a month, so you get on the order of eight to twelve turns a year per pair. That is a live trade, though the whole book's Sharpe then depends on how many independent pairs you can run, not on this one.
+
+**(d)** The statistics are unchanged. The cointegration is just as real, the ADF p-value is the same order, the entry z-score and the per-trade edge of \$0.80 are identical. What changed is the *rate*: at a 200-day half-life you get roughly one round trip a year instead of eight to twelve. Annualized return per unit of capital drops by that factor, the capital is tied up for the whole year while the position runs against you as often as not, and the strategy's Sharpe collapses even though nothing statistical moved.
+
+That is the point worth saying out loud: **half-life is what converts a statistical relationship into a capital-efficiency question.** A candidate who reports "ADF p-value 0.03, the pair is cointegrated" and stops has answered a different question from the one that was asked.
+
+**Rubric:**
+- Both methods described with what they estimate, not just their names
+- Superconsistency stated with the rate $T$ and connected to the $O(T^2)$ second moment
+- A defense of the choice that cites specific properties, and says what would flip the decision
+- Phillips-Ouliaris explained by the estimated-$\beta$ pretesting problem, not asserted
+- $h = 22.8$ days, gross notional \$220, cost \$0.22, edge-to-cost near 4:1
+- On the 200-day case, separates what is unchanged (the statistics, the per-trade edge) from what died (turns per year, Sharpe)
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8. Autocorrelated residuals, and a spread that stopped reverting.** (a) Your regression residuals are strongly autocorrelated. Are the coefficient estimates wrong, or are the standard errors wrong? Give the conditions carefully. (b) State the case where your answer to (a) flips. (c) A cointegrated pair reverted reliably for seven years and the spread has been drifting one way for the last eighteen months. List the things that break a live cointegrating relationship, ordered by how often they happen. (d) You have to decide whether to keep the position on. What do you check first, and what do you do while you check it?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The standard errors. Under strict exogeneity of the regressors, autocorrelated errors leave OLS **unbiased and consistent** but no longer efficient, and they break the variance formula. The usual OLS variance $s^2(X'X)^{-1}$ assumes $E[\epsilon\epsilon'] = \sigma^2 I$; with autocorrelation the correct sandwich is $(X'X)^{-1}X'\Omega X(X'X)^{-1}$ with $\Omega$ non-diagonal. Positive autocorrelation typically makes the true variance larger than the reported one, so the naive t-statistics are inflated and you over-reject.
+
+The fix is therefore to the inference, not to the estimator: HAC (heteroskedasticity-and-autocorrelation-consistent) standard errors, Newey-West being the standard implementation, with a lag truncation on the order of $4(T/100)^{2/9}$ or the label horizon, whichever is longer. You can also fit the error structure explicitly with GLS if you are confident in it, which buys efficiency, but that is an optional improvement rather than a required correction.
+
+Many candidates reflexively say "the estimates are biased." That is the answer being tested for.
+
+**(b)** Two conditions flip it, and both are common in finance.
+
+First, **a lagged dependent variable on the right-hand side.** If $y_t$ depends on $y_{t-1}$ and the errors are autocorrelated, then $y_{t-1}$ is correlated with $\epsilon_t$ through $\epsilon_{t-1}$. Strict exogeneity fails, and OLS is biased *and* inconsistent. No standard-error correction saves you; you need instruments or a correctly specified dynamic model.
+
+Second, **an I(1) regressor with I(1) residuals**, which is the spurious case. There the residual autocorrelation is not a nuisance around a true relationship, it is the symptom that no relationship exists. $\hat\beta$ is inconsistent and HAC standard errors are useless, because HAC assumes a stationary long-run variance and here there is none. This is the discriminator: strongly autocorrelated residuals should make you ask "stationary errors around a real relationship, or a unit root in the residual?" before you reach for Newey-West. The residual ADF test answers it.
+
+**(c)** In rough order of how often each one is the culprit.
+
+1. **A structural break in the common driver.** A merger, a spin-off, an index reconstitution, a change in an ETF's holdings, a capital-structure change. Whatever made the two trends common stopped being common. This is the usual cause and it is invisible in the pre-break data.
+2. **Selection bias in the original pair search.** If the pair came out of an unrestricted scan, it was chosen partly because its residual happened to look most stationary in-sample, so some of the reversion you were trading was never there.
+3. **Beta drift.** If the hedge ratio is re-estimated on a rolling window, the estimate chases the spread and flattens the deviation you wanted to trade, so the z-score stops getting large and the strategy quietly stops trading. A Kalman filter is the usual response, and it trades the problem for a tuning parameter.
+4. **Crowding.** Other people hold the same spread. A forced unwind somewhere else widens it against you regardless of the statistics, which is what happened across statistical-arbitrage books in August 2007.
+5. **Costs on the short leg.** Borrow fees on a hard-to-borrow name can exceed the whole spread edge, and they spike exactly when the spread is most dislocated.
+6. **It was never economic.** If nobody wrote down the mechanism tying the two names together before the backtest, a passing ADF test was a coincidence with a p-value attached.
+
+**(d)** Check the corporate-action and index history for both legs first, because item 1 is both the most likely and the cheapest to rule out, and it gives a date you can test at. Then re-estimate $\beta$ on the pre-drift sample only and see whether the current spread is wide against the old hedge ratio or only against the drifting one, which separates a genuine dislocation from beta drift. Then check whether other pairs sharing the same driver moved at the same time, which points at the environment rather than at this estimate. Finally look at the borrow rate on the short leg over the drift period.
+
+While you check: cut the position rather than doubling it or closing it. Size down to a fraction of the prior allocation so you keep collecting evidence without paying full freight for being wrong, set an explicit re-evaluation date and a loss threshold that retires the pair without further argument, and do not re-fit $\beta$ on the drifting sample, because that guarantees the spread looks mean-reverting again. Stopping out is a risk-budget decision, not a statistical one.
+
+**Rubric:**
+- Answers "standard errors, not estimates" for the base case, with the exogeneity condition stated explicitly
+- Names HAC / Newey-West as the fix and says the estimator does not change
+- Gives the lagged-dependent-variable case as a genuine flip, with the mechanism ($y_{t-1}$ correlated with $\epsilon_t$)
+- Gives the I(1)-residual case and says HAC does not help there
+- Puts structural break in the common driver at the top of the failure list, not last
+- Names beta drift and borrow cost, not only "the relationship broke"
+- Proposes a check with a date attached (corporate actions, index changes) before proposing a test
+- A sizing decision under ambiguity rather than a verdict, and refuses to re-fit $\beta$ on the drifting sample
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: stationarity, unit roots and cointegration
+
+These 13 questions stand on their own and do not refer to anything above. Each should take two to five minutes out loud. They are selected on how often they get asked, not on how interesting they are, and several of them are asked in almost this exact wording. If you drill one section of this quiz, drill this one.
+
+1. **Two random walks** Two unrelated random walks show an $R^2$ above 0.5 over thousands of observations. What is going on? Give the growth-rate argument for why the t-statistic behaves the way it does, and say what happens to it as you collect more data.
+2. **Is high R-squared the result** Is a high $R^2$ actually a property of a spurious regression, or is it an anecdote? Say what $R^2$ converges to in that setting, and answer this follow-up: a colleague shows you a levels-on-levels regression with an $R^2$ of 0.04, so is it fine?
+3. **Spot it in a regression table** You are handed a printed regression output and nothing else. Which two numbers do you look at, in what order, and what rule of thumb pairs them? Convert a Durbin-Watson of 0.2 into a statement about the residuals.
+4. **What is ADF's null** Write the ADF regression and state its null hypothesis in words. Then say why the test statistic is not compared against 1.96, and roughly what the 5% critical value is.
+5. **You failed to reject** Your ADF p-value on a spread is 0.31 over two years of daily data. Write the exact sentence you would put in a research note. Then say what you would need in order to make a stronger claim.
+6. **ADF's power problem, with numbers** A spread mean-reverts with $\phi = 0.98$ on daily data. Compute the half-life, compute the local-to-unity parameter at $T = 500$, and say how much data you would need for the test to have real power. Explain why this is exactly the regime pairs trading lives in.
+7. **Both tests reject** You run ADF and KPSS on the same series and both reject. Is that a contradiction? Say what the four joint outcomes are and what each one tells you to do next.
+8. **You differenced and the signal died** You differenced prices to pass ADF and your predictor stopped working. What exactly did you throw away? Give the frequency-domain description of the $1-L$ filter, and name the fix and how you would pick its parameter.
+9. **Why two I(1) series can have an I(0) combination** Derive it. Write the common-trend decomposition, show where the non-stationarity cancels, and say what condition on the number of stochastic trends makes cointegration possible at all.
+10. **Engle-Granger or Johansen, defend it** You have two liquid ETFs with an obvious hedge direction. Pick an estimator and defend the choice out loud: what each one assumes, what each costs, and what would have to change about the problem for you to switch.
+11. **The second-step trap** In Engle-Granger, why can you not use standard ADF critical values on the step-2 residuals? What do you use instead, and what happens to your pair count if you get this wrong?
+12. **Autocorrelated residuals, defend your fix** Your regression residuals are strongly autocorrelated. Are the coefficient estimates wrong, or are the standard errors wrong? State the condition your answer depends on, name the remedy you would apply, and give the case where that remedy does not help at all.
+13. **Half-life as an economic question** Two pairs are equally cointegrated with identical ADF p-values and identical spread volatility. One has a 20-day half-life and one has a 200-day half-life. Which do you trade, and quantify the difference against 5bps-per-side costs.

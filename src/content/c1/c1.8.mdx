@@ -4,12 +4,14 @@ chapter: 1
 title: SVM, kNN & Naive Bayes
 subtitle: Margins, kernels, neighbours and the naive independence assumption
 refs: [7]
-estimatedMinutes: 90
+estimatedMinutes: 105
 ---
 
 ## TL;DR
 
-Support vector machines and k-nearest-neighbors are the two purest **geometry-as-the-model** algorithms: an SVM classifies by the *widest separating margin*, kNN by the *majority vote of the closest points*. Two ideas decide whether that geometry works. The **kernel trick** lets an SVM draw nonlinear boundaries by computing inner products in an implicit — sometimes infinite-dimensional — feature space *without ever materializing it*. The **curse of dimensionality** is the flip side: in high dimensions distances concentrate, so "nearest" stops being meaningful and kNN (and any distance method) degrades. Master the **margin** and the **neighborhood**, and you understand why these methods shine on small/medium data and why modern retrieval had to invent approximate nearest-neighbor search.
+Most classifiers are an equation first and a picture second. These two are the other way round. Support vector machines and k-nearest-neighbors are the two purest **geometry-as-the-model** algorithms: an SVM classifies by the *widest separating margin*, kNN by the *majority vote of the closest points*.
+
+Two ideas decide whether that geometry works. The **kernel trick** lets an SVM draw nonlinear boundaries by computing inner products in an implicit — sometimes infinite-dimensional — feature space *without ever materializing it*. The **curse of dimensionality** is the flip side: in high dimensions distances concentrate, so "nearest" stops being meaningful and kNN (and any distance method) degrades. Master the **margin** and the **neighborhood**, and you understand why these methods shine on small/medium data and why modern retrieval had to invent approximate nearest-neighbor search.
 
 Naive Bayes is the **generative** member of a generative–discriminative *pair* whose discriminative twin is logistic regression (c1.3). Both produce the **same log-linear decision rule** $\log\frac{p(y{=}1\mid x)}{p(y{=}0\mid x)} = w^\top x + b$ — but NB estimates it by **counting** (maximum likelihood on the joint $p(x,y)$), while logistic regression estimates it by **conditional optimization** of $p(y\mid x)$. That single difference explains everything: why NB is a linear classifier, why it trains in one pass, why it **wins on tiny data but loses asymptotically** (Ng–Jordan), and why it **classifies well yet outputs garbage probabilities** (Domingos–Pazzani) — the calibration thread from c1.2/c1.6, in its purest form.
 
@@ -36,7 +38,11 @@ Naive Bayes is the **generative** member of a generative–discriminative *pair*
 
 > **Goal — learn the two canonical geometry-based methods and the two ideas (kernels, the curse of dimensionality) that govern all distance-based learning.** SVMs teach the margin, duality, and kernels — the backbone of classical statistical learning theory. kNN teaches nonparametric estimation and the curse of dimensionality — which quietly underpins every modern vector database and RAG system. Both are interview staples precisely because they force you to reason geometrically rather than reach for `model.fit`.
 
+There is a reason these two get taught side by side. Both answer the question "where is the boundary?" using nothing but distance, and they answer it from opposite ends. The SVM stares at the points closest to the boundary and lets them define it. kNN never draws a boundary at all and lets the closest points to your *query* vote. Everything else in this lesson is a consequence of those two stances.
+
 These are the methods that dominated before deep learning, and they're not gone: linear SVMs are still strong baselines on high-dimensional sparse data (text), and kNN — in its approximate form — *is* how large-scale embedding retrieval works.
+
+Before the math, five words you will need. Skim them, and come back if a term ambushes you later.
 
 > **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
 >
@@ -52,61 +58,95 @@ These are the methods that dominated before deep learning, and they're not gone:
 
 ### The maximum-margin hyperplane
 
-Labels $y_i\in\{-1,+1\}$, decision function $f(x)=w^\top x + b$. Fix the scale so the closest points satisfy $y_i(w^\top x_i+b)=1$ (the "canonical" hyperplane). The two margin hyperplanes are $w^\top x+b=\pm 1$.
+Start with the easiest possible situation. Two classes of points on a page, and a straight line that separates them perfectly. Draw that line. Now nudge it a hair to the left. Still separates them. Tilt it a few degrees. Still separates them. There are infinitely many lines with zero training error, and training error cannot pick between them, because they all score the same.
+
+So pick on a different criterion: clearance. Of all the separating lines, take the one that leaves the most empty space on either side before it hits a data point. That empty space is the margin, and an SVM is nothing more than the algebra of making it as wide as possible.
+
+Now set up notation, one symbol at a time. Labels $y_i\in\{-1,+1\}$, decision function $f(x)=w^\top x + b$. Read $f$ aloud: it takes a point, projects it onto the direction $w$, shifts by $b$, and hands back a signed number whose sign is the predicted class. There is a nuisance here worth naming immediately: multiply $w$ and $b$ both by 10 and the boundary $f(x)=0$ does not move, but every value of $f$ gets ten times bigger. The function has a free scale. Fix the scale so the closest points satisfy $y_i(w^\top x_i+b)=1$ (the "canonical" hyperplane). The two margin hyperplanes are $w^\top x+b=\pm 1$.
+
+With the scale pinned, the width falls out of two lines of algebra.
 
 **Margin width $=2/\|w\|$.** Take points $x_+,x_-$ on opposite margin planes: $w^\top x_+ + b = +1$ and $w^\top x_- + b = -1$. Subtract: $w^\top(x_+-x_-)=2$. The width is the projection of $x_+-x_-$ onto the unit normal $w/\|w\|$:
 
 $$\text{margin} = \frac{w^\top(x_+-x_-)}{\|w\|} = \frac{2}{\|w\|}$$
 
+Read that fraction out loud. The numerator is a constant we chose, the 2 that came from $(+1)-(-1)$. All the information lives in the denominator. A short $w$ means a wide margin; a long $w$ means a narrow one. So "widen the street" and "shrink the weight vector" are the same instruction written twice.
+
 Maximizing $2/\|w\|$ is minimizing $\tfrac12\|w\|^2$, giving the **hard-margin primal**:
 
 $$\min_{w,b}\ \tfrac12\|w\|^2 \quad\text{s.t.}\quad y_i(w^\top x_i+b)\ge 1\ \ \forall i$$
 
-We maximize the *geometric* margin (the functional margin $y_i f(x_i)$ can be inflated for free by rescaling $w$ — only $/\|w\|$ makes it scale-invariant).
+The $\tfrac12$ and the square are conveniences for differentiation, not content. The constraint says the same thing $n$ times: every point must sit on its own side of its own margin plane, or further out.
 
-<SVMMarginDiagram caption="The canonical SVM picture. Solid line: the decision hyperplane. Dashed lines: the two margin planes at wᵀx + b = ±1, separated by width 2/‖w‖. Amber circles: the support vectors — the only points that sit on the margin planes and the only points whose removal would change the boundary. Maximizing 2/‖w‖ (equivalently minimizing ½‖w‖²) is just the algebraic version of 'push the two dashed lines as far apart as you can while every point stays on the correct side.'" />
+One clarification that interviewers do ask for. We maximize the *geometric* margin (the functional margin $y_i f(x_i)$ can be inflated for free by rescaling $w$ — only $/\|w\|$ makes it scale-invariant). That is the same free-scale nuisance from a moment ago: if you optimized the raw value of $y_i f(x_i)$ you could "improve" forever by doubling $w$, without moving a single point or the boundary. Dividing by $\|w\|$ removes the loophole.
+
+<SVMMarginDiagram caption="The canonical SVM picture. Solid line: the decision hyperplane. Dashed lines: the two margin planes at wᵀx + b = ±1, separated by width 2/‖w‖. Amber circles: the support vectors — the only points that sit on the margin planes and the only points whose removal would change the boundary. Look at the interior points and notice how far they are from mattering: slide any one of them around inside its own class and the dashed lines do not move. Maximizing 2/‖w‖ (equivalently minimizing ½‖w‖²) is just the algebraic version of 'push the two dashed lines as far apart as you can while every point stays on the correct side.'" />
 
 ### Soft margin = hinge loss + L2 regularization
 
-Real data isn't separable. Introduce slack $\xi_i\ge0$ and penalize it (Cortes & Vapnik 1995):
+The hard-margin problem has a fragile assumption baked into it: that some hyperplane satisfies all $n$ constraints at once. Real data isn't separable. One mislabelled point sitting deep inside the wrong class makes the constraint set empty, and there is no solution to return.
+
+The fix is the obvious one. Let each point buy its way out of its constraint, and charge it for the privilege. Introduce slack $\xi_i\ge0$ and penalize it (Cortes & Vapnik 1995):
 
 $$\min_{w,b,\xi}\ \tfrac12\|w\|^2 + C\sum_i \xi_i \quad\text{s.t.}\quad y_i(w^\top x_i+b)\ge 1-\xi_i,\ \ \xi_i\ge 0$$
 
-At the optimum $\xi_i=\max(0,\,1-y_i f(x_i))$ — exactly the **hinge loss**. Substituting gives the unconstrained form:
+In English: each point is allowed to fall short of its margin by an amount $\xi_i$, and the objective pays $C$ per unit of shortfall. Point $i$ with $\xi_i=0$ behaved. With $\xi_i$ between 0 and 1 it crossed into the margin but stayed on the right side of the boundary. Past 1 it is misclassified.
+
+Now notice that the optimizer will never pay more slack than it has to. At the optimum $\xi_i=\max(0,\,1-y_i f(x_i))$ — exactly the **hinge loss**. Substituting gives the unconstrained form:
 
 $$\min_{w,b}\ \tfrac12\|w\|^2 + C\sum_i \max\bigl(0,\,1-y_i f(x_i)\bigr)$$
 
-**This is the bridge to c1.2:** an SVM is hinge loss plus L2 (ridge) regularization on $w$. Compare the surrogate losses as functions of the margin $m=y f(x)$: 0-1 loss is discontinuous and non-convex; **hinge** $\max(0,1-m)$ is convex and **exactly zero for $m\ge1$** (correctly classified beyond the margin → no gradient → that point drops out); **logistic** $\log(1+e^{-m})$ is smooth and *never* zero (every point contributes, which is why logistic regression has no support vectors but does give probabilities). The flat region of hinge is precisely *why SVMs are sparse in support vectors*.
+Terminology arrives after the object, as usual: we did not set out to use a loss function, we set out to charge for constraint violations, and the charge turned out to have a name.
+
+**This is the bridge to c1.2:** an SVM is hinge loss plus L2 (ridge) regularization on $w$. If you have been treating SVMs as a separate species of model, they aren't. They are the same "penalized empirical risk" template as everything else in c1.2, with one particular loss plugged in.
+
+Which loss, and why does it matter? Compare the surrogate losses as functions of the margin $m=y f(x)$. Read $m$ as "how correct, and by how much": positive when the prediction has the right sign, large when the point is far out on the right side.
+
+- 0-1 loss is discontinuous and non-convex. It is what you actually care about and it is useless to optimize.
+- **hinge** $\max(0,1-m)$ is convex and **exactly zero for $m\ge1$** (correctly classified beyond the margin → no gradient → that point drops out).
+- **logistic** $\log(1+e^{-m})$ is smooth and *never* zero (every point contributes, which is why logistic regression has no support vectors but does give probabilities).
+
+That flat region is the whole personality difference. The flat region of hinge is precisely *why SVMs are sparse in support vectors*. A point that is already comfortably right exerts zero pull on the solution, so the fit forgets it exists. Under logistic loss the same point still contributes a small nudge forever, so nothing is ever forgotten and nothing is ever sparse.
 
 ### The dual, support vectors, and why kernels need it
 
-Form the Lagrangian and set derivatives to zero: $w=\sum_i\alpha_i y_i x_i$ and $\sum_i\alpha_i y_i=0$. Substituting yields the **dual**:
+You could stop at the unconstrained hinge form and optimize it directly, and for linear SVMs on large data that is exactly what production solvers do. So why does every textbook detour through the dual? Hold the question; the answer is the last sentence of this section, and it is the reason kernels exist at all.
+
+Form the Lagrangian and set derivatives to zero: $w=\sum_i\alpha_i y_i x_i$ and $\sum_i\alpha_i y_i=0$. That first identity deserves a spoken gloss, because it is doing more work than it looks. It says the optimal weight vector is a weighted sum of the training points themselves, with one non-negative coefficient $\alpha_i$ per point. The model does not live in some separate parameter space; it lives in the span of your data. Substituting yields the **dual**:
 
 $$\max_{\alpha}\ \sum_i\alpha_i - \tfrac12\sum_{i,j}\alpha_i\alpha_j\,y_iy_j\,\langle x_i,x_j\rangle \quad\text{s.t.}\quad 0\le\alpha_i\le C,\ \ \sum_i\alpha_i y_i=0$$
 
-The soft margin only adds the box upper bound $\alpha_i\le C$. By complementary slackness (KKT):
+Read it: we now optimize over $n$ numbers, one per training point, instead of over $p$ weights. The soft margin only adds the box upper bound $\alpha_i\le C$, which caps how much influence any single point may buy.
+
+Where do the support vectors come from? Not from a definition we imposed. They fall out of the optimality conditions. By complementary slackness (KKT):
 
 - $\alpha_i=0$: point is outside the margin, correctly classified — **not** a support vector, zero influence.
 - $0<\alpha_i<C$: point lies *exactly on* the margin ($y_i f(x_i)=1$) — a **free support vector** (used to solve for $b$).
 - $\alpha_i=C$: point is inside the margin or misclassified — a **bounded support vector**.
 
-So the solution depends only on the support vectors — usually a small fraction of the data. **Why the dual matters:** both the objective and the recovered $f(x)=\sum_i\alpha_i y_i\langle x_i,x\rangle + b$ touch the data *only through inner products* $\langle x_i,x_j\rangle$. That's what lets us swap in a kernel.
+Most points land in the first bucket, with $\alpha_i$ pinned at zero. So the solution depends only on the support vectors — usually a small fraction of the data.
+
+Now the payoff, and the answer to the question we parked. **Why the dual matters:** both the objective and the recovered $f(x)=\sum_i\alpha_i y_i\langle x_i,x\rangle + b$ touch the data *only through inner products* $\langle x_i,x_j\rangle$. Nowhere does a raw coordinate of $x$ appear on its own. That's what lets us swap in a kernel.
 
 ### The kernel trick
 
-Replace every inner product with a kernel $K(x,x')=\langle\phi(x),\phi(x')\rangle$:
+Here is the naive plan, and it is a good plan right up to the point where it isn't. Your data is not linearly separable in its original coordinates. Fine: invent extra features, map each point through some $\phi$ into a higher-dimensional space where a hyperplane *can* separate the classes, and run the linear SVM there. Nothing above forbids it. The picture below is exactly this plan working.
+
+The trouble is that the useful $\phi$'s are enormous, and one of them is infinite. So you cannot run the plan literally. What you can do instead is run it without ever computing $\phi$, because the previous section showed that the algorithm only ever asks for inner products. Replace every inner product with a kernel $K(x,x')=\langle\phi(x),\phi(x')\rangle$:
 
 $$f(x)=\sum_i\alpha_i y_i\,K(x_i,x)+b$$
 
-**Mercer's condition:** $K$ is a valid kernel iff it is symmetric and its Gram matrix is positive semidefinite for every finite sample — then it *is* an inner product in some (possibly infinite-dimensional) space. Common kernels: linear $x^\top x'$; polynomial $(\gamma x^\top x'+r)^d$; **RBF/Gaussian** $\exp(-\gamma\|x-x'\|^2)$.
+That single substitution is the entire trick. Prediction is now a weighted sum of similarities between the query and the support vectors, and $\phi$ never appears in your code.
 
-**The RBF kernel is infinite-dimensional.** Factor $K(x,x') = e^{-\gamma\|x\|^2}e^{-\gamma\|x'\|^2}\exp(2\gamma x^\top x')$ and expand the cross term $\exp(2\gamma x^\top x')=\sum_{k\ge0}\frac{(2\gamma)^k(x^\top x')^k}{k!}$ — every polynomial degree $0,1,2,\dots$ appears, so the feature map $\phi$ has infinitely many coordinates. You *cannot* materialize $\phi(x)$; you only ever evaluate the scalar $K$. **This is the whole point of the trick** — it buys an infinite-dimensional boundary at the cost of an $n\times n$ Gram matrix, not an infinite feature vector.
+The obvious worry: can I substitute *any* similarity function I like? No, and the condition is checkable. **Mercer's condition:** $K$ is a valid kernel iff it is symmetric and its Gram matrix is positive semidefinite for every finite sample — then it *is* an inner product in some (possibly infinite-dimensional) space. The test is mechanical and it is a test on a matrix, not on a formula, which is why the Gram matrix earned its own entry in the vocabulary primer. Common kernels: linear $x^\top x'$; polynomial $(\gamma x^\top x'+r)^d$; **RBF/Gaussian** $\exp(-\gamma\|x-x'\|^2)$.
+
+**The RBF kernel is infinite-dimensional.** Factor $K(x,x') = e^{-\gamma\|x\|^2}e^{-\gamma\|x'\|^2}\exp(2\gamma x^\top x')$ and expand the cross term $\exp(2\gamma x^\top x')=\sum_{k\ge0}\frac{(2\gamma)^k(x^\top x')^k}{k!}$ — every polynomial degree $0,1,2,\dots$ appears, so the feature map $\phi$ has infinitely many coordinates. The two leading factors depend on $x$ and $x'$ separately, so they are just a rescaling; the series is where the features are. Each term $(x^\top x')^k$ is the inner product you would get from a degree-$k$ polynomial feature map, and the sum runs forever. You *cannot* materialize $\phi(x)$; you only ever evaluate the scalar $K$. **This is the whole point of the trick** — it buys an infinite-dimensional boundary at the cost of an $n\times n$ Gram matrix, not an infinite feature vector.
 
 *Concretely:* RBF's implicit feature vector has one coordinate for every polynomial degree — and every mixed monomial within each degree — a countably infinite total. You couldn't write it down if you wanted to; the dual formulation lets you avoid ever having to.
 
-<KernelLift1Dto2D caption="The kernel trick in one glance. Left: 1D data with red points inside [-1, 1] and blue points outside. No linear boundary (a single threshold) separates them — you'd need two thresholds, and linear classifiers can't do 'both'. Right: the same points lifted to (x, x²) via ϕ(x) = (x, x²). Blue points sit above y = 1; red below. Now one linear boundary (the horizontal line y = 1) does the job. Kernels let you do this without ever computing ϕ — inner products in the lifted space are the kernel." />
+<KernelLift1Dto2D caption="The kernel trick in one glance. Left: 1D data with red points inside [-1, 1] and blue points outside. Try to place a single threshold on that line that puts all red on one side and all blue on the other — you can't. No linear boundary (a single threshold) separates them: you'd need two thresholds, and linear classifiers can't do 'both'. Right: the same points lifted to (x, x²) via ϕ(x) = (x, x²). Blue points sit above y = 1; red below. Now one linear boundary (the horizontal line y = 1) does the job. Kernels let you do this without ever computing ϕ — inner products in the lifted space are the kernel." />
 
-**The two knobs, in bias-variance terms.** Large $C$ penalizes slack harder → harder margin, fits training data closely → *less* regularization, higher variance (overfit). Large RBF $\gamma$ → each point's influence is very local → a wiggly boundary, high variance. Tune them jointly by cross-validation.
+Now turn the two knobs and watch the boundary move. **The two knobs, in bias-variance terms.** Large $C$ penalizes slack harder → harder margin, fits training data closely → *less* regularization, higher variance (overfit). The direction trips people up, so anchor it on the objective: $C$ multiplies the error term, so raising $C$ makes errors expensive relative to $\tfrac12\|w\|^2$, which is the regularizer. Large RBF $\gamma$ → each point's influence is very local → a wiggly boundary, high variance. Tune them jointly by cross-validation, because they push on the same thing from different sides.
 
 > **Stop and think.** Someone proposes "just compute $\phi(x)$ for the RBF kernel and run a linear SVM on it — same thing, simpler." Why is this impossible, and what's the practical cost you pay *instead* by staying in the dual? *Hint: $\phi$ has infinitely many coordinates, so it can't be stored; the price is the $n\times n$ Gram matrix and $O(n^2)$–$O(n^3)$ training — which is exactly why kernel SVMs don't scale to big data.*
 
@@ -114,19 +154,33 @@ $$f(x)=\sum_i\alpha_i y_i\,K(x_i,x)+b$$
 
 > **Goal — make no model at all: predict from the labels of the closest stored points, and understand exactly when "closest" is trustworthy.**
 
-kNN predicts the majority vote (classification) or average (regression) of the $k$ training points nearest the query. "Training" is just storing the data — it's **lazy**; all the cost is at query time.
+Now go to the other extreme. The SVM compressed a whole training set down to a handful of support vectors and a weight vector. kNN refuses to compress anything.
+
+kNN predicts the majority vote (classification) or average (regression) of the $k$ training points nearest the query. "Training" is just storing the data — it's **lazy**; all the cost is at query time. There is no fitting step to get wrong, no objective, no gradient. Which means every design decision has been shoved into one place: what "nearest" means.
 
 ### Distance, and why scaling is mandatory
 
-Common metrics: Euclidean ($L_2$), Manhattan ($L_1$), Minkowski (general $p$), **Mahalanobis** $\sqrt{(x-x')^\top\Sigma^{-1}(x-x')}$ (accounts for feature covariance and scale), and cosine (direction only, for text/embeddings). Euclidean distance is dominated by large-range features: a feature on $[0,500{,}000]$ swamps one on $[0,1]$, so the second is effectively ignored. **You must standardize features before kNN** (z-score or min-max), or use Mahalanobis (which bakes scaling in) or cosine (magnitude-invariant).
+Common metrics: Euclidean ($L_2$), Manhattan ($L_1$), Minkowski (general $p$), **Mahalanobis** $\sqrt{(x-x')^\top\Sigma^{-1}(x-x')}$ (accounts for feature covariance and scale), and cosine (direction only, for text/embeddings).
+
+Pick Euclidean, the default, and look at what it does to a table with mixed units. Euclidean distance is dominated by large-range features: a feature on $[0,500{,}000]$ swamps one on $[0,1]$, so the second is effectively ignored. Squaring makes it worse, since the big feature's differences are squared before they are summed. You have not turned the second feature off in code, and nothing warns you. The model just quietly stops consulting it.
+
+**You must standardize features before kNN** (z-score or min-max), or use Mahalanobis (which bakes scaling in) or cosine (magnitude-invariant). This is not a tuning nicety. It is the difference between a two-feature model and a one-feature model.
 
 ### Choosing $k$ is bias-variance
 
-Small $k$ → flexible, low bias, **high variance** ($k=1$ memorizes the training set: zero training error, a jagged boundary). Large $k$ → smoother, **high bias, low variance** ($k=n$ predicts the global majority/mean — maximal underfit). The optimal $k$ is intermediate, chosen by cross-validation, and grows with $n$. A useful framing: kNN regression is **local averaging with an adaptive bandwidth** (the radius to the $k$-th neighbor) — the variable-bandwidth cousin of Nadaraya–Watson kernel regression. Its variance scales like $\sigma^2/k$, its bias grows with $k$.
+There is only one hyperparameter, so turn it to each extreme and watch.
 
-<kNNBoundaries caption="k=1 vs k=15 decision boundaries on the same noisy 2D scatter. Left (k=1): the boundary follows every noise point exactly — zero training error, a jagged and unstable partition — high variance. Right (k=15): the boundary is smooth and ignores small pockets — some training points end up on the 'wrong' side but the classifier generalizes better — high bias. This is the whole bias-variance dial, made picture-shaped." />
+Small $k$ → flexible, low bias, **high variance** ($k=1$ memorizes the training set: zero training error, a jagged boundary). Zero training error should not impress you here; 1-NN achieves it by construction, because the nearest point to a training point is itself.
+
+Large $k$ → smoother, **high bias, low variance** ($k=n$ predicts the global majority/mean — maximal underfit). At $k=n$ the query is not consulted at all: every input gets the same answer.
+
+The optimal $k$ is intermediate, chosen by cross-validation, and grows with $n$. A useful framing: kNN regression is **local averaging with an adaptive bandwidth** (the radius to the $k$-th neighbor) — the variable-bandwidth cousin of Nadaraya–Watson kernel regression. Its variance scales like $\sigma^2/k$, its bias grows with $k$. That pair of statements is the trade in symbols: averaging $k$ noisy labels divides the noise by $k$, while reaching further out to find those $k$ labels means averaging over points that are less and less like your query.
+
+<kNNBoundaries caption="k=1 vs k=15 decision boundaries on the same noisy 2D scatter. Left (k=1): the boundary follows every noise point exactly — zero training error, a jagged and unstable partition — high variance. Find an isolated point of one class sitting in the other class's territory and notice the little island the boundary carves around it. Right (k=15): the boundary is smooth and ignores small pockets — some training points end up on the 'wrong' side but the classifier generalizes better — high bias. This is the whole bias-variance dial, made picture-shaped." />
 
 ### How good can it be? Cover–Hart
+
+An algorithm this dumb should have a terrible guarantee. It doesn't.
 
 A classic result (Cover & Hart 1967): as $n\to\infty$, the 1-nearest-neighbor error $R$ is bounded in terms of the Bayes error $R^\star$:
 
@@ -134,23 +188,31 @@ $$R^\star \le R \le R^\star\Bigl(2 - \tfrac{M}{M-1}R^\star\Bigr)$$
 
 for $M$ classes; in the **binary** case this is $R \le 2R^\star(1-R^\star) \le 2R^\star$.
 
-So **1-NN's asymptotic error is at most twice the optimal** — half the achievable information is in the single nearest neighbor. With $k\to\infty$ and $k/n\to0$, kNN becomes Bayes-*consistent* ($R\to R^\star$). For a method with no training, that's remarkable.
+Read the left inequality first: nothing beats the Bayes error, so 1-NN cannot either. The right one is the interesting half. So **1-NN's asymptotic error is at most twice the optimal** — half the achievable information is in the single nearest neighbor. With $k\to\infty$ and $k/n\to0$, kNN becomes Bayes-*consistent* ($R\to R^\star$). Read that pair of conditions aloud: look at more and more neighbors, but let the neighborhood shrink relative to the dataset, so you average away noise without averaging in strangers. For a method with no training, that's remarkable.
 
 ### The curse of dimensionality — a probability fact
 
-Here's the catch. In high dimensions, distances **concentrate**: for a query against $n$ points, the ratio of the farthest to the nearest distance tends to 1. Beyer et al. (1999) make this precise — under mild conditions the ratio of farthest to nearest distance converges to 1 (for the formal variance-ratio statement, ask an AI assistant; an interviewer won't ask you to reproduce it).
+Here's the catch, and it is not a computational catch. It is a fact about probability that no amount of engineering removes.
 
-Intuition: $\|x-x'\|^2=\sum_{j=1}^d(x_j-x_j')^2$ is a sum of $d$ i.i.d. terms, so its mean grows like $d$ but its standard deviation like $\sqrt{d}$ — the coefficient of variation shrinks like $1/\sqrt{d}$, and all pairwise distances bunch together. "Nearest" stops being meaningfully nearest. This is *why* high-dimensional kNN needs either low **intrinsic** dimension (cluster structure) or learned low-dimensional embeddings.
+In high dimensions, distances **concentrate**: for a query against $n$ points, the ratio of the farthest to the nearest distance tends to 1. Sit with that for a second. If the farthest point is essentially the same distance away as the nearest one, then the word "nearest" has stopped carrying information, and the vote you take is close to arbitrary. Beyer et al. (1999) make this precise — under mild conditions the ratio of farthest to nearest distance converges to 1 (for the formal variance-ratio statement, ask an AI assistant; an interviewer won't ask you to reproduce it).
 
-<DistanceConcentration caption="Pairwise distances for 100 uniform points in the unit cube of dimension d, normalized so the mean distance is 1. Each bar is [min, max]/mean. At d=2 the bar spans a wide range — nearest is clearly nearer than farthest. As d grows, the bar collapses: at d=1000 every pair sits within a few percent of the mean, so 'nearest neighbor' loses information — that's Beyer's concentration theorem, made a visual." />
+Intuition: $\|x-x'\|^2=\sum_{j=1}^d(x_j-x_j')^2$ is a sum of $d$ i.i.d. terms, so its mean grows like $d$ but its standard deviation like $\sqrt{d}$ — the coefficient of variation shrinks like $1/\sqrt{d}$, and all pairwise distances bunch together. That is the whole argument, and it is worth being able to say in one breath: distance is a sum, sums of many independent terms concentrate around their mean, and a squared distance with $d$ terms is exactly such a sum. "Nearest" stops being meaningfully nearest. This is *why* high-dimensional kNN needs either low **intrinsic** dimension (cluster structure) or learned low-dimensional embeddings.
+
+<DistanceConcentration caption="Pairwise distances for 100 uniform points in the unit cube of dimension d, normalized so the mean distance is 1. Each bar is [min, max]/mean. Read the bars left to right and watch them shrink. At d=2 the bar spans a wide range — nearest is clearly nearer than farthest. As d grows, the bar collapses: at d=1000 every pair sits within a few percent of the mean, so 'nearest neighbor' loses information — that's Beyer's concentration theorem, made a visual." />
 
 ### kNN at scale: approximate nearest neighbors
 
-Exact kNN query is $O(nd)$; KD-trees give $O(\log n)$ in low dimensions but **collapse back to $O(n)$ past ~20 dimensions** (ball-trees do a bit better). Modern embedding retrieval (semantic search, RAG) has millions of high-dimensional vectors, so it uses **approximate nearest neighbor (ANN)**: **HNSW** (hierarchical navigable small-world graphs — the dominant index in Pinecone, Weaviate, Qdrant, pgvector), **FAISS** (IVF + product quantization, GPU, billion-scale), and **ScaNN**. They trade exactness for sub-linear query at high recall — kNN is far from obsolete; it just went approximate.
+The other problem with kNN is cost, and it is the reason a whole industry of index structures exists.
+
+Exact kNN query is $O(nd)$; you touch every stored point on every query. KD-trees give $O(\log n)$ in low dimensions but **collapse back to $O(n)$ past ~20 dimensions** (ball-trees do a bit better). Modern embedding retrieval (semantic search, RAG) has millions of high-dimensional vectors, so neither option survives contact with production.
+
+What ships instead is **approximate nearest neighbor (ANN)**: **HNSW** (hierarchical navigable small-world graphs — the dominant index in Pinecone, Weaviate, Qdrant, pgvector), **FAISS** (IVF + product quantization, GPU, billion-scale), and **ScaNN**. They trade exactness for sub-linear query at high recall. The trade is the point: you give up the guarantee of finding the true nearest neighbor in exchange for finding it almost always, in milliseconds. So kNN is far from obsolete; it just went approximate.
 
 ## Why a "weak baseline" deserves a full lesson
 
 > **Goal — use the simplest generative classifier to nail two ideas that recur everywhere: the generative-vs-discriminative tradeoff, and the gap between classifying and estimating probabilities.** Naive Bayes is dismissed as a toy, but it's the cleanest case study in the course: it's MLE of a joint model (c1.2's "loss = −log p"), it's the generative twin of logistic regression (c1.3), and it's the canonical example of "great AUC, terrible calibration" (c1.2/c1.6). Interviewers love it precisely because the obvious criticism — "the independence assumption is false" — is a *trap*.
+
+The trap is worth flagging up front, so you read the rest with the right question in mind. Everyone knows the independence assumption is false. The interesting question is not whether it's false. It's *what specifically breaks when it's false*, and the answer turns out to be surprisingly narrow.
 
 > **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
 >
@@ -164,31 +226,45 @@ Exact kNN query is $O(nd)$; KD-trees give $O(\log n)$ in low dimensions but **co
 
 > **Goal — turn classification into counting by assuming features are independent within each class.**
 
-The Bayes-optimal classifier picks $\hat y(x)=\arg\max_y p(y\mid x)=\arg\max_y \underbrace{p(x\mid y)}_{\text{likelihood}}\,\underbrace{p(y)}_{\text{prior}}$ (the evidence $p(x)$ is constant in $y$). Its error is the irreducible **Bayes error** $R^\star=\mathbb{E}_x[1-\max_y p(y\mid x)]$ — the floor no classifier beats.
+Suppose you could know the true probability of each class given the input. Then classification is over: pick the most probable class, and you are done.
 
-The catch: $p(x\mid y)$ over $d$ features is a joint distribution with $O(2^d)$ parameters (binary case) — unestimable. **The naive assumption** is conditional independence *given the class*:
+The Bayes-optimal classifier picks $\hat y(x)=\arg\max_y p(y\mid x)=\arg\max_y \underbrace{p(x\mid y)}_{\text{likelihood}}\,\underbrace{p(y)}_{\text{prior}}$ (the evidence $p(x)$ is constant in $y$). The denominator drops out because it is the same number for every candidate $y$, and you are only comparing. Its error is the irreducible **Bayes error** $R^\star=\mathbb{E}_x[1-\max_y p(y\mid x)]$ — the floor no classifier beats. This is the same $R^\star$ that Cover–Hart measured 1-NN against a few sections ago.
+
+So the ideal procedure exists and it is simple. Why doesn't everyone run it? Because one of its two ingredients is unobtainable.
+
+The catch: $p(x\mid y)$ over $d$ features is a joint distribution with $O(2^d)$ parameters (binary case) — unestimable. Every combination of feature values needs its own probability, and the number of combinations doubles with each feature. At $d=30$ you would need more cells than you will ever have rows.
+
+So substitute something cheap for something impossible. **The naive assumption** is conditional independence *given the class*:
 
 $$p(x\mid y)=\prod_{j=1}^d p(x_j\mid y)\quad\Longrightarrow\quad \hat y=\arg\max_y\;p(y)\prod_{j=1}^d p(x_j\mid y)$$
 
-This collapses the parameter count to $O(d)$ per class — each $p(x_j\mid y)$ is a one-dimensional estimate. Work in **log-space** (a product of thousands of small probabilities underflows to 0; the log-sum is a manageable negative number), recovering normalized posteriors via log-sum-exp (c1.2's numerical-stability point, again):
+Read the left side: once you know the class, knowing feature 1 tells you nothing about feature 2. It is false almost everywhere, and the whole rest of this lesson is about what that costs.
+
+Read the right side for what it buys. This collapses the parameter count to $O(d)$ per class — each $p(x_j\mid y)$ is a one-dimensional estimate. One number per feature per class, and each one is estimated by counting. That is why NB trains in a single pass over the data.
+
+One implementation detail that is not optional. Work in **log-space** (a product of thousands of small probabilities underflows to 0; the log-sum is a manageable negative number), recovering normalized posteriors via log-sum-exp (c1.2's numerical-stability point, again):
 
 $$\log p(y\mid x)=\log p(y)+\sum_{j=1}^d \log p(x_j\mid y)-\log p(x)$$
+
+That is the previous equation with a log taken through it: the product became a sum, the prior became an additive term, and the evidence became a constant you subtract from every class alike.
 
 ## Part 2 — Why the boundary is linear
 
 > **Goal — show that "counting" produces exactly a logistic-regression-shaped hyperplane.**
 
-The mechanism is worth naming before the algebra: taking the log turns Bayes's *product* over features into a *sum*, and each per-feature summand collapses to a constant plus a weight times $x_j$. Sum those and you get a linear function of $x$ — a hyperplane. That's it; "linear boundary" is a *consequence* of independence + log, not a modeling assumption.
+The mechanism is worth naming before the algebra: taking the log turns Bayes's *product* over features into a *sum*, and each per-feature summand collapses to a constant plus a weight times $x_j$. Sum those and you get a linear function of $x$ — a hyperplane. That's it; "linear boundary" is a *consequence* of independence + log, not a modeling assumption. Nobody chose a hyperplane. It fell out of counting.
 
-Take binary features $x_j\in\{0,1\}$ with $\theta_{cj}=p(x_j{=}1\mid y{=}c)$, so $\log p(x_j\mid c)=x_j\log\theta_{cj}+(1-x_j)\log(1-\theta_{cj})$ — **affine in $x_j$**. Summing over $j$ and subtracting the $y{=}0$ case gives the log-odds:
+Now watch it happen in the simplest case. Take binary features $x_j\in\{0,1\}$ with $\theta_{cj}=p(x_j{=}1\mid y{=}c)$, so $\log p(x_j\mid c)=x_j\log\theta_{cj}+(1-x_j)\log(1-\theta_{cj})$ — **affine in $x_j$**. Check that by plugging in the only two values $x_j$ can take: at $x_j=1$ it returns $\log\theta_{cj}$, at $x_j=0$ it returns $\log(1-\theta_{cj})$, and in between it is a straight line in $x_j$. Summing over $j$ and subtracting the $y{=}0$ case gives the log-odds:
 
 $$\log\frac{p(1\mid x)}{p(0\mid x)}=\underbrace{\Bigl[\log\tfrac{p(1)}{p(0)}+\sum_j\log\tfrac{1-\theta_{1j}}{1-\theta_{0j}}\Bigr]}_{b}+\sum_j x_j\underbrace{\log\frac{\theta_{1j}(1-\theta_{0j})}{\theta_{0j}(1-\theta_{1j})}}_{w_j}=w^\top x+b$$
 
+Read the two braces. The bias $b$ collects everything that does not depend on $x$: the class prior ratio, plus one term per feature for the "feature absent" case. Each weight $w_j$ is a log ratio of odds, and it is large and positive exactly when feature $j$ is much more common in class 1 than in class 0.
+
 A hyperplane — **NB is a linear classifier**, of the same log-linear family as logistic regression.
 
-<GaussianClassConditionals caption="Two Gaussian class-conditionals with shared variance (blue = class 0, red = class 1). The dashed vertical is where the densities cross — the point at which the posteriors flip. Bottom axis: the log-odds log p(x|1)/p(x|0), which under shared variance is exactly linear in x and crosses zero at the same crossover. 'Equal-variance Gaussian NB = logistic regression' is this picture: same linear decision function, fit two different ways." />
+<GaussianClassConditionals caption="Two Gaussian class-conditionals with shared variance (blue = class 0, red = class 1). The dashed vertical is where the densities cross — the point at which the posteriors flip. Now look at the bottom axis: the log-odds log p(x|1)/p(x|0), which under shared variance is exactly linear in x and crosses zero at the same crossover. Two curved bells, one straight log-odds line. 'Equal-variance Gaussian NB = logistic regression' is this picture: same linear decision function, fit two different ways." />
 
-The variants differ only in the per-feature likelihood $p(x_j\mid y)$:
+Everything above used binary features, but nothing about the argument was specific to them. The variants differ only in the per-feature likelihood $p(x_j\mid y)$:
 
 - **Gaussian NB** — continuous $x_j\sim\mathcal{N}(\mu_{cj},\sigma_{cj}^2)$.
 - **Multinomial NB** — word counts; score $\log p(c)+\sum_j x_j\log\theta_{cj}$ (text).
@@ -199,39 +275,59 @@ The variants differ only in the per-feature likelihood $p(x_j\mid y)$:
 
 > **Goal — stop a single unseen feature from vetoing an entire class, and recognize the fix as Bayesian shrinkage.**
 
-If a word never appears in class $c$ in training, the MLE $\hat\theta_{cj}=0$, so the whole product $\prod_j p(x_j\mid c)=0$ — one unseen feature sets the class probability to **zero regardless of overwhelming evidence elsewhere** ($\log 0=-\infty$, an absorbing state). **Additive smoothing** adds a pseudo-count: Multinomial NB uses $\hat\theta_{cj}=\frac{N_{cj}+\alpha}{N_c+\alpha d}$ ($\alpha=1$ = Laplace, $0<\alpha<1$ = Lidstone).
+Run plain maximum likelihood on text and you will hit this on your first real dataset.
 
-This isn't arbitrary. For a multinomial with a symmetric **Dirichlet$(\beta)$** prior, the posterior is Dirichlet$(N_j+\beta)$, whose mode is $\frac{N_j+\beta-1}{N+d(\beta-1)}$ — set $\alpha=\beta-1$ and you recover Laplace smoothing exactly. So **MLE = raw counts; MAP under a Dirichlet prior = smoothed counts** — the identical move to c1.3 (ridge/lasso = Gaussian/Laplace priors *on coefficients*; here a Dirichlet prior *on probabilities*). The penalty is always a negative-log-prior, and smoothing shrinks rare-event frequencies toward uniform — the same **James–Stein** logic from c1.3.
+If a word never appears in class $c$ in training, the MLE $\hat\theta_{cj}=0$, so the whole product $\prod_j p(x_j\mid c)=0$ — one unseen feature sets the class probability to **zero regardless of overwhelming evidence elsewhere** ($\log 0=-\infty$, an absorbing state). Note how disproportionate that is. A thousand features screaming "class $c$" cannot outvote one feature that happened to be missing from your training sample. In log-space the reason is stark: everything else contributes a finite number to a sum that already contains negative infinity.
+
+The standard fix looks like a hack. **Additive smoothing** adds a pseudo-count: Multinomial NB uses $\hat\theta_{cj}=\frac{N_{cj}+\alpha}{N_c+\alpha d}$ ($\alpha=1$ = Laplace, $0<\alpha<1$ = Lidstone). Read it as pretending you saw each feature $\alpha$ extra times in each class before you looked at the data, then counting normally. No count can be zero, so no probability can be zero.
+
+This isn't arbitrary. For a multinomial with a symmetric **Dirichlet$(\beta)$** prior, the posterior is Dirichlet$(N_j+\beta)$, whose mode is $\frac{N_j+\beta-1}{N+d(\beta-1)}$ — set $\alpha=\beta-1$ and you recover Laplace smoothing exactly. The "fake counts" you invented are the prior, written in the units of the thing being counted.
+
+So **MLE = raw counts; MAP under a Dirichlet prior = smoothed counts** — the identical move to c1.3 (ridge/lasso = Gaussian/Laplace priors *on coefficients*; here a Dirichlet prior *on probabilities*). The penalty is always a negative-log-prior, and smoothing shrinks rare-event frequencies toward uniform — the same **James–Stein** logic from c1.3. If you have already internalized ridge as "a Gaussian prior pulling coefficients toward zero," this is the same sentence with two nouns swapped.
 
 ## Part 4 — Generative vs. discriminative: the Ng–Jordan pair
 
 > **Goal — see NB and logistic regression as the same model fit two ways, and know which wins when.**
 
-**They share a functional form.** Assume Gaussian NB with variance *shared across classes*, $p(x_j\mid c)=\mathcal{N}(\mu_{cj},\sigma_j^2)$. In the log-odds the quadratic $x_j^2$ terms **cancel** (shared $\sigma_j^2$), leaving
+Part 2 showed NB produces a linear log-odds. Logistic regression also produces a linear log-odds. That is suspicious enough to chase down, and chasing it down gives one of the cleanest results in classical ML.
+
+**They share a functional form.** Assume Gaussian NB with variance *shared across classes*, $p(x_j\mid c)=\mathcal{N}(\mu_{cj},\sigma_j^2)$. Writing the log of a Gaussian gives a quadratic in $x_j$, so you would expect a quadratic boundary. In the log-odds the quadratic $x_j^2$ terms **cancel** (shared $\sigma_j^2$), because the two classes contribute identical $x_j^2$ coefficients and you are subtracting them. That leaves
 
 $$\log\frac{p(1\mid x)}{p(0\mid x)}=b+\sum_j\frac{\mu_{1j}-\mu_{0j}}{\sigma_j^2}\,x_j=w^\top x+b\;\Rightarrow\;p(1\mid x)=\sigma(w^\top x+b)$$
 
-— the **logistic form**. (Drop the shared-variance assumption and the $x_j^2$ terms survive → a quadratic boundary = QDA.) So GNB and logistic regression assume the same $p(y\mid x)$ family; they differ only in *how they fit it*: **NB maximizes $\sum_i\log p(x_i,y_i)$** (generative, by counting moments), **logistic maximizes $\sum_i\log p(y_i\mid x_i)$** (discriminative, by gradient descent).
+— the **logistic form**. Read the weight: feature $j$ gets a large weight when the two class means are far apart relative to that feature's variance. Signal over noise, per feature. (Drop the shared-variance assumption and the $x_j^2$ terms survive → a quadratic boundary = QDA.)
 
-**Which wins (Ng & Jordan 2002).** Logistic has **lower asymptotic error** (it fits $p(y\mid x)$ directly, so it isn't biased by NB's false independence assumption). But NB **converges far faster**: its $O(d)$ parameters are independent univariate estimates each converging at $O(1/\sqrt m)$, so $m=O(\log d)$ examples suffice to approach its (worse) plateau, versus logistic's $m=O(d)$. **Two regimes:** with *few* examples NB reaches its plateau fast and wins; with *many*, logistic overtakes. "Generative is obsolete" is wrong — it's the right tool when labels are scarce relative to dimension.
+So GNB and logistic regression assume the same $p(y\mid x)$ family; they differ only in *how they fit it*: **NB maximizes $\sum_i\log p(x_i,y_i)$** (generative, by counting moments), **logistic maximizes $\sum_i\log p(y_i\mid x_i)$** (discriminative, by gradient descent). Same hypothesis class, two different objectives, two different answers.
 
-<NgJordanCurves caption="Test error vs log(n) for Naive Bayes (red) and logistic regression (blue). NB descends steeply and plateaus at a higher floor — its bias caps how good it can get, but its low-variance $\log d$-sized parameter count means it gets there on very few examples. Logistic descends more slowly (needs $O(d)$ examples for its variance to shrink) but keeps improving past NB's plateau. The shaded band marks the crossover — before it, generative wins on scarce data; after it, discriminative wins." />
+**Which wins (Ng & Jordan 2002).** Logistic has **lower asymptotic error** (it fits $p(y\mid x)$ directly, so it isn't biased by NB's false independence assumption). Given unlimited data, the model that optimizes the thing you actually want beats the model that optimizes a proxy.
+
+But asymptotic error is not the only axis. NB **converges far faster**: its $O(d)$ parameters are independent univariate estimates each converging at $O(1/\sqrt m)$, so $m=O(\log d)$ examples suffice to approach its (worse) plateau, versus logistic's $m=O(d)$. Each NB parameter is a mean estimated from all the rows, which is about the cheapest statistical estimate there is; logistic has to fit all $d$ weights jointly.
+
+**Two regimes:** with *few* examples NB reaches its plateau fast and wins; with *many*, logistic overtakes. "Generative is obsolete" is wrong — it's the right tool when labels are scarce relative to dimension.
+
+<NgJordanCurves caption="Test error vs log(n) for Naive Bayes (red) and logistic regression (blue). Follow the red curve first: it descends steeply and plateaus at a higher floor — its bias caps how good it can get, but its low-variance $\log d$-sized parameter count means it gets there on very few examples. Logistic descends more slowly (needs $O(d)$ examples for its variance to shrink) but keeps improving past NB's plateau. The shaded band marks the crossover — before it, generative wins on scarce data; after it, discriminative wins." />
 
 ## Part 5 — Great classifier, terrible probabilities
 
 > **Goal — internalize the course's sharpest calibration lesson: a model can rank perfectly and still lie about probabilities.**
 
-Why does a model built on a *false* assumption work at all? **Domingos & Pazzani (1997):** the assumption damages the *probabilities*, not the *argmax*. Correlated features make NB **double-count evidence** — if $x_2\approx x_1$, NB multiplies their likelihood ratios as if independent, squaring the true evidence and pushing the posterior toward 0 or 1. But the decision only needs the (biased) posterior to stay on the correct side of $\tfrac12$. Their exact result: the region where NB is *classification*-optimal is vastly larger than where it's *probability*-optimal.
+Time to answer the question the "naive" label plants in your head. Why does a model built on a *false* assumption work at all?
+
+**Domingos & Pazzani (1997):** the assumption damages the *probabilities*, not the *argmax*. Here is the mechanism. Correlated features make NB **double-count evidence** — if $x_2\approx x_1$, NB multiplies their likelihood ratios as if independent, squaring the true evidence and pushing the posterior toward 0 or 1. One witness testified twice and the model recorded two witnesses. But the decision only needs the (biased) posterior to stay on the correct side of $\tfrac12$, and squaring a number bigger than 1 keeps it bigger than 1. Their exact result: the region where NB is *classification*-optimal is vastly larger than where it's *probability*-optimal.
 
 *In one line:* double-counting correlated features squares the log-odds, so the sigmoid saturates — but "saturated on the correct side of ½" is still the right label. Accuracy survives; probabilities don't.
 
-<NbReliability caption="Reliability diagram: predicted confidence (x) vs empirical accuracy (y). The dashed diagonal is perfect calibration. Uncalibrated Naive Bayes (red) is S-shaped — pinned near 0 or 1 for most of its predictions because double-counted evidence squares the log-odds. Platt-recalibrated NB (blue) tracks the diagonal. AUC (a rank statistic) is unchanged across both curves — the rankings didn't move, only the scores they were mapped to did." />
+<NbReliability caption="Reliability diagram: predicted confidence (x) vs empirical accuracy (y). The dashed diagonal is perfect calibration, so read vertical distance from that diagonal as the size of the lie. Uncalibrated Naive Bayes (red) is S-shaped — pinned near 0 or 1 for most of its predictions because double-counted evidence squares the log-odds. Platt-recalibrated NB (blue) tracks the diagonal. AUC (a rank statistic) is unchanged across both curves — the rankings didn't move, only the scores they were mapped to did." />
 
-So NB's `predict_proba` outputs are **systematically overconfident** — the canonical "high AUC, bad ECE/Brier" case (c1.2, c1.6), and unlike the deep-net overconfidence of Guo 2017 this comes from the model structure itself. **Treat NB scores as rankings, not probabilities**; if you threshold on a probability or feed it into expected-value math, **calibrate first** (Platt/sigmoid or isotonic via `CalibratedClassifierCV`).
+So NB's `predict_proba` outputs are **systematically overconfident** — the canonical "high AUC, bad ECE/Brier" case (c1.2, c1.6), and unlike the deep-net overconfidence of Guo 2017 this comes from the model structure itself. That distinction matters for the fix: you are not going to train it away with more data or better regularization, because the assumption that causes it is baked into the model.
+
+The practical rule is short. **Treat NB scores as rankings, not probabilities**; if you threshold on a probability or feed it into expected-value math, **calibrate first** (Platt/sigmoid or isotonic via `CalibratedClassifierCV`).
 
 > **Stop and think.** You duplicate a feature ($x_2 := x_1$). What happens to NB's log-odds, the true evidence, and the predicted probability — and does the classification change? *Hint: the feature's $w_j x_j$ contribution is counted twice, doubling its log-odds while the true information is unchanged → the posterior is pushed toward 0/1 (overconfident). The argmax usually survives (still on the same side of ½), so accuracy/AUC are fine while calibration degrades — exactly Domingos–Pazzani.*
 
 ## Tradeoff matrix
+
+Everything above, compressed to the two axes you will actually be asked about in a design round: what does it cost, and when does it break.
 
 | Method | Decision rule | Training cost | Inference cost | Scales to large $n$? | Best for |
 |---|---|---|---|---|---|
@@ -240,6 +336,8 @@ So NB's `predict_proba` outputs are **systematically overconfident** — the can
 | kNN (exact) | Vote of $k$ nearest | $O(1)$ (store) | $O(nd)$ per query | No (high $d$) | Low-dim, simple baselines |
 | kNN (approximate) | ANN vote | Build index | $\sim O(\log n)$ | Yes | Embedding retrieval / RAG |
 | Logistic (c1.3) | Linear, probabilistic | $O(np)$ | $O(p)$ | Yes | When you need calibrated probabilities |
+
+And the NB family, which differs on exactly one axis: what you assume about a single feature.
 
 | Variant | Feature model | Use for | Note |
 |---|---|---|---|
@@ -258,6 +356,8 @@ So NB's `predict_proba` outputs are **systematically overconfident** — the can
 
 ## Worked decision walk-throughs
 
+Read each of these as a question first. Decide before you read the answer.
+
 **Scenario A: text classification, 50k sparse TF-IDF features, 100k docs.** **Linear SVM** (`LinearSVC`). High-dimensional sparse data is where margin maximization shines, and linear SVMs scale; an RBF kernel would be both unnecessary and too slow.
 
 **Scenario B: 5M rows, RBF boundary suspected.** *Not* `SVC(kernel='rbf')` — its $O(n^2)$–$O(n^3)$ training is impractical past tens of thousands of rows. Use `LinearSVC`/`SGDClassifier`, optionally with a **kernel approximation** (`Nystroem` or random Fourier features) to recover RBF-like nonlinearity at scale.
@@ -265,6 +365,8 @@ So NB's `predict_proba` outputs are **systematically overconfident** — the can
 **Scenario C: semantic search over 50M embeddings.** **Approximate kNN** with an HNSW index (FAISS/hnswlib/a vector DB). Exact kNN is infeasible; ANN gives high recall at millisecond latency.
 
 **Scenario D: low-dimensional, clearly nonlinear, few thousand points.** **RBF SVM** — tune $C$ and $\gamma$ by grid-search CV. This is its sweet spot.
+
+Now the same exercise for the generative side.
 
 **Scenario A: spam filter, a few hundred labeled emails.** **Multinomial NB.** Tiny data, high-dimensional bag-of-words — exactly the regime where NB's fast convergence beats logistic (Ng–Jordan), and it trains in one pass.
 
@@ -276,6 +378,8 @@ So NB's `predict_proba` outputs are **systematically overconfident** — the can
 
 
 ## Production failure modes
+
+Each of these is a specific line of the lesson above, showing up as an incident.
 
 1. **Unscaled kNN.** One large-range feature dominates the distance; the model silently ignores everything else. Always standardize.
 2. **Kernel SVM on big data.** `SVC(kernel='rbf')` on millions of rows OOMs or runs for days (Gram matrix is $n\times n$). Switch to linear/approximate.
@@ -291,6 +395,8 @@ So NB's `predict_proba` outputs are **systematically overconfident** — the can
 
 
 ## Interview gotchas
+
+These are the questions, and the shortest correct answers. If one of them reads as a stranger, go back to its section.
 
 - **"Derive the SVM margin."** $2/\|w\|$ from $w^\top x_\pm + b=\pm1$; maximize ⇔ minimize $\tfrac12\|w\|^2$; geometric not functional margin.
 - **"Why kernelize the dual, not the primal?"** The dual depends on data only through inner products, and $w=\sum\alpha_i y_i x_i$ is infinite-dimensional for RBF — the dual never materializes $\phi$.

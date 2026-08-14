@@ -4,14 +4,14 @@ chapter: 1
 title: Data, splits & validation
 subtitle: Leakage, splits, cross-validation and honest evaluation
 refs: [1, 2, 8, 9, 21]
-estimatedMinutes: 110
+estimatedMinutes: 135
 ---
 
 ## TL;DR
 
-Most ML systems fail in production not because the model is wrong but because the **data pipeline silently violated an assumption the model was trained under**. This lesson teaches the data architecture, sampling math, splitting strategies, and leakage detection that make production ML *work* — derived, with worked examples, not just stated.
+Picture the postmortem. The model is fine. The architecture diagram is fine. The offline AUC was 0.93 and the production AUC is 0.74, and nobody can find the bug because there isn't a bug in the modeling code. Most ML systems fail in production not because the model is wrong but because the **data pipeline silently violated an assumption the model was trained under**. This lesson teaches the data architecture, sampling math, splitting strategies, and leakage detection that make production ML *work* — derived, with worked examples, not just stated.
 
-Model selection is **an estimation problem about an estimator.** Test error is a quantity you *estimate*; cross-validation is the *estimator*; and its own bias, its variance, and — crucially — the **selection bias you induce by optimizing on it** govern every choice in this lesson. The **bias-variance decomposition** tells you *what you're trading*; **cross-validation** tells you *how well you can measure the trade*; **double descent** tells you *where the classical trade stops being the whole story*. (CV *mechanics* — k-fold, stratified, group, temporal, nested — are in c1.1; here we treat CV as a statistical estimator and derive bias-variance from scratch.)
+Then there's the second half of the lesson, which is about the number you report. Here is the reframe that makes it click: model selection is **an estimation problem about an estimator.** Test error is a quantity you *estimate*; cross-validation is the *estimator*; and its own bias, its variance, and — crucially — the **selection bias you induce by optimizing on it** govern every choice in this lesson. Three tools split the work between them. The **bias-variance decomposition** tells you *what you're trading*; **cross-validation** tells you *how well you can measure the trade*; **double descent** tells you *where the classical trade stops being the whole story*. (CV *mechanics* — k-fold, stratified, group, temporal, nested — are in c1.1; here we treat CV as a statistical estimator and derive bias-variance from scratch.)
 
 ## What you'll be able to do after this lesson
 
@@ -33,19 +33,19 @@ Model selection is **an estimation problem about an estimator.** Test error is a
 
 ## Why this lesson comes first
 
-In a chapter about *ML system design*, you'd expect to start with models. But every ML system design failure I've seen in production — and every staff-level interview question I've heard — comes back to one of three things:
+In a chapter about *ML system design*, you'd expect to start with models. That expectation is reasonable and I want to break it deliberately, because it does not survive contact with real systems. Every ML system design failure I've seen in production — and every staff-level interview question I've heard — comes back to one of three things:
 
 1. **The training data didn't represent production reality** (sampling, splits)
 2. **A feature was easier to compute at training time than at serving time** (training-serving skew)
 3. **Some information that wouldn't exist at prediction time leaked into training** (leakage)
 
-None of those are model problems. They're data-pipeline problems. So we start here.
+Read that list again and notice what is missing from it. No architecture. No loss function. No optimizer. None of those are model problems. They're data-pipeline problems. So we start here.
 
 > **A note on terminology.** This lesson uses ML vocabulary that a senior engineer who hasn't touched core ML in a few years may want grounded. The first time each term appears, it gets a one-sentence definition. There's also a short [classification-metric refresher](#refresher-classification-evaluation-vocabulary) inside the lesson, before the leakage section needs it.
 
 ## A vocabulary primer
 
-A quick grounding of words this lesson uses constantly.
+A quick grounding of words this lesson uses constantly. None of these are hard ideas. They're just words that get thrown around at speed in interviews, and it's worth having each one pinned down before the arguments start.
 
 - **Feature** — one input variable to a model. A row in the training data is a vector of features.
 - **Label / target** — the thing the model is trying to predict. In supervised learning, every training row has a label.
@@ -55,29 +55,29 @@ A quick grounding of words this lesson uses constantly.
 - **Drift** — the data distribution changes over time. Covariate drift means $p(X)$ changes; label drift means $p(Y \mid X)$ changes; concept drift refers loosely to either or both.
 - **Generalization** — how well the model performs on data it wasn't trained on.
 
-Classification-metric vocabulary (precision, recall, ROC, AUC, PR-AUC) is introduced [later in the lesson](#refresher-classification-evaluation-vocabulary), right before we need it.
+Classification-metric vocabulary (precision, recall, ROC, AUC, PR-AUC) is introduced [later in the lesson](#refresher-classification-evaluation-vocabulary), right before we need it. Holding vocabulary until the moment it earns its keep is a deliberate choice throughout this lesson.
 
 ## Where ML data lives: storage architectures
 
 ### The OLTP problem
 
-Your application's primary database — Postgres, MySQL, DynamoDB — is built for **OLTP** (*Online Transactional Processing*). OLTP databases serve user requests: "give me user 42's profile," "update order 99 to shipped." They have three structural properties:
+Start with the machine you already have. Your application's primary database — Postgres, MySQL, DynamoDB — is built for **OLTP** (*Online Transactional Processing*). OLTP databases serve user requests: "give me user 42's profile," "update order 99 to shipped." They have three structural properties:
 
 1. **Row-oriented storage.** All columns of a row live next to each other on disk. Fetching one row is one disk read.
 2. **Tuned for high-cardinality point lookups.** Indexes on primary keys are razor-sharp.
 3. **Designed for write throughput.** Transactional guarantees (ACID) trump scan speed.
 
-These are exactly the wrong properties for training-data extraction, which wants to scan millions of rows and read maybe 30 columns out of 200. If you point an ML training job at OLTP, three things happen:
+Every one of those three is a virtue for serving a web request. Now change the workload. A training-data extraction job wants to scan millions of rows and read maybe 30 columns out of 200. These are exactly the wrong properties for that. If you point an ML training job at OLTP, three things happen:
 
 - You drown production query latency because your scan competes with real traffic.
 - You read the entire row even though you only need 30 columns — wasted I/O.
 - You can't compress effectively because rows mix many data types.
 
-So ML training data lives somewhere else.
+Note that none of those three is a configuration mistake you can tune your way out of. They follow from the storage layout itself. So ML training data lives somewhere else.
 
 ### Column-oriented storage, derived
 
-The fix is **column-oriented storage**: each column is stored in its own file (or its own block), not as part of a row. The trade-off looks lopsided when you write it out:
+The fix is **column-oriented storage**: each column is stored in its own file (or its own block), not as part of a row. Before deciding whether that is a good idea, write out what it costs and what it buys. The trade-off looks lopsided when you write it out:
 
 | Operation | Row-oriented | Column-oriented |
 |---|---|---|
@@ -86,24 +86,26 @@ The fix is **column-oriented storage**: each column is stored in its own file (o
 | Update one row | 1 write | $n$ writes |
 | Insert one row | 1 write | $n$ writes |
 
-ML training jobs hit pattern 2 — "all values of column `purchase_amount`, for all rows in the last 30 days" — and pattern 2 is where column-stores win by orders of magnitude.
+Three of those four rows say column-stores are worse, sometimes by a factor of $n$. That's the honest accounting, and it's why your OLTP database is row-oriented. But look at which row of the table your workload actually lives in. ML training jobs hit pattern 2 — "all values of column `purchase_amount`, for all rows in the last 30 days" — and pattern 2 is where column-stores win by orders of magnitude. You pay in the three cells you never touch to win in the one cell you touch constantly.
 
-There's a second compounding win: **compression**. A row is a heterogeneous mix of types — int, string, timestamp, float — and you can't compress that mix well. A column is homogeneous, so you can use:
+There's a second compounding win, and it's the one people underestimate: **compression**. Think about why. A row is a heterogeneous mix of types — int, string, timestamp, float — and you can't compress that mix well. There's no shared structure for a compressor to find. A column is homogeneous, so every value in the block looks like every other value, and that similarity is exactly what compression algorithms eat. So you can use:
 
 - **Dictionary encoding** for low-cardinality columns: replace "United States", "Canada", "Mexico" with indices 0, 1, 2 plus a dictionary lookup.
 - **Run-length encoding (RLE)** for sorted or near-constant columns.
 - **Delta encoding** for monotonic integer columns (e.g. timestamps).
 - **Bit-packing** for booleans or small integer ranges.
 
+Rather than argue about the size of the win, compute it.
+
 **Worked example.** Suppose you have 100 million rows of US sales events. The `country` column is a `VARCHAR(50)` (50 bytes each). Row-stored: $100\text{M} \times 50 \text{B} = 5\,\text{GB}$. Column-stored with dictionary encoding: a 250-entry dictionary (each "country" name once) plus a 1-byte-per-row index for each of 100M rows: $\approx 100\,\text{MB}$. **50× smaller**, and queries that only need `country` scan 50× less data.
 
-This is why every modern OLAP storage format — Parquet, ORC, Arrow — is column-oriented.
+Two separate wins arrived in that one paragraph, and they multiply: you read fewer columns, and each column you do read is smaller. This is why every modern OLAP storage format — Parquet, ORC, Arrow — is column-oriented.
 
-<RowVsColumnStorage caption="Row-store vs column-store on the same table for a 'SELECT country FROM …' query. Row-store must read every cell of every row (24 cells) to reach the one column it wants; column-store reads only that column's 6 cells. The 50× compression + I/O win in the worked example above is exactly this ratio compounded across 100M rows." />
+<RowVsColumnStorage caption="Watch the shaded cells, which are the ones actually read from disk. Row-store vs column-store on the same table for a 'SELECT country FROM …' query. Row-store must read every cell of every row (24 cells) to reach the one column it wants; column-store reads only that column's 6 cells. The 50× compression + I/O win in the worked example above is exactly this ratio compounded across 100M rows." />
 
 ### Data warehouse vs data lake vs lakehouse
 
-These three names confuse everyone. They evolved historically:
+These three names confuse everyone. They confuse everyone for a specific reason: they aren't three points on one axis, they're three answers to the question "where do I put bytes I want to analyze later," invented a decade apart, each fixing a complaint about the previous one. They evolved historically:
 
 **Data warehouse** (BigQuery, Snowflake, Redshift)
 - Schema-on-write: you declare columns and types upfront.
@@ -114,7 +116,7 @@ These three names confuse everyone. They evolved historically:
 **Data lake** (S3, GCS, ADLS + Parquet files)
 - Schema-on-read: you dump raw files of any format into cheap object storage.
 - A query engine (Spark, Presto, Athena) parses the file at read time.
-- Storage cost is rock-bottom (S3 Standard is ~$0.023/GB/month).
+- Storage cost is rock-bottom (S3 Standard is about 0.023 USD per GB per month).
 - *Bad fit* for tight transactional semantics — no ACID by default. Two writers can corrupt each other.
 
 **Lakehouse** (Apache Iceberg, Delta Lake, Apache Hudi)
@@ -127,61 +129,61 @@ These three names confuse everyone. They evolved historically:
 
 ### Feature stores and training–serving skew
 
-A **feature** in production ML is rarely a raw column. It's a *computed* value: "average purchase amount over the last 7 days" or "click-through rate of this item, in this user's region, over the last hour." That computation happens twice in the lifetime of an ML model:
+Here's the thing that makes ML storage different from analytics storage. A **feature** in production ML is rarely a raw column. It's a *computed* value: "average purchase amount over the last 7 days" or "click-through rate of this item, in this user's region, over the last hour." Notice that a computation has to run somewhere, and it has to run somewhere twice. That computation happens twice in the lifetime of an ML model:
 
 - **Training time** — you compute features over historical data, join them to historical labels, and train.
 - **Serving time** — you compute the same features over current data and send them to the deployed model for prediction.
 
-If those two computations produce different numbers — even slightly — you have **training–serving skew**, and your production performance silently degrades from your offline numbers.
+The word "same" in that second bullet is doing an enormous amount of unearned work. If those two computations produce different numbers — even slightly — you have **training–serving skew**, and your production performance silently degrades from your offline numbers.
 
-How does skew creep in? Bog-standard sources:
+How does skew creep in? It is never exotic. Bog-standard sources:
 
 1. Training uses Spark; serving uses a Java microservice. The two implementations of "7-day average" handle nulls differently.
 2. Training joins features at a specific timestamp. Serving uses "the current value of the feature" — which is later than the training timestamp by however long it took the example to land.
 3. A feature is updated nightly in the warehouse but read every second in serving. The serving value lags the training value by up to 24 hours.
 
-**Feature stores** are the architectural fix. They centralize feature definitions and materialize each one to two backing stores from *the same code*:
+Every one of those is a *code duplication* bug wearing a data costume. Two implementations drifted apart. Which suggests the fix: stop having two implementations. **Feature stores** are the architectural fix. They centralize feature definitions and materialize each one to two backing stores from *the same code*:
 
 - **Offline store** (Parquet on S3, BigQuery, etc.) — used for training and backfills. Cheap, scannable.
 - **Online store** (Redis, DynamoDB, Cassandra) — used at serving time. Low-latency point lookups.
 
-The killer property of a feature store is **point-in-time correctness**. When you build a training set by joining historical labels to features, you join each feature value *as of the label's timestamp* — not the current value. Doing this manually in raw SQL is where most look-ahead leakage bugs are born; this is the section right before [data leakage](#data-leakage) for a reason.
+The killer property of a feature store is **point-in-time correctness**. Say that in plain terms: when you build a training set by joining historical labels to features, you join each feature value *as of the label's timestamp* — not the current value. That is a harder join than it sounds, because your feature table has a history and your naive `JOIN ON user_id` will happily hand you the newest row. Doing this manually in raw SQL is where most look-ahead leakage bugs are born; this is the section right before [data leakage](#data-leakage) for a reason.
 
 ### Streaming vs batch features
 
 - **Batch features** are computed on a schedule (hourly, daily). Cheap to operate; freshness is bounded by the batch interval.
 - **Streaming features** update on each event arrival via Kafka → Flink/Spark Streaming → Redis (or similar). Required for "events in the last 60 seconds" features. More expensive and more failure-prone.
 
-A real production ML system usually has both. The architectural shape: events land in Kafka; Flink writes streaming features to the online store *and* lands events in Iceberg for batch features; nightly Spark jobs compute batch features and write to both stores; the training job reads from the offline store; the serving model reads from the online store.
+You don't pick one. A real production ML system usually has both, because "purchases in the last 90 days" and "clicks in the last 60 seconds" have completely different freshness requirements and there's no reason to pay streaming prices for the first one. The architectural shape: events land in Kafka; Flink writes streaming features to the online store *and* lands events in Iceberg for batch features; nightly Spark jobs compute batch features and write to both stores; the training job reads from the offline store; the serving model reads from the online store.
 
 ## Structured vs unstructured data: why this decides your model class
 
-**Structured data** is tabular: rows of typed columns. A SQL table, a Pandas dataframe, a Parquet file. The columns are heterogeneous (int, float, string, categorical, timestamp), and there's no spatial or temporal locality *within* a row.
+**Structured data** is tabular: rows of typed columns. A SQL table, a Pandas dataframe, a Parquet file. The columns are heterogeneous (int, float, string, categorical, timestamp), and there's no spatial or temporal locality *within* a row. Shuffle the column order and nothing about the problem changes.
 
-**Unstructured data** is everything else: images, audio, video, text. The data has *internal structure* — pixels near each other are correlated, words near each other are correlated — but that structure isn't captured by column names.
+**Unstructured data** is everything else: images, audio, video, text. The data has *internal structure* — pixels near each other are correlated, words near each other are correlated — but that structure isn't captured by column names. Shuffle the pixels and you have destroyed the image.
 
-For staff-level interviews, the punchline is: **the data type determines your model class**, and you'd better lead your answer with it.
+That difference is not a taxonomy detail. It decides your architecture. For staff-level interviews, the punchline is: **the data type determines your model class**, and you'd better lead your answer with it.
 
 ### Why trees still dominate tabular
 
-Despite a decade of deep-learning hype, **gradient-boosted decision trees** (XGBoost, LightGBM, CatBoost) still win almost every benchmark and Kaggle competition on tabular data. The reasons aren't just empirical; they're structural:
+Here's a result that surprises people who last checked in around the deep-learning boom. Despite a decade of deep-learning hype, **gradient-boosted decision trees** (XGBoost, LightGBM, CatBoost) still win almost every benchmark and Kaggle competition on tabular data. It would be easy to dismiss that as inertia or as a quirk of benchmark selection. It isn't. The reasons aren't just empirical; they're structural:
 
 1. **Tabular features are heterogeneous.** Neural networks (NNs) want every input to be a number on a comparable scale. That means you have to encode every categorical column (one-hot, target encoding, embeddings) and scale every numeric column. Trees take the raw types and split natively: "if `country = US`, go left."
 2. **No locality to exploit.** A convolutional NN (CNN) is brilliant on images because pixels near each other are related. A transformer is brilliant on text because nearby tokens carry context. In a tabular dataframe, the column ordering is arbitrary — there's *no spatial or temporal structure* between adjacent columns for an NN to exploit. The architectural priors that make NNs win on images and text simply don't apply.
 3. **Trees don't need scaling and are robust to irrelevant features.** A tree splits on `feature > threshold`, which is invariant to monotonic transformations. NNs are sensitive to feature scale and add an irrelevant-feature penalty.
 4. **Tabular datasets are usually smaller.** Trees regularize via bagging and shrinkage and learn well from $10^4$–$10^6$ rows. Deep nets typically need $10^7$+ before their representational power pays off.
 
-Recent foundation-model approaches for tabular (TabPFN, TabFM) are starting to compete on *small* tabular datasets, but production teams still default to gradient-boosted trees.
+Point 2 is the load-bearing one, and it's worth saying out loud what it implies: a CNN on a dataframe is a CNN with its main advantage switched off. Recent foundation-model approaches for tabular (TabPFN, TabFM) are starting to compete on *small* tabular datasets, but production teams still default to gradient-boosted trees.
 
 ### Why NNs dominate unstructured
 
-For images, audio, video, and text, the structural priors *are* in the architecture:
+Now flip the data type and the whole argument inverts. For images, audio, video, and text, the structural priors *are* in the architecture:
 
 - **CNNs:** translation invariance — a cat is a cat whether it's in the top-left or bottom-right of the image.
 - **Recurrent / state-space models:** sequence-order priors for time series and audio.
 - **Transformers:** attention lets every token see every other, then layered processing learns hierarchical structure.
 
-These architectures replace the manual feature engineering you'd otherwise have to do — and you can't do it well by hand. There's no "third pixel from the top of every image" feature worth computing in isolation.
+These architectures replace the manual feature engineering you'd otherwise have to do. And the reason that matters is not convenience: you can't do it well by hand. There's no "third pixel from the top of every image" feature worth computing in isolation.
 
 **Interview-ready summary:** when you're handed an ML system design question, *the first thing you anchor on is the data type*. "Is this tabular, image, text, audio, video, mixed?" That answer determines the next 80% of the system.
 
@@ -189,14 +191,14 @@ These architectures replace the manual feature engineering you'd otherwise have 
 
 ### Why sample at all
 
-In an ideal world, you train on every available example. In production, that breaks for at least four reasons:
+The obvious answer is "you shouldn't." In an ideal world, you train on every available example. More data is more information, and throwing data away feels like a mistake. In production, that breaks for at least four reasons:
 
 1. **Cost.** Training a large model on a billion rows is expensive.
 2. **Iteration speed.** You can't iterate hyperparameters if each run takes a day.
 3. **Class imbalance.** If 0.1% of your data is the positive class, training on a uniform sample wastes most of the gradient signal on negatives.
 4. **Online/streaming constraints.** When events arrive faster than you can store them, you have to sample on the fly.
 
-So sampling is everywhere. The question is *how*, and the answer changes the bias and variance of every metric you compute downstream.
+Reason 4 is the one that removes the choice entirely. So sampling is everywhere. The question is *how*, and the answer changes the bias and variance of every metric you compute downstream. That last clause is why this section is math and not vibes.
 
 ### Simple random sampling (SRS)
 
@@ -206,11 +208,11 @@ The baseline. Each example in the population of size $N$ has equal probability o
 
 $$E[\bar{x}] = \mu$$
 
-Its variance is
+Read that aloud: *if you repeated the whole sampling exercise forever, the average of all the sample means you got would land exactly on the population mean.* It says nothing at all about how far any single sample mean is from $\mu$. That is a separate question, and it's the one you actually care about. Its variance is
 
 $$\text{Var}(\bar{x}) = \frac{\sigma^2}{n} \cdot \frac{N - n}{N - 1}$$
 
-The fraction $\frac{N - n}{N - 1}$ is the **finite population correction (FPC)**. It approaches 1 when $N \gg n$, so for big-data ML you usually drop it: $\text{Var}(\bar{x}) \approx \sigma^2 / n$. The "$1/n$" decay rate of variance is why "double your data" cuts standard error by a factor of $\sqrt{2}$, not 2.
+In English: *the wobble in your sample mean is the population variance divided by how many things you averaged, times a correction for having drained a noticeable fraction of a finite pool.* The fraction $\frac{N - n}{N - 1}$ is the **finite population correction (FPC)**. It approaches 1 when $N \gg n$, so for big-data ML you usually drop it: $\text{Var}(\bar{x}) \approx \sigma^2 / n$. Now turn the knob on the surviving term. The "$1/n$" decay rate of variance is why "double your data" cuts standard error by a factor of $\sqrt{2}$, not 2. Standard error is the square root of variance, and $\sqrt{1/2n}$ is $1/\sqrt{2}$ times $\sqrt{1/n}$. That single fact prices every "just collect more data" conversation you will ever have.
 
 *Intuition for the FPC:* when your sample is already a big fraction of a finite pool, there's less residual uncertainty left to average out, so the correction pulls the variance below the infinite-population $\sigma^2/n$ approximation. In the limit $n=N$ (you sampled everything), the correction is exactly 0 — there's no uncertainty left.
 
@@ -224,11 +226,13 @@ Suppose you partition your population into $L$ disjoint **strata** (subgroups) o
 
 $$\bar{x}_{\text{strat}} = \sum_{h=1}^L \frac{N_h}{N} \, \bar{x}_h$$
 
+Read it left to right: *estimate the mean inside each stratum separately, then blend those estimates back together using the stratum's known share of the population as its weight.* The weights are known exactly, not estimated, and that is the whole source of the advantage.
+
 Its variance, assuming SRS within each stratum:
 
 $$\text{Var}(\bar{x}_{\text{strat}}) = \sum_{h=1}^L \left(\frac{N_h}{N}\right)^2 \frac{\sigma_h^2}{n_h} \cdot \frac{N_h - n_h}{N_h - 1}$$
 
-where $\sigma_h^2$ is the within-stratum variance.
+where $\sigma_h^2$ is the within-stratum variance. Look at what appears in that expression and, more importantly, what doesn't. Every $\sigma_h^2$ is a *within*-stratum variance. No term measures how far apart the strata means are from each other. That absence is the result.
 
 **The key result** (informal proof sketch):
 
@@ -236,14 +240,16 @@ $$\text{Var}(\bar{x}_{\text{strat}}) \le \text{Var}(\bar{x}_{\text{SRS}})$$
 
 with equality *iff* the strata all have the same mean.
 
-*Intuition:* the total variance of the population decomposes into within-stratum variance plus between-stratum variance (this is the law of total variance / ANOVA decomposition). SRS pays the price of *both*. Stratified sampling eliminates the between-stratum contribution by *guaranteeing* the right proportional representation of each stratum. The bigger the between-stratum differences, the bigger the win.
+*Intuition:* the total variance of the population decomposes into within-stratum variance plus between-stratum variance (this is the law of total variance / ANOVA decomposition). SRS pays the price of *both*. Stratified sampling eliminates the between-stratum contribution by *guaranteeing* the right proportional representation of each stratum. The bigger the between-stratum differences, the bigger the win. And the equality condition falls straight out: if the strata all have the same mean, there was no between-stratum variance to eliminate, so you saved nothing.
+
+Now make it concrete with the case you'll actually meet.
 
 **Worked example: imbalanced binary classification.** You have 1 million examples; 1% are positive (10,000 positives, 990,000 negatives). You want to estimate the population's positive rate from a sample of 1,000.
 
 - Under SRS, the count of positives in your sample is roughly Binomial$(1000, 0.01)$, so its standard deviation is $\sqrt{1000 \cdot 0.01 \cdot 0.99} \approx 3.15$. That's about $\pm 0.3\%$ on a rate of 1% — relative error $\approx$ 30%.
 - Under stratified sampling with $n_+ = n_- = 500$, you sample 500 positives and 500 negatives, then reweight. The variance contribution from the positive stratum is much smaller because you've sampled it heavily.
 
-The same idea is *why every imbalanced classification problem deserves a stratified split, not a random one* — your validation set should reliably contain the rare class.
+Sit with that 30% for a second. You drew a thousand rows, which feels like plenty, and the quantity you were trying to measure is uncertain by nearly a third of its own value. That's not a metric you can make a decision with. The same idea is *why every imbalanced classification problem deserves a stratified split, not a random one* — your validation set should reliably contain the rare class.
 
 ### Cluster sampling, in one sentence
 
@@ -252,6 +258,8 @@ The same idea is *why every imbalanced classification problem deserves a stratif
 ### Reservoir sampling: the streaming case
 
 **Goal — a uniform sample of fixed size from an unbounded stream, in a single pass.** You want a uniform sample of size $k$ from a stream of *unknown* total length, while never holding more than $k$ records in memory and never revisiting the stream.
+
+Try the obvious approach first and watch it die. To sample uniformly you'd normally need $n$, the total number of records, so you can give each record probability $k/n$. You don't have $n$. You can't buffer the stream to find out, because the whole premise is that it doesn't fit. And you can't go back for a second pass. So the naive recipe is unavailable, not merely slow.
 
 Concretely, every record seen so far must remain equally likely to be in the reservoir. The algorithm:
 
@@ -265,6 +273,8 @@ for i in (k+1)..n:
 return reservoir
 ```
 
+Read those five lines slowly, because the trick is entirely in line 4. The draw is over $1..i$, the count of records seen *so far*, and $i$ is a number you always have. You never need $n$. The acceptance probability $k/i$ shrinks as the stream runs, which is exactly how later records get the same shot as early ones without anybody knowing when the stream ends.
+
 **Claim:** every record $i$ ends up in the reservoir with probability $k / n$ where $n$ is the total stream length.
 
 **Proof by induction on $n$.** Base case $n = k$: every record is in the reservoir with probability 1, and $k / n = 1$. ✓
@@ -276,21 +286,27 @@ Inductive step: assume the property holds after seeing $n - 1$ records, i.e. eac
 - Probability that record $i$ is in the reservoir at step $n$:
   $$P_n(i) = P_{n-1}(i) \cdot \left[ \left(1 - \frac{k}{n}\right) + \frac{k}{n} \cdot \frac{k-1}{k}\right] = \frac{k}{n-1} \cdot \frac{n-1}{n} = \frac{k}{n} \;\;\square$$
 
+The bracket is the whole proof. It collapses to $\frac{n-1}{n}$, which is precisely the factor that turns $\frac{k}{n-1}$ into $\frac{k}{n}$ — the survival probability of an old record is exactly tuned to keep it level with every newcomer.
+
 Each record costs $O(1)$ — a single random draw and at most one slot overwrite — so the **total time is $O(n)$** for a stream of length $n$, and **space is $O(k)$** (just the reservoir). This is one of those algorithms where the cleverness of *throwing things away in just the right way* makes a strong impression in interviews.
 
 ### Importance sampling
 
-**Goal — estimate an expectation under a distribution you can't sample from.** You want $E_p[f(X)]$ under a target distribution $p$, but you can only draw samples from a *different* distribution $q$. The trick:
+**Goal — estimate an expectation under a distribution you can't sample from.** You want $E_p[f(X)]$ under a target distribution $p$, but you can only draw samples from a *different* distribution $q$. This sounds like an impossible position, and stating the obstacle sharply is what produces the fix: you have the wrong sampler, so correct for how wrong it is, sample by sample. The trick:
 
 $$E_p[f(X)] = \int p(x) f(x)\, dx = \int q(x) \cdot \frac{p(x)}{q(x)} f(x)\, dx = E_q\!\left[\frac{p(x)}{q(x)} f(x)\right]$$
+
+That chain is one line of algebra: multiply and divide by $q(x)$, then read the integral as an expectation under $q$ instead of under $p$. In English: *an average under the distribution you wanted equals an average under the distribution you've got, provided you scale each sample by how much more likely it was under the one you wanted.*
 
 So if you have samples $x_1, \ldots, x_n \sim q$, your estimator is:
 
 $$\hat{\mu} = \frac{1}{n} \sum_{i=1}^n \frac{p(x_i)}{q(x_i)} f(x_i)$$
 
-The ratio $w_i = p(x_i)/q(x_i)$ is the **importance weight**. The estimator is unbiased ($E_q[\hat{\mu}] = E_p[f(X)]$, by construction), but its **variance can explode** when $q$ has thinner tails than $p$ — i.e. when there's a region where $p(x)$ is appreciable but $q(x)$ is tiny, individual weights $w_i$ become huge.
+The ratio $w_i = p(x_i)/q(x_i)$ is the **importance weight**. Name it after you've seen it: it's the number sitting in front of each sample, and it says "count this draw as if it were $w_i$ draws." The estimator is unbiased ($E_q[\hat{\mu}] = E_p[f(X)]$, by construction), but its **variance can explode** when $q$ has thinner tails than $p$ — i.e. when there's a region where $p(x)$ is appreciable but $q(x)$ is tiny, individual weights $w_i$ become huge.
 
 *In one line:* if $q$ almost never visits a region where $p$ is heavy, the rare samples that *do* land there arrive with monstrous weights that swamp the estimator; the sample mean gets dominated by one or two enormous $w_i f(x_i)$ terms, and its variance is unbounded even though its mean is right.
+
+Unbiased and useless at the same time is a genuinely uncomfortable combination, and it's worth being precise about why: unbiasedness is a statement about infinitely many repetitions, and you get one.
 
 **Three places this matters in ML:**
 
@@ -298,15 +314,17 @@ The ratio $w_i = p(x_i)/q(x_i)$ is the **importance weight**. The estimator is u
 2. **Off-policy evaluation in recommendation/RL.** You logged data under one ranking policy $q$, but you want to evaluate a new policy $p$. Importance weights let you estimate $p$'s expected reward from the $q$ logs — but if $p$ shows items $q$ almost never showed, weights blow up.
 3. **Counterfactual estimation.** "What would my system have done if it had ranked differently?" — same problem, same fix.
 
-**Practical patch:** when weights blow up, people use *self-normalized* importance sampling: $\hat{\mu} = \sum w_i f(x_i) / \sum w_i$. This introduces a small bias but bounds the variance.
+Case 2 is where this bites hardest in practice, and notice the shape of the failure: the more your new policy differs from the logged one, the more you want to evaluate it and the less able you are to.
+
+**Practical patch:** when weights blow up, people use *self-normalized* importance sampling: $\hat{\mu} = \sum w_i f(x_i) / \sum w_i$. This introduces a small bias but bounds the variance. Dividing by the sum of the weights instead of by $n$ means one monstrous weight now inflates the denominator too, so it can no longer run away with the estimate on its own.
 
 ## Splits, from first principles
 
 ### The IID assumption
 
-The reason you can train on one slice of data and expect generalization on another slice is the **IID assumption**: every example is *independent* of every other and drawn from the *identically* same joint distribution $p(X, Y)$.
+Ask the question underneath the whole practice of holding out data. Why should performance on rows you hid predict performance on rows that don't exist yet? The reason you can train on one slice of data and expect generalization on another slice is the **IID assumption**: every example is *independent* of every other and drawn from the *identically* same joint distribution $p(X, Y)$.
 
-In math: examples $(x_i, y_i)$ are realizations of random variables $(X_i, Y_i)$ such that $(X_i, Y_i) \sim p(X, Y)$ for all $i$, and $(X_i, Y_i) \perp (X_j, Y_j)$ for $i \neq j$.
+In math: examples $(x_i, y_i)$ are realizations of random variables $(X_i, Y_i)$ such that $(X_i, Y_i) \sim p(X, Y)$ for all $i$, and $(X_i, Y_i) \perp (X_j, Y_j)$ for $i \neq j$. The first condition is the "identically distributed" half; the $\perp$ symbol in the second, read "is independent of," is the other half.
 
 In production, **this is almost always false.** Examples:
 
@@ -315,7 +333,7 @@ In production, **this is almost always false.** Examples:
 - **Multi-row entities.** Two scans of the same medical patient share latent state. Not independent.
 - **Drift.** The distribution today differs from the distribution last month. Not identically distributed.
 
-When IID fails, **random splits over-state generalization**, because train and test rows are correlated. The fix is to choose your split so that the held-out set looks like the *real* deployment distribution.
+Notice that three of those four break independence and the fourth breaks identical distribution, so between them they take out both halves of the assumption. When IID fails, **random splits over-state generalization**, because train and test rows are correlated. The fix is to choose your split so that the held-out set looks like the *real* deployment distribution.
 
 ### Why three sets, not two
 
@@ -323,7 +341,7 @@ When IID fails, **random splits over-state generalization**, because train and t
 - **Validation (sometimes called dev set)** picks hyperparameters, decides when to early-stop, compares model variants.
 - **Test** is touched *once*, at the end, to estimate generalization on the deployment distribution.
 
-If you only have train/test and you tune hyperparameters against test, you have effectively used the test set as a validation set, and the reported test number is biased upward. The number of decisions you made using the test set is precisely the number of times you cheated.
+Why not two? Because the middle job — choosing among options — consumes the honesty of whatever set you use to do it. If you only have train/test and you tune hyperparameters against test, you have effectively used the test set as a validation set, and the reported test number is biased upward. The number of decisions you made using the test set is precisely the number of times you cheated. Hold onto that sentence. Part 3 turns it into a formula with a size you can compute.
 
 ### Typical ratios
 
@@ -331,17 +349,21 @@ If you only have train/test and you tune hyperparameters against test, you have 
 - **Medium ($10^4 \le n \le 10^6$):** 80/10/10 is fine.
 - **Large ($n > 10^6$):** 98/1/1. 10,000 examples in val/test is plenty to estimate a metric to 3 decimals.
 
+The reason the fractions shrink as data grows is that val/test only ever needed to be big enough in *absolute* terms. What buys you precision is the count of held-out rows, not their percentage.
+
 ### Four split strategies, in priority order
 
-Ordered by how often they're the right answer for real production data.
+Ordered by how often they're the right answer for real production data. That ordering is the content — the list is not four equally-weighted options, and the one everybody reaches for by default is last.
 
-<SplitStrategyPanels caption="Four ways to slice the same 40 rows into train (filled) and test (outlined) — random, temporal, grouped, and stratified. The random panel is what `train_test_split(shuffle=True)` does; the other three exist because random silently violates the IID assumption in a specific way (drift, entity correlation, class imbalance). Pick the split whose panel matches your data's actual structure — not the one that gives the best offline number." />
+<SplitStrategyPanels caption="Compare the four panels row by row and ask which rows ended up on which side. Four ways to slice the same 40 rows into train (filled) and test (outlined) — random, temporal, grouped, and stratified. The random panel is what `train_test_split(shuffle=True)` does; the other three exist because random silently violates the IID assumption in a specific way (drift, entity correlation, class imbalance). Pick the split whose panel matches your data's actual structure — not the one that gives the best offline number." />
 
 **1. Temporal split.** Train on weeks 1–8, validate on week 9, test on week 10.
 
 *Why:* if data is drifting (and in production it almost always is), the future *is* the test distribution. You want your held-out metric to reflect performance on data drawn later than the training data. Use **forward chaining** for cross-validation: at each fold, train on rows with timestamp $< t$, test on rows with timestamp in $[t, t + \Delta)$. Never reverse it.
 
 **Worked failure example.** You're predicting whether a user will churn this month. You randomly split a year's worth of data 80/20. Your test AUC is 0.91 — a definition of AUC is coming in the next section, but read it as "model rates a random positive higher than a random negative 91% of the time." Production AUC is 0.74. Why? Because the random split mixed November-2022 rows into the training set and December-2022 rows into the test set, and the model effectively saw the future: it learned trends ("usage just dropped 50% this month") that were available globally but not at any specific historical prediction moment. The temporal-split number would have been 0.74 from the start.
+
+That last sentence is the one to hold onto. The temporal split didn't make the model worse. It made the *number* honest, seventeen points earlier than production did.
 
 **2. Grouped split.** Keep all rows from the same entity (user, patient, session, device) on the same side of the split.
 
@@ -357,7 +379,7 @@ Ordered by how often they're the right answer for real production data.
 
 ### K-fold cross-validation, with intuition
 
-The standard split gives you *one* estimate of test performance, with variance you can't measure. **K-fold cross-validation** addresses this:
+Here's the thing that should bother you about everything above. The standard split gives you *one* estimate of test performance, with variance you can't measure. You got a number. You have no idea how much that number would have moved if the random seed had been different, and no way to find out from a single split. **K-fold cross-validation** addresses this:
 
 ```text
 Shuffle the data into k disjoint folds of roughly equal size.
@@ -369,12 +391,14 @@ For i in 1..k:
 return mean(metric_1..metric_k), std(metric_1..metric_k)
 ```
 
-You get a *distribution* of metric values, which gives you a confidence interval — much more honest than a single point estimate.
+The last line is the point of the whole procedure. You get a *distribution* of metric values, which gives you a confidence interval — much more honest than a single point estimate.
 
 Variants when IID fails:
 - **Stratified k-fold:** preserves class proportions within each fold (the classification default).
 - **Group k-fold:** keeps entities together across folds.
 - **Time-series k-fold (forward chaining):** each fold trains on past, tests on future. Never train on data later than test.
+
+Those three variants are the four split strategies from the previous section, applied fold by fold instead of once. Same reasoning, same failure modes.
 
 **Choice of $k$.** Typical values are 5 or 10.
 
@@ -382,9 +406,11 @@ Variants when IID fails:
 - Large $k$ (e.g. $n$ — *leave-one-out CV*): low bias, high variance, $n$× the compute.
 - 5 or 10 is the sweet spot for most practical workflows.
 
+Notice that $k$ trades bias against variance, and it does so for the *estimator*, not for the model. That distinction is easy to slide past and it's the entire subject of Part 3, where we derive why each of those bullets is true instead of asserting them.
+
 ### Nested cross-validation
 
-When you tune hyperparameters using CV, you're making selection decisions based on the very folds you'd like to use for unbiased evaluation. So nested CV uses two loops:
+When you tune hyperparameters using CV, you're making selection decisions based on the very folds you'd like to use for unbiased evaluation. It's the two-sets-instead-of-three problem again, one level up. So nested CV uses two loops:
 
 ```text
 Outer loop (k_outer folds):
@@ -398,7 +424,7 @@ Outer loop (k_outer folds):
 Report mean and std across outer folds
 ```
 
-Cost: $k_\text{outer} \cdot k_\text{inner} \cdot (\text{hyperparam grid size})$ models. Expensive. But for small datasets where each split's metric has high variance, nested CV is the only way to get an unbiased generalization estimate when hyperparameters are tuned.
+The structural property to notice: the outer test fold is never seen by the inner loop that does the choosing, so the number it produces has no selection baked into it. Cost: $k_\text{outer} \cdot k_\text{inner} \cdot (\text{hyperparam grid size})$ models. Expensive. But for small datasets where each split's metric has high variance, nested CV is the only way to get an unbiased generalization estimate when hyperparameters are tuned.
 
 ## Refresher: classification evaluation vocabulary
 
@@ -411,14 +437,16 @@ For binary classification: positive vs negative class. The model outputs a score
 | **actual positive** | true positive (TP) | false negative (FN) |
 | **actual negative** | false positive (FP) | true negative (TN) |
 
-Five quantities derived from this **confusion matrix**:
+Four cells. Everything below is a ratio of some of them. Five quantities derived from this **confusion matrix**:
 
 - **Precision** = $\text{TP} / (\text{TP} + \text{FP})$ — of the things I called positive, what fraction really were?
 - **Recall** (also: **sensitivity**, **true-positive rate / TPR**) = $\text{TP} / (\text{TP} + \text{FN})$ — of the actual positives, what fraction did I catch?
 - **F1 score** = harmonic mean of precision and recall — useful single-number summary when you care about both.
 - **False-positive rate (FPR)** = $\text{FP} / (\text{FP} + \text{TN})$ — among actual negatives, what fraction did I incorrectly flag?
 
-A model outputs a continuous *score*; you pick a threshold to call something positive. As you sweep the threshold from 0 to 1, you trace out two curves:
+Look at the denominators, because that's where the disagreements between these metrics come from. Precision divides by everything you flagged. Recall and FPR divide by everything that was truly of one class.
+
+A model outputs a continuous *score*; you pick a threshold to call something positive. Every number above depends on that threshold, which means a single confusion matrix describes one operating point, not a model. As you sweep the threshold from 0 to 1, you trace out two curves:
 
 - **ROC curve** plots TPR vs FPR at every threshold. **AUC** or **ROC-AUC** is the area under that curve; an AUC of 0.5 is random, 1.0 is perfect, 0.85 is "the model ranks a random positive higher than a random negative 85% of the time."
 - **PR curve** plots precision vs recall at every threshold. **PR-AUC** is the area under it.
@@ -431,17 +459,19 @@ That's enough metric vocabulary to follow the rest of this lesson. Full derivati
 
 ## Data leakage
 
-This is the most important section of the lesson. Data leakage is the single most common reason ML systems pass offline evaluation and fail in production. Yet it's rarely *the* topic of any one course or chapter — it gets distributed across "feature engineering," "experimentation," and "model evaluation." We treat it as the first-class concept it should be.
+This is the most important section of the lesson. Data leakage is the single most common reason ML systems pass offline evaluation and fail in production. Yet it's rarely *the* topic of any one course or chapter — it gets distributed across "feature engineering," "experimentation," and "model evaluation." That scattering is itself part of why it keeps happening: nobody owns it. We treat it as the first-class concept it should be.
 
 ### Definition (information-theoretic)
+
+Most treatments of leakage give you a list of four or five species to memorize. Lists are hard to apply to a leak you've never seen before. So start with one rule that generates the list.
 
 A pipeline has **data leakage** if information that wouldn't be available at prediction time leaks into the training process — either through features or through how the data is split.
 
 Formally: let $\mathcal{I}(t)$ be the set of facts about the world that an honest production prediction at time $t$ would have access to (the user's profile at $t$, events before $t$, etc.). The model's training features for that example must be a function of $\mathcal{I}(t)$ alone. If any training feature carries information outside $\mathcal{I}(t)$, you have leakage.
 
-This single definition unifies the four "named" categories below; they're just different mechanisms by which information from outside $\mathcal{I}(t)$ shows up in your training pipeline.
+Say $\mathcal{I}(t)$ out loud as "everything the production system could legitimately know at the instant it has to answer." Then the test for any feature is a single question you can ask at a design review: *could I have computed this, with these exact inputs, at $t$?* This single definition unifies the four "named" categories below; they're just different mechanisms by which information from outside $\mathcal{I}(t)$ shows up in your training pipeline.
 
-<LeakageTimeline caption="One picture, four leakage types. The vertical line is t_pred — the moment your production system commits to a prediction. Green lanes carry information from I(t) (features honestly available at t_pred). Red lanes carry information that only exists after t_pred: post-label events (target leakage), session data still accumulating (session bleed), features computed with knowledge of the test rows (preprocessing leak), or future-dated snapshots (look-ahead). Every named category below is a red bar in a different lane." />
+<LeakageTimeline caption="Find the vertical line first, then read each lane left to right and ask which side of the line its data comes from. One picture, four leakage types. The vertical line is t_pred — the moment your production system commits to a prediction. Green lanes carry information from I(t) (features honestly available at t_pred). Red lanes carry information that only exists after t_pred: post-label events (target leakage), session data still accumulating (session bleed), features computed with knowledge of the test rows (preprocessing leak), or future-dated snapshots (look-ahead). Every named category below is a red bar in a different lane." />
 
 ### 1. Target leakage
 
@@ -453,6 +483,8 @@ A feature contains information about the label that wouldn't be available at pre
 - *Hospital-readmission prediction:* feature is the free-text `discharge_summary`, which sometimes contains the phrase "patient returned for readmission." The model learns that phrase.
 - *Loan-default prediction:* feature `late_payment_count_lifetime` is computed over the whole history, including after the default event. Any default contributes to that count.
 
+Notice the escalation across those three. The first is visible in the schema; the second is buried in unstructured text; the third looks completely innocent and is a bug in a window definition. Only the first would be caught by reading the column list. So you need a procedure.
+
 **Detection: the drop-column protocol.**
 
 1. Train your model on the full feature set; record validation metric $M_0$.
@@ -460,9 +492,11 @@ A feature contains information about the label that wouldn't be available at pre
 3. Compute $\Delta_i = M_0 - M_i$.
 4. If any single $\Delta_i$ is suspiciously large (e.g. 10+ points of AUC), that feature is a leakage suspect. Investigate.
 
+$\Delta_i$ reads as "how much of my performance dies with this one feature." An honest feature contributes a slice. A leaking feature is often carrying the whole model, and that is what makes it visible.
+
 This is computationally expensive — $n$ retrains for $n$ features. Cheaper proxies: feature-importance scores from a tree model (rough, but quick), or domain-expert review of feature *definitions* line-by-line before training begins.
 
-**A blind spot worth naming: collinearity.** Both cheap proxies above are defeated by *redundant* (collinear) features. If two features encode the same leaking signal, the drop-column test clears both — drop either one and the other still carries the leak, so $\Delta_i \approx 0$. Worse, collinearity *splits* importance across the correlated features, so a leaky feature can show deceptively **low** individual importance and slip past the "hunt the suspiciously-important feature" heuristic. The statistical tool for surfacing this redundancy is the **variance inflation factor (VIF)**, covered in [c1.3](/c/c1/c1.3); for leakage triage, cluster features by correlation and treat each cluster as a single unit. (Note that collinearity is *not itself* leakage — honest features can be collinear — it's a property that defeats leakage *detection*.)
+**A blind spot worth naming: collinearity.** Both cheap proxies above are defeated by *redundant* (collinear) features. If two features encode the same leaking signal, the drop-column test clears both — drop either one and the other still carries the leak, so $\Delta_i \approx 0$. Worse, collinearity *splits* importance across the correlated features, so a leaky feature can show deceptively **low** individual importance and slip past the "hunt the suspiciously-important feature" heuristic. So the detector fails in exactly the direction that makes you relax. The statistical tool for surfacing this redundancy is the **variance inflation factor (VIF)**, covered in [c1.3](/c/c1/c1.3); for leakage triage, cluster features by correlation and treat each cluster as a single unit. (Note that collinearity is *not itself* leakage — honest features can be collinear — it's a property that defeats leakage *detection*.)
 
 > **Stop and think.** Construct a case where a feature passes the drop-column test (dropping it barely hurts $M_0$) but is *still* leaking. *Hint: redundancy. If two features encode the same leaking information, dropping either one leaves the other in place.*
 
@@ -470,7 +504,7 @@ This is computationally expensive — $n$ retrains for $n$ features. Cheaper pro
 
 Preprocessing was fit on the union of train+val+test data, *before* splitting.
 
-This sounds minor and sometimes it is — but it's catastrophic for some preprocessing types.
+This sounds minor and sometimes it is — but it's catastrophic for some preprocessing types. The variation across those types spans two orders of magnitude, so it's worth walking the range rather than issuing a blanket rule.
 
 **Mild case:** `StandardScaler` (subtract mean, divide by std) fit on the full dataset. The scaler's mean is computed using rows from the test set. Effect on metrics: usually $<1\%$, because the mean barely shifts.
 
@@ -479,6 +513,8 @@ This sounds minor and sometimes it is — but it's catastrophic for some preproc
 **Severe case:** *PCA* (principal component analysis — projecting onto the directions of highest variance) fit on the full dataset. The basis vectors saw test data; the test set is now embedded in a basis that was optimized for it.
 
 **Severe case:** *imputation* (filling missing values with the column mean) fit on the full dataset. Each test row whose value was missing now received a fill computed using all the test labels' rows.
+
+What separates the mild case from the severe ones is whether the transformer touched the label. `StandardScaler` only ever saw $X$; target encoding read $y$ directly. That's the difference between a rounding error and a fabricated result.
 
 **The architectural fix:** `sklearn.pipeline.Pipeline`. A Pipeline only calls `.fit()` on the training portion of any cross-validation fold; the same fitted transformer is then `.transform()`-applied to val/test. The whole point of Pipeline is that it makes the *correct* thing easy and the *wrong* thing inconvenient. Code reviews should flag any preprocessing call outside a Pipeline.
 
@@ -492,7 +528,7 @@ A feature uses information that did not exist at the prediction timestamp.
 
 **Worked example (signup-to-churn).** Predicting at signup whether a user will churn within 30 days. Feature: `total_lifetime_purchases`. Computable only *after* the 30-day window. Strictly post-label.
 
-This is exactly the bug that **point-in-time feature joins** (a feature-store property) eliminate. The feature store guarantees: when you join feature $f$ to label $y$ at timestamp $t$, you get $f$'s value *as of $t$*, not $f$'s current value.
+All three are the same bug: a join that grabbed the current value of something instead of its value at $t$. This is exactly the bug that **point-in-time feature joins** (a feature-store property) eliminate. The feature store guarantees: when you join feature $f$ to label $y$ at timestamp $t$, you get $f$'s value *as of $t$*, not $f$'s current value.
 
 ### 4. Group leakage
 
@@ -502,6 +538,8 @@ The same *entity* (user, patient, session, device) appears in both train and tes
 
 - A **random split** (also called an *image-level* or *row-level* split) drops each individual x-ray into train or test independently. Because most patients contributed several images, one patient's images scatter across *both* sides. A patient with just 4 images — about the dataset average — already has a $1 - 0.8^4 \approx 59\%$ chance of straddling the boundary under an 80/20 random split; a heavily-imaged patient with 10 images, $1 - 0.8^{10} \approx 89\%$.
 - A **grouped split** (here, a *patient-wise* split — `GroupShuffleSplit(groups=patient_id)`) makes the *patient* the unit, so all of one patient's images stay together and no patient appears in both train and test.
+
+Read those two percentages again before moving on, because they're the reason this isn't a rare edge case. At the dataset's *average* images-per-patient, a coin-flip majority of patients straddle the split. Leakage here is the default outcome, not the unlucky one.
 
 Under the random split, a CNN can post a flattering AUC by a route that has nothing to do with disease: it learns to *re-identify the patient* from durable anatomy — rib spacing, an old healed fracture, body habitus, implanted hardware — and then recall the label it already saw for that patient during training. Switch to the patient-wise split and that shortcut disappears, so the honest AUC is lower. That gap *is* the group leakage — the same mechanism as the [canonical medical-imaging example above](#four-split-strategies-in-priority-order), now named.
 
@@ -515,14 +553,14 @@ So the two confounders are distinct: **anatomy identifies the patient; scanner a
 
 ### A unifying mental model
 
-All four categories share one root cause: **a violation of the information-availability rule**. Concretely:
+Now go back to the rule and check that it generates all four. All four categories share one root cause: **a violation of the information-availability rule**. Concretely:
 
 - **Target leakage** — a feature is a function of the label.
 - **Train-test leakage** — a feature is a function of test rows (often indirectly, via fitted preprocessing).
 - **Look-ahead leakage** — a feature is a function of post-prediction-time data.
 - **Group leakage** — the split-design violation lets cross-row entity correlations carry information that won't be available at production prediction time.
 
-If you remember the rule, you can derive the categories on the spot in an interview.
+If you remember the rule, you can derive the categories on the spot in an interview. That's a better deal than memorizing four names, because the next leak you meet in production may not fit any of them cleanly, and the rule still applies.
 
 ### Real-world incidents
 
@@ -532,7 +570,7 @@ Three to know by name:
 2. **CheXNet and follow-ups (2017–2018).** Stanford's pneumonia-detection CNN reported strong numbers on the NIH ChestX-ray14 data; the follow-up scrutiny exposed *two* layers — image-level (random) splits let patients leak across train/test, and even after patient-wise splitting, Zech et al. (2018, *PLOS Medicine*) showed the model was identifying the *hospital and department* from scanner artifacts and exploiting their differing pneumonia rates, so external AUC dropped (e.g. 0.802 → 0.717 train-on-MSH / test-on-NIH).
 3. **Roberts et al. 2021 (*Nature Machine Intelligence*).** A meta-review of 415 published COVID-19 chest-x-ray/CT models found that *none* were clinically usable, with leakage, label noise, and biased data sources as the most common failure modes.
 
-The lesson generalizes: at scale, leakage is not the exception. Pipelines should be designed under the assumption that leakage will appear; reviews should treat every feature definition as a paranoia checkpoint.
+Zero out of 415 is the number to remember. These were published, peer-reviewed papers by competent people during a period of intense scrutiny. The lesson generalizes: at scale, leakage is not the exception. Pipelines should be designed under the assumption that leakage will appear; reviews should treat every feature definition as a paranoia checkpoint.
 
 ## Production data quality (briefly)
 
@@ -542,6 +580,8 @@ The lesson generalizes: at scale, leakage is not the exception. Pipelines should
 - **Label noise.** *Problem:* your labels are wrong more often than you assume. Crowdsourced labels carry 5–15% error rates; implicit labels (a click) are worse, because a *non*-click is ambiguous — "not seen," "seen and ignored," and "seen and disliked" all look identical, which is structural selection bias, not random noise. *Fix:* model the noise rather than trusting labels blindly — weak-supervision frameworks (Snorkel) combine many noisy labelers into a single *learned label model* with calibrated confidences.
 - **Reproducibility.** *Problem:* you can't rebuild yesterday's model, because the data it trained on has already been overwritten — so you can't debug a regression or pass an audit. *Fix:* version the data like code, so "the data as of last Tuesday" is addressable — DVC (git-LFS-style pointers), LakeFS (git semantics over object stores), or Iceberg/Delta time-travel snapshots.
 - **Silent quality decay.** *Problem:* row counts halve, a null rate spikes, or a feature's distribution shifts — and the pipeline keeps running, feeding the degraded batch straight into training or serving. *Fix:* automated **data tests** as a gate that fails the build, not the model — Great Expectations, Pandera, or Soda asserting row counts, null rates, distribution drift (e.g. a KS test against a historical baseline), and schema, run in CI on each ingestion.
+
+The word "silently" appears in all four problems, and that's the pattern. Each fix works by converting a silent degradation into a loud failure.
 
 ## Tradeoff matrices
 
@@ -577,7 +617,7 @@ The lesson generalizes: at scale, leakage is not the exception. Pipelines should
 
 ## Five production failure modes
 
-Quick scenarios you should recognize on sight.
+Quick scenarios you should recognize on sight. Each one is a symptom you'll actually be handed, paired with the diagnosis.
 
 1. **The 99%-accuracy fraud model.** Trained on labeled fraud vs random non-fraud. "Non-fraud" labels are mostly "we haven't caught them yet." Production performance is far worse than offline.
 2. **The recommender that recommends what it saw.** Trained on click logs; clicks only happen on what was shown. The system reinforces its own past choices. Fix: propensity-weighted training, exploration policies.
@@ -585,7 +625,11 @@ Quick scenarios you should recognize on sight.
 4. **The patient-level split disaster.** Medical image classifier: 0.95 sensitivity in-sample, 0.71 external validation. The original split was a **random (image-level) split**, so the same patients landed in both train and test, and the model scored well by recognizing patients rather than disease.
 5. **The stale-feature skew ("we joined yesterday's features to today's events").** *Concrete setup:* you predict click-through, and one feature is `purchases_last_7d` (the user's purchase count over the trailing 7 days). *Offline*, you build the training table from the warehouse and attach to each past impression the value the feature had **at the moment of that impression** — written above as $\text{feature\_value\_at}(\text{label\_time})$. That value is accurate and fresh, because the warehouse keeps full history. *Online*, the serving store only holds the **latest nightly snapshot**, so at prediction time the model reads whatever the count was at last night's 2 a.m. batch — written as $\text{feature\_value\_now}()$, which really means "value as of the last refresh," and can be up to ~22 hours stale. The feature *name* is identical in both worlds; the *numbers* are not. The model's weights were fit against fresh-at-event values and then fed stale ones in production, so live AUC lands below offline — even though there's no leakage and no schema change. This is **training/serving skew**. *Fix:* serve from the same point-in-time logic you trained on (a feature store with consistent offline/online materialization), or — if you can't — train on the *same* staleness you'll actually serve, so the two distributions match.
 
+Number 5 deserves the extra length it got, because it's the one with no villain. Nobody wrote a bad query and nothing broke. Two correct systems disagreed about what "now" means.
+
 ## Why "how do I validate?" is the deepest question in the chapter
+
+Everything up to here has been about getting honest data into the model. The rest is about getting an honest number out of it, and that turns out to be a statistics problem rather than an engineering one.
 
 > **Goal — see every "which model / which hyperparameter" decision as one question: how well can I estimate generalization, and what bias do I create by choosing on my estimate?** This is where data-snooping (c1.1) becomes a *statistical* phenomenon you can quantify, where regularization (c1.3) gets its bias-variance justification, and where the "more data / bigger model" instincts get stress-tested by double descent.
 
@@ -601,45 +645,53 @@ Quick scenarios you should recognize on sight.
 
 > **Goal — derive, from scratch, the identity that names the entire trade.**
 
-Data model: $y=f(x)+\varepsilon$, $\mathbb{E}[\varepsilon]=0$, $\text{Var}(\varepsilon)=\sigma^2$, $\varepsilon\perp x$. The estimator $\hat f=\hat f_{\mathcal D}$ depends on a random training set $\mathcal D$; write $\bar f(x)=\mathbb{E}_{\mathcal D}[\hat f(x)]$. At a fixed test point $x$:
+Most people can recite "bias-variance tradeoff" and cannot say where the two terms come from. They come from one line of algebra plus one added-and-subtracted quantity, and doing it once means you never have to trust the slogan again.
+
+Data model: $y=f(x)+\varepsilon$, $\mathbb{E}[\varepsilon]=0$, $\text{Var}(\varepsilon)=\sigma^2$, $\varepsilon\perp x$. In words: the world produces a true value $f(x)$ and adds noise that averages to zero and is unrelated to the input. The estimator $\hat f=\hat f_{\mathcal D}$ depends on a random training set $\mathcal D$; write $\bar f(x)=\mathbb{E}_{\mathcal D}[\hat f(x)]$. Read $\bar f(x)$ as "the prediction you'd get at $x$ if you retrained on fresh datasets forever and averaged all the predictions." It is not a model you can build; it's a bookkeeping device. At a fixed test point $x$:
 
 $$\mathbb{E}_{\mathcal D,\varepsilon}\bigl[(y-\hat f(x))^2\bigr]=\mathbb{E}\bigl[(\varepsilon+(f(x)-\hat f(x)))^2\bigr]=\underbrace{\mathbb{E}[\varepsilon^2]}_{\sigma^2}+2\underbrace{\mathbb{E}[\varepsilon]}_{0}\,\mathbb{E}[f(x)-\hat f(x)]+\mathbb{E}_{\mathcal D}[(f(x)-\hat f(x))^2]$$
 
-The cross term dies because $\varepsilon\perp\mathcal D$ and $\mathbb{E}[\varepsilon]=0$ — *that's* where zero-mean independent noise earns its keep. Now split the last term with $\pm\bar f(x)$:
+The only move there was substituting $y=f(x)+\varepsilon$ and expanding a square. The cross term dies because $\varepsilon\perp\mathcal D$ and $\mathbb{E}[\varepsilon]=0$ — *that's* where zero-mean independent noise earns its keep. Both halves of the assumption are needed: independence lets the expectation factor into a product, and zero mean kills the factor. Now split the last term with $\pm\bar f(x)$:
 
 $$\mathbb{E}_{\mathcal D}[(f-\hat f)^2]=\underbrace{(f(x)-\bar f(x))^2}_{\text{Bias}^2}+\underbrace{\mathbb{E}_{\mathcal D}[(\hat f(x)-\bar f(x))^2]}_{\text{Var}}$$
 
-(the second cross term vanishes because $\mathbb{E}_{\mathcal D}[\hat f-\bar f]=0$). So
+Adding and subtracting $\bar f(x)$ changes nothing and buys everything: the first bracket compares truth to the *average* model, and the second compares any one model to the *average* model. (The second cross term vanishes because $\mathbb{E}_{\mathcal D}[\hat f-\bar f]=0$ — the average deviation from the average is zero by definition.) So
 
 $$\boxed{\ \mathbb{E}[(y-\hat f(x))^2]=\sigma^2_{\text{noise}}+\text{Bias}^2+\text{Var}\ }$$
+
+Three terms, and now name each one against something you can act on:
 
 - $\sigma^2$ — irreducible; if test error is near it, **stop tuning**.
 - $\text{Bias}^2$ — how wrong the *average* model is; high for under-parameterized/over-regularized fits.
 - $\text{Var}$ — sensitivity to the particular sample; high for flexible/under-regularized fits.
 
-Sweeping complexity, Bias² falls and Var rises, so the sum is the classic **U-curve**. (Caveat: this clean additive split holds **only for squared loss**; for 0-1 loss the decomposition is loss-dependent and non-additive — Domingos 2000.)
+Now turn the complexity knob and watch the terms move in opposite directions. Sweeping complexity, Bias² falls and Var rises, so the sum is the classic **U-curve**. (Caveat: this clean additive split holds **only for squared loss**; for 0-1 loss the decomposition is loss-dependent and non-additive — Domingos 2000.)
 
-<BiasVarianceUCurve caption="The bias-variance U-curve. Sweeping model complexity (x-axis): Bias² drops as capacity grows (blue); Variance rises (red); the total is their sum plus the irreducible noise floor σ² (dashed). The optimum sits where those two forces balance — well below where either alone would put you. The 'σ² floor' line is the reason 'more tuning' has a floor; if your test error is near it, stop." />
+<BiasVarianceUCurve caption="Follow the two coloured curves left to right and find where they cross, then look at where the total actually bottoms out. The bias-variance U-curve. Sweeping model complexity (x-axis): Bias² drops as capacity grows (blue); Variance rises (red); the total is their sum plus the irreducible noise floor σ² (dashed). The optimum sits where those two forces balance — well below where either alone would put you. The 'σ² floor' line is the reason 'more tuning' has a floor; if your test error is near it, stop." />
 
 ## Part 2 — Double descent
 
 > **Goal — know where the U-curve stops being the whole story.**
 
-Past the **interpolation threshold** (roughly when #parameters $=n$, where the model first fits the training data exactly), test risk can **descend a second time** (Belkin et al. 2019). Mechanism: among the infinitely many interpolating solutions, the training procedure's inductive bias selects the **minimum-norm** (smoothest) one, and that norm keeps *decreasing* as capacity grows — an *implicit* ridge — so effective variance falls even at zero training error. This doesn't contradict Part 1: the decomposition is still exact; it's the **variance term** that, counterintuitively, comes *back down* in the over-parameterized regime. The classical U-curve is the *under-parameterized* story; modern over-parameterized models live on the second descent. (Nakkiran 2021 also shows *more data can transiently hurt* near the threshold.)
+The U-curve says: push capacity past the optimum and test error rises forever. Modern practice does exactly that, with models carrying more parameters than training rows, and gets *better* results. Both things are true, and reconciling them is the content of this part.
 
-<DoubleDescent caption="Test risk vs model capacity p/n. Under-parameterized regime (p < n): the classical U-curve — bias falls, variance rises, minimum somewhere in the middle. At p = n (interpolation threshold): the risk spikes because $X^\top X$ becomes ill-conditioned and the min-norm solution's variance blows up. Over-parameterized regime (p > n): risk descends again, and often to a lower minimum than the classical one — because the training procedure's implicit ridge (minimum-norm interpolant) shrinks effective variance as p grows. The whole word 'double' only makes sense as this picture." />
+Past the **interpolation threshold** (roughly when #parameters $=n$, where the model first fits the training data exactly), test risk can **descend a second time** (Belkin et al. 2019). Mechanism: among the infinitely many interpolating solutions, the training procedure's inductive bias selects the **minimum-norm** (smoothest) one, and that norm keeps *decreasing* as capacity grows — an *implicit* ridge — so effective variance falls even at zero training error. Read that as: once there are more knobs than constraints, adding knobs gives the optimizer more ways to fit the data *gently*, and it takes them. This doesn't contradict Part 1: the decomposition is still exact; it's the **variance term** that, counterintuitively, comes *back down* in the over-parameterized regime. The classical U-curve is the *under-parameterized* story; modern over-parameterized models live on the second descent. (Nakkiran 2021 also shows *more data can transiently hurt* near the threshold.)
+
+<DoubleDescent caption="Watch the curve at p/n = 1 first — the spike is the whole reason the picture has two descents. Test risk vs model capacity p/n. Under-parameterized regime (p < n): the classical U-curve — bias falls, variance rises, minimum somewhere in the middle. At p = n (interpolation threshold): the risk spikes because $X^\top X$ becomes ill-conditioned and the min-norm solution's variance blows up. Over-parameterized regime (p > n): risk descends again, and often to a lower minimum than the classical one — because the training procedure's implicit ridge (minimum-norm interpolant) shrinks effective variance as p grows. The whole word 'double' only makes sense as this picture." />
 
 ## Part 3 — Cross-validation, as an estimator
 
 > **Goal — treat CV as a random quantity and reason about its bias, its variance, and the bias you create by selecting on it.**
 
-**Its bias (choice of $K$).** Each surrogate trains on $n(1-1/K)$ points, so it's *weaker* than the final all-$n$ model ⇒ $\widehat{\text{CV}}_K$ is **pessimistically biased**, and the bias **grows as $K$ shrinks** ($K=2$ trains on half the data). LOO ($K=n$) trains on $n-1$ → nearly unbiased.
+Back in the mechanics section, $K=5$ or $10$ arrived as folklore. Here it arrives as a consequence. The move that makes it derivable is to stop thinking of $\widehat{\text{CV}}_K$ as a number and start thinking of it as an estimator with its own bias and its own variance, exactly like the sample mean back in the sampling section.
 
-**Its variance.** LOO's $n$ training sets overlap in $n-2$ points ⇒ the fold errors are **highly correlated** ⇒ their average doesn't concentrate ⇒ **high variance**. Smaller $K$ → less-correlated folds → lower variance. So $K$ is itself a bias-variance knob *about the estimator*; **$K=5$ or $10$ is the empirical sweet spot** (Kohavi 1995 found 10-fold stratified beats LOO for *selection*). There's no unbiased estimator of $\text{Var}(\widehat{\text{CV}})$ (Bengio & Grandvalet 2004) — which is why people report a crude $\pm$ SE and use the **one-standard-error rule** (pick the simplest model within 1 SE of the best). (For least-squares linear models LOO is *free* via $\text{PRESS}=\sum_i (e_i/(1-h_{ii}))^2$ using the hat-matrix diagonal — so "LOO is expensive" doesn't apply there.)
+**Its bias (choice of $K$).** Each surrogate trains on $n(1-1/K)$ points, so it's *weaker* than the final all-$n$ model ⇒ $\widehat{\text{CV}}_K$ is **pessimistically biased**, and the bias **grows as $K$ shrinks** ($K=2$ trains on half the data). LOO ($K=n$) trains on $n-1$ → nearly unbiased. The direction matters: you are measuring a handicapped version of the model you'll actually ship, so CV understates your model, and it understates it more the fewer folds you use.
 
-**Selection bias (the winner's curse).** For a *single fixed* model, $\widehat{\text{CV}}$ is ~unbiased. But you report $\min_\lambda\widehat{\text{CV}}(\lambda)$, and by Jensen, $\mathbb{E}[\min_\lambda\widehat{\text{CV}}(\lambda)]\le\min_\lambda R(\lambda)$ — **selecting the argmin systematically under-estimates** the chosen model's true risk. With $m$ roughly-independent candidates of noise $\tau$, the optimism is $\approx\tau\sqrt{2\ln m}$. This is the *same statistical phenomenon* as tuning on the test set (c1.1 data-snooping), only milder — and it's the same phenomenon as reporting the best of 100 A/B tests: the *min of noisy estimates* is biased downward, and the bias worsens with more candidates. **Nested CV** fixes it: the inner loop selects $\lambda$, the outer loop (whose folds the selection never saw) estimates the risk of the *whole tuning procedure*.
+**Its variance.** LOO's $n$ training sets overlap in $n-2$ points ⇒ the fold errors are **highly correlated** ⇒ their average doesn't concentrate ⇒ **high variance**. That chain is worth walking one link at a time, because "averaging $n$ things must be stable" is the natural wrong answer here. Averaging kills variance only when the things averaged are independent, and LOO's training sets are nearly identical to one another, so its $n$ fold errors are close to $n$ copies of the same number. Smaller $K$ → less-correlated folds → lower variance. So $K$ is itself a bias-variance knob *about the estimator*; **$K=5$ or $10$ is the empirical sweet spot** (Kohavi 1995 found 10-fold stratified beats LOO for *selection*). There's no unbiased estimator of $\text{Var}(\widehat{\text{CV}})$ (Bengio & Grandvalet 2004) — which is why people report a crude $\pm$ SE and use the **one-standard-error rule** (pick the simplest model within 1 SE of the best). (For least-squares linear models LOO is *free* via $\text{PRESS}=\sum_i (e_i/(1-h_{ii}))^2$ using the hat-matrix diagonal — so "LOO is expensive" doesn't apply there.)
 
-<CvFoldStrip caption="K-fold CV's structural bias-variance dial. K=5 (top): five folds, each holding out 20% of the data — training sets overlap in ~60% of rows, giving moderately independent fold errors. K=10: smaller held-out slices, larger training sets → lower per-fold bias, higher variance from more-correlated folds. LOO (bottom): n=20 folds; every pair of training sets overlaps in n−2 rows → fold errors are strongly correlated → the mean CV estimate is nearly unbiased but has high variance because it's an average of dependent numbers. That's why K=5 or 10 usually beats LOO in practice." />
+**Selection bias (the winner's curse).** Now the third effect, and it's the one that ruins reported numbers. For a *single fixed* model, $\widehat{\text{CV}}$ is ~unbiased. But you report $\min_\lambda\widehat{\text{CV}}(\lambda)$, and by Jensen, $\mathbb{E}[\min_\lambda\widehat{\text{CV}}(\lambda)]\le\min_\lambda R(\lambda)$ — **selecting the argmin systematically under-estimates** the chosen model's true risk. The mechanism is that noise is part of what you selected on: the configuration that won got some of its win from a lucky fold draw, and luck doesn't repeat. With $m$ roughly-independent candidates of noise $\tau$, the optimism is $\approx\tau\sqrt{2\ln m}$. Read that as "the expected maximum of $m$ noise draws," which grows slowly but never stops growing, so a wide sweep is worse than a narrow one. This is the *same statistical phenomenon* as tuning on the test set (c1.1 data-snooping), only milder — and it's the same phenomenon as reporting the best of 100 A/B tests: the *min of noisy estimates* is biased downward, and the bias worsens with more candidates. **Nested CV** fixes it: the inner loop selects $\lambda$, the outer loop (whose folds the selection never saw) estimates the risk of the *whole tuning procedure*.
+
+<CvFoldStrip caption="Compare how much of each row's training data is shared with the row above it; that overlap is the variance story. K-fold CV's structural bias-variance dial. K=5 (top): five folds, each holding out 20% of the data — training sets overlap in ~60% of rows, giving moderately independent fold errors. K=10: smaller held-out slices, larger training sets → lower per-fold bias, higher variance from more-correlated folds. LOO (bottom): n=20 folds; every pair of training sets overlaps in n−2 rows → fold errors are strongly correlated → the mean CV estimate is nearly unbiased but has high variance because it's an average of dependent numbers. That's why K=5 or 10 usually beats LOO in practice." />
 
 > **Stop and think.** Your train and validation errors are both high and nearly equal. Will collecting more data help? *Hint: no — equal-and-high curves are the high-bias/underfit signature; the dominant term is $\text{Bias}^2$, a property of the model class, not the sample size. More data only closes a persistent train-val *gap* (high variance). The fix is more capacity / fewer constraints, not more rows.*
 
@@ -647,7 +699,9 @@ Past the **interpolation threshold** (roughly when #parameters $=n$, where the m
 
 > **Goal — search the hyperparameter space efficiently, exploiting that few hyperparameters actually matter.**
 
-**Random beats grid in high dimensions** (Bergstra & Bengio 2012). A grid of $v$ values over $d$ hyperparameters costs $v^d$ trials but probes only $v$ distinct values *per axis*; $n$ random points probe $n$ distinct values on *every* axis. If only $d_{\text{eff}}\ll d$ hyperparameters matter (usually true), the grid wastes its budget re-evaluating irrelevant axes while random search explores the important ones at full resolution. The probabilistic guarantee is **dimension-free**: $n$ random draws hit the top-$\beta$ region with probability $\ge 1-\gamma$ once $n\ge\frac{\log\gamma}{\log(1-\beta)}$ — for the top 5% at 95% confidence, **$n=59$** trials, regardless of $d$. ("Top-5% region" means the 5% of the hyperparameter space with the best validation loss — hit it once and one of your random configs is already inside the good neighborhood.)
+The obvious way to search $d$ hyperparameters is a grid: pick $v$ values for each and try every combination. It's reproducible, it's tidy, and it's what everybody writes first. Here's what's wrong with it.
+
+**Random beats grid in high dimensions** (Bergstra & Bengio 2012). A grid of $v$ values over $d$ hyperparameters costs $v^d$ trials but probes only $v$ distinct values *per axis*; $n$ random points probe $n$ distinct values on *every* axis. That's the whole argument in one sentence. A grid spends an exponential budget to learn about only $v$ settings of each individual knob, while random search spends a linear budget and learns about a different setting of every knob on every trial. If only $d_{\text{eff}}\ll d$ hyperparameters matter (usually true), the grid wastes its budget re-evaluating irrelevant axes while random search explores the important ones at full resolution. The probabilistic guarantee is **dimension-free**: $n$ random draws hit the top-$\beta$ region with probability $\ge 1-\gamma$ once $n\ge\frac{\log\gamma}{\log(1-\beta)}$ — for the top 5% at 95% confidence, **$n=59$** trials, regardless of $d$. ("Top-5% region" means the 5% of the hyperparameter space with the best validation loss — hit it once and one of your random configs is already inside the good neighborhood.) The words "regardless of $d$" are doing the work: $d$ does not appear in that formula at all, so the trial count you need does not grow as you add hyperparameters.
 
 Beyond random: **Bayesian optimization** (fit a surrogate over tried configs, propose the point maximizing expected improvement — e.g. Optuna's TPE) and **Hyperband / successive halving** (Li et al. 2017 — start many configs at a small budget, keep the top $1/\eta$, multiply survivors' budget, repeat) for expensive training.
 
@@ -655,11 +709,11 @@ Beyond random: **Bayesian optimization** (fit a surrogate over tried configs, pr
 
 > **Goal — diagnose *which* term dominates, and select without a held-out set when you must.**
 
-A **learning curve** (error vs training-set size) diagnoses the regime: **high bias** = train and val errors converge to a *high* floor (more data won't help → add capacity); **high variance** = a persistent train-val *gap* (more data or regularization helps).
+Part 1 gave you two terms to trade. It didn't tell you which one is currently hurting you, and the fixes point in opposite directions: more capacity for one, less for the other. Guess wrong and you make things worse. A **learning curve** (error vs training-set size) diagnoses the regime: **high bias** = train and val errors converge to a *high* floor (more data won't help → add capacity); **high variance** = a persistent train-val *gap* (more data or regularization helps).
 
-<LearningCurveDiag caption="The two learning-curve diagnostic patterns. Left (high bias): train and validation errors converge to the same high floor. More rows won't help — the model class is too weak. Fix: more capacity, weaker regularization, or richer features. Right (high variance): a persistent train-val gap that doesn't close with more data. Fix: regularize, simplify, or genuinely add data if you can. Same axes, so the diagnosis is a matter of shape recognition, not measurement." />
+<LearningCurveDiag caption="Ask one question of each panel: do the two curves meet? The two learning-curve diagnostic patterns. Left (high bias): train and validation errors converge to the same high floor. More rows won't help — the model class is too weak. Fix: more capacity, weaker regularization, or richer features. Right (high variance): a persistent train-val gap that doesn't close with more data. Fix: regularize, simplify, or genuinely add data if you can. Same axes, so the diagnosis is a matter of shape recognition, not measurement." />
 
-**Information criteria** select without held-out data via penalized likelihood: $\text{AIC}=-2\hat\ell+2k$ and $\text{BIC}=-2\hat\ell+k\ln n$. BIC's heavier penalty ($\ln n>2$ for $n>7$) makes it **consistent** (recovers the true model as $n\to\infty$ if it's in the candidate set; the AIC/BIC crossover is at $\ln n>2$, i.e. $n>e^2\approx7.4$); AIC is **efficient** (minimizes prediction risk) but can over-select.
+Sometimes you can't afford to hold anything out at all, because $n$ is small enough that removing a validation set materially weakens the model. **Information criteria** select without held-out data via penalized likelihood: $\text{AIC}=-2\hat\ell+2k$ and $\text{BIC}=-2\hat\ell+k\ln n$. Read both as "fit, plus a fine for every parameter you spent." They differ only in the size of the fine. BIC's heavier penalty ($\ln n>2$ for $n>7$) makes it **consistent** (recovers the true model as $n\to\infty$ if it's in the candidate set; the AIC/BIC crossover is at $\ln n>2$, i.e. $n>e^2\approx7.4$); AIC is **efficient** (minimizes prediction risk) but can over-select. So the choice is not about which is better, it's about which question you're asking: BIC if you want the true model, AIC if you want the best forecast.
 
 ## Tradeoff matrix
 
@@ -678,6 +732,8 @@ A **learning curve** (error vs training-set size) diagnoses the regime: **high b
 
 ## The stats / quant-research lens
 
+If your background is statistics or quant research, these four connections are the ones that make the rest of the course cohere.
+
 - **The decomposition is the whole game** — derive it cold, state the squared-loss caveat, and connect "ridge accepts bias to cut variance" to c1.3's shrinkage story (a little bias can strictly lower total MSE).
 - **CV error is an estimator with a sampling distribution** — three distinct effects (pessimistic bias from smaller folds, high variance from correlated LOO folds, optimistic *selection* bias from min-over-candidates); a staff-level answer separates all three.
 - **Data-snooping = meta-level leakage:** running 100 CV configs and reporting the best is multiple testing; the number is an order statistic biased by $\approx\tau\sqrt{2\ln m}$. In quant this is **backtest overfitting** (Bailey & López de Prado's *deflated Sharpe ratio*); nested CV / a truly-held-out set is the only honest fix — the same root cause as "more factors mechanically raise in-sample $R^2$" (c1.3).
@@ -685,6 +741,8 @@ A **learning curve** (error vs training-set size) diagnoses the regime: **high b
 
 
 ## Worked decision walk-throughs
+
+Four situations, each with one right answer and a named reason. Read the situation first and commit to an answer before reading the second half of the line.
 
 **Scenario A: small dataset, you must tune hyperparameters AND report honest generalization.** **Nested CV** — inner loop tunes, outer loop estimates the tuned procedure's risk. Reporting `best_score_` from a single CV would be optimistically biased.
 

@@ -4,12 +4,12 @@ chapter: 1
 title: Loss functions
 subtitle: Regression and classification losses as noise models
 refs: [16, 17, 18, 15, 11, 10, 12]
-estimatedMinutes: 110
+estimatedMinutes: 125
 ---
 
 ## TL;DR
 
-Every regression loss function is **secretly a statement about what the noise in your data looks like**. MSE is MLE under Gaussian noise; MAE is MLE under Laplace noise; Huber is what you reach for when noise is mostly Gaussian but has a heavy tail of outliers. Choosing a loss is choosing a noise model — and the choice changes outlier sensitivity, optimization difficulty, and the very meaning of "best fit."
+Every regression loss function is **secretly a statement about what the noise in your data looks like**. Pick a loss and you have picked a probability distribution for your errors, whether you meant to or not. MSE is MLE under Gaussian noise; MAE is MLE under Laplace noise; Huber is what you reach for when noise is mostly Gaussian but has a heavy tail of outliers. Choosing a loss is choosing a noise model — and the choice changes outlier sensitivity, optimization difficulty, and the very meaning of "best fit."
 
 A classification loss is the **same maximum-likelihood story as regression** (c1.2), specialized to discrete labels. **Cross-entropy is the negative log-likelihood of a Categorical/Bernoulli model**, and minimizing it is minimizing the KL divergence from your prediction to the label distribution. Everything else — focal loss, class-balanced weighting, label smoothing — is a *deliberate distortion* of that objective to fix imbalance or miscalibrated confidence. Every distortion has a price, and the price is almost always paid in **calibration**: whether the number your model calls "0.9" actually happens 90% of the time.
 
@@ -32,12 +32,14 @@ A classification loss is the **same maximum-likelihood story as regression** (c1
 
 ## Why losses come before models
 
-In Chapter 1 of every ML course (and most production code), the first piece of code anyone writes is `model.fit(X, y)`. The choice of *what `.fit` is actually optimizing* — the loss function — usually defaults to whatever the library picked. For a senior interview, that default is the wrong answer twice:
+Open any notebook. In Chapter 1 of every ML course (and most production code), the first piece of code anyone writes is `model.fit(X, y)`. Nobody stops to ask what `.fit` is minimizing. The choice of *what `.fit` is actually optimizing* — the loss function — usually defaults to whatever the library picked. For a senior interview, that default is the wrong answer twice:
 
 1. **The loss is the spec.** It's the formal statement of what "good predictions" means. Two models with the same architecture trained with different losses are different functions of the data.
 2. **The loss encodes assumptions about the noise.** When the noise model is wrong, the "optimal" model is the wrong model — and the failure modes (sensitivity to outliers, biased predictions, training instability) follow directly from the mismatch.
 
-So we treat losses as first-class, *before* picking model families.
+Point 2 is the one that surprises people, and it is the spine of this lesson. So we treat losses as first-class, *before* picking model families.
+
+Before any of that, a short glossary. You have seen all of these words; you may not have said them out loud in four years.
 
 > **Vocabulary primer.** A short grounding of words this lesson uses constantly. The "rusty staff engineer" assumption from c1.1 still applies.
 >
@@ -52,21 +54,25 @@ So we treat losses as first-class, *before* picking model families.
 
 ## The big idea: every regression loss is a noise model
 
-This single observation organizes the rest of the lesson.
+This single observation organizes the rest of the lesson. Read it once now; every section below is a special case of it.
 
 Suppose you assume that the true relationship between features $x$ and label $y$ is
 
 $$y = f^\star(x) + \epsilon, \qquad \epsilon \sim p_\text{noise}$$
 
-where $f^\star$ is the (unknown) true function and $\epsilon$ is a random noise term drawn from some distribution $p_\text{noise}$. If you fit a model $\hat{f}_\theta(x)$ with parameters $\theta$ by maximizing the likelihood of the observed data:
+Read that out loud: the label you observe is the true function's value plus a random kick, and the kick is drawn from some distribution $p_\text{noise}$. Here $f^\star$ is the (unknown) true function and $\epsilon$ is a random noise term drawn from some distribution $p_\text{noise}$. If you fit a model $\hat{f}_\theta(x)$ with parameters $\theta$ by maximizing the likelihood of the observed data:
 
 $$\hat{\theta}_{\text{MLE}} = \arg\max_\theta \prod_{i=1}^n p_\text{noise}(y_i - \hat{f}_\theta(x_i))$$
 
-then taking the negative log of the product turns it into a sum, and the *form* of the loss you end up minimizing depends entirely on $p_\text{noise}$:
+In English: find the parameters that make the residuals you actually observed the most probable set of noise kicks. Each factor in the product is "how likely was a kick of exactly this size," and the product runs over every training row.
+
+Products of $n$ small numbers are miserable to work with, so take the negative log. The log turns the product into a sum, and the *form* of the loss you end up minimizing depends entirely on $p_\text{noise}$:
 
 $$-\log \prod_i p_\text{noise}(r_i) = -\sum_i \log p_\text{noise}(r_i)$$
 
-So if $p_\text{noise}$ is Gaussian, $\log p_\text{noise}(r) = -r^2 / (2\sigma^2) + \text{const}$, and you're minimizing $\sum r_i^2$ — that's MSE. If $p_\text{noise}$ is Laplace, $\log p_\text{noise}(r) = -|r|/b + \text{const}$, and you're minimizing $\sum |r_i|$ — that's MAE. **The choice of loss is the choice of noise distribution.** Every regression loss in this lesson is a special case of this template.
+That right-hand side is a per-example penalty summed over the dataset. That is exactly the shape of a training loss. So the loss you write down is nothing more than $-\log$ of a noise density, and different densities give different penalties.
+
+Now turn the crank twice. If $p_\text{noise}$ is Gaussian, $\log p_\text{noise}(r) = -r^2 / (2\sigma^2) + \text{const}$, and you're minimizing $\sum r_i^2$ — that's MSE. If $p_\text{noise}$ is Laplace, $\log p_\text{noise}(r) = -|r|/b + \text{const}$, and you're minimizing $\sum |r_i|$ — that's MAE. **The choice of loss is the choice of noise distribution.** Every regression loss in this lesson is a special case of this template.
 
 > **Stop and think.** If the noise distribution is something else entirely — say, Student-$t$ with $\nu$ degrees of freedom — what loss would MLE prescribe? *Hint:* $-\log p_\nu(r) = \frac{\nu + 1}{2}\log(1 + r^2/\nu) + \text{const}$. This is "robust regression" and we'll meet a numerical cousin (log-cosh) below.
 
@@ -76,17 +82,25 @@ So if $p_\text{noise}$ is Gaussian, $\log p_\text{noise}(r) = -r^2 / (2\sigma^2)
 
 $$\mathcal{L}_{\text{MSE}}(y, \hat{y}) = \frac{1}{n} \sum_{i=1}^n (y_i - \hat{y}_i)^2$$
 
+Square every error, average the squares. That's the whole formula.
+
 You'll also see this written as **squared error** (the per-example version $(y - \hat{y})^2$), **L2 loss**, or **quadratic loss**. The constant $1/n$ doesn't change the location of the minimum; some sources omit it or use $1/(2n)$ to make the gradient cleaner.
 
 ### Derivation as MLE under Gaussian noise
+
+Now run the template from the previous section with a specific density plugged in.
 
 Assume $y_i = \hat{f}_\theta(x_i) + \epsilon_i$ with $\epsilon_i \sim \mathcal{N}(0, \sigma^2)$ i.i.d. Then the likelihood of one example is
 
 $$p(y_i \mid x_i, \theta) = \frac{1}{\sqrt{2\pi \sigma^2}} \exp\!\left(-\frac{(y_i - \hat{f}_\theta(x_i))^2}{2\sigma^2}\right)$$
 
-The log-likelihood of the dataset:
+Everything in front of the exponential is a constant that doesn't involve $\theta$. Everything inside the exponential is the squared residual, scaled.
+
+Take the log of each factor and add them up. The log-likelihood of the dataset:
 
 $$\log L(\theta) = -\frac{n}{2}\log(2\pi\sigma^2) - \frac{1}{2\sigma^2} \sum_{i=1}^n (y_i - \hat{f}_\theta(x_i))^2$$
+
+Read the two terms. The first has no $\theta$ in it at all, so it's dead weight for optimization. The second is a negative constant times the sum of squared residuals.
 
 Maximizing $\log L(\theta)$ over $\theta$ is equivalent to minimizing $\sum_i (y_i - \hat{f}_\theta(x_i))^2$ — exactly the MSE objective. The variance $\sigma^2$ doesn't affect the minimizing $\theta$; it only rescales the loss.
 
@@ -94,21 +108,29 @@ Maximizing $\log L(\theta)$ over $\theta$ is equivalent to minimizing $\sum_i (y
 
 ### Gradient
 
+The optimizer never sees the loss value. It sees the derivative. So compute it.
+
 For a single example, $\mathcal{L} = (y - \hat{y})^2$ where $\hat{y} = \hat{f}_\theta(x)$:
 
 $$\frac{\partial \mathcal{L}}{\partial \hat{y}} = -2(y - \hat{y}) = -2 r$$
 
-(Here $r = y - \hat{y}$ is the residual.) So **the gradient signal scales linearly with the residual.** Bigger errors push harder.
+(Here $r = y - \hat{y}$ is the residual.) In words: the push this example applies is proportional to how wrong it is. So **the gradient signal scales linearly with the residual.** Bigger errors push harder. Double the error and you double the shove.
+
+That sounds reasonable. Hold that thought.
 
 ### Outlier sensitivity, quantified
 
-The linear-in-residual gradient is why MSE is fragile against outliers. Suppose you have 999 examples with residual roughly 1 and one example with residual 100 (an outlier). The gradient contribution from the bulk is $999 \times 2 = 1998$. The contribution from the single outlier is $2 \times 100 = 200$ — that single example's gradient is **10% as influential as the entire well-behaved dataset combined.**
+Take 1000 rows. On 999 of them your model is doing fine, with residuals of roughly 1. On one row, a sensor glitched and the label came back with a residual of 100.
 
-Squared loss values it even more: $\sum r_i^2$ on the bulk is $999$; on the outlier alone is $10000$. The single outlier *dominates* the loss numerically.
+Add up the gradient. From the 999 well-behaved rows you get $999 \times 2 = 1998$. From the single glitched row you get $2 \times 100 = 200$. So one row out of a thousand supplies 200 units of pull against the other 999 rows' 1998 — that single example's gradient is **10% as influential as the entire well-behaved dataset combined.**
 
-This isn't a bug; it's the consequence of assuming Gaussian noise. Gaussians have light tails — they assign vanishingly small probability to large residuals — so a large residual is interpreted as "this *can't* be normal noise; my model must be way off." The optimizer dutifully bends the model to reduce that one residual.
+The linear-in-residual gradient is why MSE is fragile against outliers. Now do the same accounting on the loss value rather than the gradient, and it looks worse. Squared loss values it even more: $\sum r_i^2$ on the bulk is $999$; on the outlier alone is $10000$. The single outlier *dominates* the loss numerically. By the number MSE is reporting, your model's entire job is that one row.
+
+This isn't a bug; it's the consequence of assuming Gaussian noise. Gaussians have light tails — they assign vanishingly small probability to large residuals — so a large residual is interpreted as "this *can't* be normal noise; my model must be way off." The optimizer dutifully bends the model to reduce that one residual. The loss is behaving exactly as specified. The specification was wrong.
 
 ### Why MSE has a closed-form solution for linear models
+
+MSE buys you something real in exchange for that fragility, and this is it. For a linear model you never have to run an optimizer at all. Here is where that comes from.
 
 Linear regression stacks the per-example predictions $\hat{y}_i = x_i^\top\theta$ into $\hat{y} = X\theta$, where $X$ is the $n \times p$ design matrix (row $i$ is $x_i^\top$). Differentiate the objective w.r.t. the parameter *vector* $\theta$ in steps — this is where the per-example $-2r$ from above turns into matrices.
 
@@ -116,23 +138,33 @@ Linear regression stacks the per-example predictions $\hat{y}_i = x_i^\top\theta
 
 $$\mathcal{L}(\theta) = \frac{1}{n}\sum_{i=1}^n \bigl(y_i - x_i^\top\theta\bigr)^2 = \frac{1}{n}\,\|y - X\theta\|_2^2$$
 
+Average squared residual, written first as a sum and then as a squared vector norm. Same object twice.
+
 **One example, by the chain rule.** We showed above that squared error has $\partial \mathcal{L}_i / \partial \hat{y}_i = -2 r_i$ with $r_i = y_i - \hat{y}_i$. Since $\hat{y}_i = x_i^\top\theta$ is linear in $\theta$, $\partial \hat{y}_i / \partial \theta = x_i$, so by the chain rule
 
 $$\frac{\partial \mathcal{L}_i}{\partial \theta} = \underbrace{(-2 r_i)}_{\partial \mathcal{L}_i / \partial \hat{y}_i} \cdot \underbrace{x_i}_{\partial \hat{y}_i / \partial \theta} = -2\,\bigl(y_i - x_i^\top\theta\bigr)\,x_i$$
+
+Read the two braces: how much the loss moves when the prediction moves, times how much the prediction moves when the parameters move. The second factor is $x_i$ because for a linear model the feature vector *is* the model-Jacobian.
 
 **Average over the dataset.**
 
 $$\nabla_\theta \mathcal{L} = \frac{1}{n}\sum_{i=1}^n -2\,\bigl(y_i - x_i^\top\theta\bigr)\,x_i = -\frac{2}{n}\sum_{i=1}^n x_i\,\bigl(y_i - x_i^\top\theta\bigr)$$
 
+Nothing happened there except moving the constant out front and swapping the order of a scalar and a vector.
+
 **Vectorize the sum.** Each feature vector $x_i$ is a column of $X^\top$, so a sum of the form $\sum_i x_i\,r_i$ is exactly the matrix–vector product $X^\top r$ with the residual vector $r = y - X\theta$:
 
 $$\sum_{i=1}^n x_i\,\bigl(y_i - x_i^\top\theta\bigr) = X^\top (y - X\theta) \quad\Longrightarrow\quad \nabla_\theta \mathcal{L} = -\frac{2}{n}\,X^\top(y - X\theta)$$
+
+That step is worth pausing on: "sum over examples of (feature vector times its residual)" and "matrix times residual vector" are the same arithmetic, written two ways.
 
 **Set the gradient to zero and solve.**
 
 $$-\frac{2}{n}\,X^\top(y - X\theta) = 0 \implies X^\top X\,\theta = X^\top y \implies \theta = (X^\top X)^{-1} X^\top y$$
 
 The closed form exists because squaring makes the objective a quadratic in $\theta$, whose gradient is linear. **Linear gradient → linear system → closed form.** No iterative optimizer needed. (The last step needs $X^\top X$ to be invertible — i.e. $X$ has full column rank; perfect collinearity among features breaks it, which is exactly where ridge regression earns its keep.)
+
+Keep that chain of reasoning in mind. When we get to MAE, exactly one link in it breaks, and everything downstream falls apart.
 
 ### When MSE is the right choice
 
@@ -147,23 +179,31 @@ The closed form exists because squaring makes the objective a quadratic in $\the
 
 $$\mathcal{L}_{\text{MAE}}(y, \hat{y}) = \frac{1}{n} \sum_{i=1}^n |y_i - \hat{y}_i|$$
 
+Take the size of every error, ignore the sign, average them. One change from MSE: absolute value instead of squaring. That one change moves everything.
+
 Also called **L1 loss**.
 
 ### Derivation as MLE under Laplace noise
+
+Same template as before. Swap the density.
 
 The Laplace distribution (also "double-exponential") has density
 
 $$p_\text{Laplace}(r) = \frac{1}{2b} \exp\!\left(-\frac{|r|}{b}\right)$$
 
+Note what sits inside the exponential: $|r|$, not $r^2$. A Gaussian's log-density falls off like a parabola; a Laplace's falls off like a V.
+
 The log-likelihood of one example is then $-\log(2b) - |r|/b$. Summing over examples and dropping constants:
 
 $$\log L(\theta) = -\text{const} - \frac{1}{b} \sum_{i=1}^n |y_i - \hat{f}_\theta(x_i)|$$
+
+Again the first term has no $\theta$ in it, and the second is a negative constant times the sum of absolute residuals.
 
 Maximizing this is equivalent to minimizing $\sum |r_i|$ — the MAE objective.
 
 **Conclusion: minimizing MAE = MLE under Laplace noise.**
 
-Laplace has *heavier tails* than Gaussian — it assigns much more probability to large residuals. So when you assume Laplace noise, you're saying "occasional large errors are normal; don't bend the model to chase them."
+Laplace has *heavier tails* than Gaussian — it assigns much more probability to large residuals. So when you assume Laplace noise, you're saying "occasional large errors are normal; don't bend the model to chase them." A residual of 100 is not treated as evidence that the model is broken. It's treated as a Tuesday.
 
 ### Subgradient
 
@@ -171,23 +211,31 @@ The function $|r|$ is differentiable everywhere except at $r = 0$. Its derivativ
 
 $$\frac{d|r|}{dr} = \text{sign}(r) = \begin{cases} +1 & r > 0 \\ -1 & r < 0 \\ \text{undefined} & r = 0 \end{cases}$$
 
-At $r = 0$ specifically, $|r|$ has a kink (a corner), and the derivative isn't a single number. The **subgradient** at this kink is the *set* of all slopes of lines that lie below the function and touch it at zero: the interval $[-1, +1]$. Any value in $[-1, +1]$ is a valid subgradient at zero.
+The slope is $+1$ on the right arm of the V and $-1$ on the left arm. It never depends on how far out along the arm you are.
+
+At $r = 0$ specifically, $|r|$ has a kink (a corner), and the derivative isn't a single number. The **subgradient** at this kink is the *set* of all slopes of lines that lie below the function and touch it at zero: the interval $[-1, +1]$. Any value in $[-1, +1]$ is a valid subgradient at zero. Picture resting a straightedge in the notch of the V: you can tilt it through a whole range of angles and it still touches only at the bottom.
 
 For the chain-rule gradient with respect to model parameters $\theta$:
 
 $$\frac{\partial \mathcal{L}}{\partial \theta} = -\text{sign}(r) \cdot \frac{\partial \hat{f}_\theta(x)}{\partial \theta}$$
 
-**Key property: the gradient magnitude is constant** (either $+1$ or $-1$ times the model-Jacobian). The gradient doesn't grow with the residual — large residuals exert the same force as small ones. That's the source of MAE's outlier robustness.
+Read it: which direction the residual points, times how the prediction responds to each parameter. The size of the residual never enters.
+
+**Key property: the gradient magnitude is constant** (either $+1$ or $-1$ times the model-Jacobian). The gradient doesn't grow with the residual — large residuals exert the same force as small ones. That's the source of MAE's outlier robustness. Under MSE every example shouts in proportion to how wrong it is. Under MAE every example gets one vote.
 
 ### Outlier robustness, quantified
 
 Back to the 999-vs-1 example. With MAE, the gradient contribution from the bulk (residuals $\approx 1$) is $999 \times 1 = 999$. The contribution from the outlier (residual = 100) is just $1 \times 1 = 1$. The outlier is now **0.1% of the gradient signal**, not 10%. 100× less influence than under MSE.
 
+Same data, same model, same glitched sensor. The only thing that changed was the assumption about what noise looks like.
+
 ### Why MAE doesn't have a closed-form solution for linear models
 
-The MAE gradient is $-\text{sign}(r) X$ for linear regression. Setting it to zero doesn't give a linear system — `sign` is non-linear. The MAE optimum corresponds to the **conditional median** of $y$ given $X$, and there's no closed-form expression for the conditional-median parameters of a linear model.
+This is the link that breaks. Trace the MSE derivation again and watch where it dies.
 
-You instead use iterative methods: linear programming, IRLS (iteratively reweighted least squares), or subgradient descent. Tractable but slower than MSE's matrix inverse.
+The MAE gradient is $-\text{sign}(r) X$ for linear regression. Setting it to zero doesn't give a linear system — `sign` is non-linear. There is no matrix to invert, because there is no linear system to invert it in. The MAE optimum corresponds to the **conditional median** of $y$ given $X$, and there's no closed-form expression for the conditional-median parameters of a linear model.
+
+You instead use iterative methods: linear programming, IRLS (iteratively reweighted least squares), or subgradient descent. Tractable but slower than MSE's matrix inverse. That is the bill for robustness.
 
 ### Why MAE is the median, MSE is the mean
 
@@ -197,6 +245,8 @@ A useful intuition: if you have to predict a single number $\hat{y}$ for a distr
 - The value that minimizes $E[|Y - \hat{y}|]$ is $\hat{y} = \text{median}(Y)$ — the **median**.
 
 This is why MSE-trained regression models predict conditional means and MAE-trained regression models predict conditional medians. In a skewed distribution (income, claim sizes, latency), these can be very different — and the right choice depends on what you're trying to measure.
+
+Read that back as a sentence about the world. If you train on house prices with MSE, the number your model prints is its guess at the *average* price of a house like this one. Train with MAE and the same model prints its guess at the *typical* price of a house like this one. Those are different questions, and only one of them is the one your product asked.
 
 ### When MAE is the right choice
 
@@ -209,32 +259,42 @@ This is why MSE-trained regression models predict conditional means and MAE-trai
 
 ### Motivation
 
-You have noise that's *mostly* Gaussian but has a fat tail of gross outliers — e.g. sensor readings that are usually accurate but occasionally garbled. MSE will be pulled around by the outliers; MAE will give up the efficiency of squared-loss optimization in the bulk. **Huber is the hybrid: quadratic in the middle, linear in the tails.**
+Here is the case neither loss handles. You have noise that's *mostly* Gaussian but has a fat tail of gross outliers — e.g. sensor readings that are usually accurate but occasionally garbled.
+
+Try MSE: it will be pulled around by the outliers, for exactly the reasons in the 999-vs-1 count above. Try MAE: it ignores the outliers, but it also throws away the smooth quadratic behavior on the 999 rows where the Gaussian assumption was fine. Put plainly, MSE will be pulled around by the outliers; MAE will give up the efficiency of squared-loss optimization in the bulk. Neither one is describing your data, because your data is two things at once.
+
+So describe it as two things. **Huber is the hybrid: quadratic in the middle, linear in the tails.**
 
 Formally, with threshold $\delta > 0$:
 
 $$\mathcal{L}_\delta(r) = \begin{cases} \tfrac{1}{2} r^2 & |r| \le \delta \\ \delta\bigl(|r| - \tfrac{1}{2}\delta\bigr) & |r| > \delta \end{cases}$$
 
+In words: if the residual is small enough to be plausible noise, square it. If it's bigger than $\delta$, stop squaring and charge a flat rate per unit of error. $\delta$ is the line between "ordinary noise" and "something went wrong."
+
 ### Properties
+
+Splicing two functions together is easy. Splicing them together *without introducing a seam* is the part worth checking, so check it.
 
 **Continuity at the threshold.** At $r = \delta$:
 
 - Quadratic branch: $\tfrac{1}{2}\delta^2$.
 - Linear branch: $\delta(\delta - \tfrac{1}{2}\delta) = \tfrac{1}{2}\delta^2$.
 
-Equal. The function joins smoothly at $\pm\delta$.
+Equal. The function joins smoothly at $\pm\delta$. That $-\tfrac{1}{2}\delta$ inside the linear branch exists for precisely this reason: it's the offset that makes the two pieces meet.
 
-**Gradient continuity at the threshold.** Differentiating each branch w.r.t. $r$:
+**Gradient continuity at the threshold.** Values matching isn't enough. The optimizer reads slopes, so the slopes have to match too. Differentiating each branch w.r.t. $r$:
 
 - Quadratic: $\dfrac{d}{dr}(\tfrac{1}{2} r^2) = r$.
 - Linear (for $r > \delta$): $\dfrac{d}{dr}(\delta r - \tfrac{1}{2}\delta^2) = \delta$.
 
 At $r = \delta$, both branches give a derivative of $\delta$. The gradient is continuous — no kink, no jump, no subgradient pathology. Same on the negative side at $r = -\delta$. This is why Huber is *the* loss for gradient-based optimizers that don't want to deal with `sign(0)`.
 
-**Behavior far from / near zero.**
+**Behavior far from / near zero.** Turn the knob and watch the pieces move.
 
 - $|r| \ll \delta$: behaves like MSE/2. Quadratic. Sensitive to gradient signal scaling with residual size.
 - $|r| \gg \delta$: behaves like $\delta \cdot |r|$. Linear. Outlier-robust.
+
+So $\delta$ is a dial between the two losses you already know. That immediately raises the question of where to set it.
 
 ### Choosing $\delta$
 
@@ -245,7 +305,9 @@ The standard rule of thumb: pick $\delta$ to be the $\approx$95th percentile of 
 3. Set $\delta \approx 1.345 \hat{\sigma}$ (the value that achieves 95% asymptotic efficiency under pure Gaussian noise, from Huber's original paper).
 4. Refit with Huber and the chosen $\delta$.
 
-If $\delta$ is too small, Huber approaches MAE — you lose the smooth-quadratic efficiency on the bulk. If $\delta$ is too large, Huber approaches MSE — outliers regain their grip. The sweet spot is data-dependent.
+The number 1.345 isn't folklore; it's the constant that costs you only 5% efficiency in the case where the data really was pure Gaussian and you didn't need robustness at all. That's the insurance premium.
+
+Now push the dial to both ends. If $\delta$ is too small, Huber approaches MAE — you lose the smooth-quadratic efficiency on the bulk. If $\delta$ is too large, Huber approaches MSE — outliers regain their grip. The sweet spot is data-dependent.
 
 ### When Huber is the right choice
 
@@ -255,7 +317,7 @@ If $\delta$ is too small, Huber approaches MAE — you lose the smooth-quadratic
 
 ## Beyond the basics
 
-Three losses you should recognize even if you don't use them daily.
+Three losses you should recognize even if you don't use them daily. Each one is still the same template: write down a penalty, and it implies a noise model.
 
 ### Quantile (pinball) loss
 
@@ -263,13 +325,15 @@ For a quantile level $q \in (0, 1)$:
 
 $$\rho_q(r) = \begin{cases} q \cdot r & r \ge 0 \\ (q - 1) \cdot r & r < 0 \end{cases}$$
 
+Both branches are positive (on the lower branch, $r$ is negative and $q-1$ is negative). The trick is that the two arms of the V have *different* slopes. Under-predicting costs $q$ per unit; over-predicting costs $1-q$ per unit. Set $q = 0.9$ and under-prediction is nine times as expensive, so the model climbs until only 10% of labels sit above it.
+
 This is the loss that, minimized, gives a regression model predicting the **$q$-th quantile** of $Y \mid X$ rather than the mean or median. Useful when:
 
 - You need *prediction intervals* — fit one model at $q = 0.05$ and another at $q = 0.95$ to get a 90% interval per row.
 - The distribution is skewed and you want a specific quantile (e.g., p99 latency).
 - Asymmetric error costs — under-predicting demand may be 3× worse than over-predicting; quantile loss handles this naturally.
 
-**Special case $q = 0.5$:** $\rho_{0.5}(r) = 0.5 |r|$ — half of MAE. So minimizing pinball at $q = 0.5$ is equivalent to minimizing MAE, and you recover the median predictor.
+**Special case $q = 0.5$:** $\rho_{0.5}(r) = 0.5 |r|$ — half of MAE. So minimizing pinball at $q = 0.5$ is equivalent to minimizing MAE, and you recover the median predictor. Symmetric arms, symmetric loss, median. Pinball is MAE with the arms allowed to tilt.
 
 ### log-cosh
 
@@ -280,7 +344,7 @@ Recall $\cosh(r) = (e^r + e^{-r})/2$. Behavior:
 - Near zero: Taylor expansion gives $\log(\cosh(r)) \approx r^2/2 - r^4/12 + \ldots$ — quadratic like MSE.
 - Far from zero: $\log(\cosh(r)) \to |r| - \log 2$ — linear like MAE.
 
-So log-cosh is a *smooth*, *everywhere-differentiable* hybrid of MSE and MAE. It has no kinks (unlike Huber's analytical join) and no threshold hyperparameter. Cost: slightly more compute per gradient step.
+Quadratic in the middle, linear in the tails: that is the Huber description word for word, arrived at without ever writing a `case` statement. So log-cosh is a *smooth*, *everywhere-differentiable* hybrid of MSE and MAE. It has no kinks (unlike Huber's analytical join) and no threshold hyperparameter. Cost: slightly more compute per gradient step. You trade a hyperparameter you'd have to tune for an exponential you'd have to evaluate.
 
 ### ε-insensitive (Vapnik) loss
 
@@ -288,7 +352,7 @@ Used in support vector regression (SVR):
 
 $$\mathcal{L}_\epsilon(r) = \max(0, |r| - \epsilon)$$
 
-Predictions within $\epsilon$ of the true label contribute *zero* loss. Beyond that, the loss is linear in the residual. Encourages a model that "fits the tube" rather than the exact line. Used when you want a sparse-support, robust regression and don't care about residuals below a noise threshold.
+Predictions within $\epsilon$ of the true label contribute *zero* loss. Not "a little loss" — zero. Beyond that, the loss is linear in the residual. Draw a tube of half-width $\epsilon$ around the fitted curve: anything inside the tube is free. Encourages a model that "fits the tube" rather than the exact line. Used when you want a sparse-support, robust regression and don't care about residuals below a noise threshold.
 
 ## Seeing the shapes
 
@@ -296,17 +360,19 @@ Predictions within $\epsilon$ of the true label contribute *zero* loss. Beyond t
 
 <LossChart variant="loss" delta={1} caption="Loss vs. residual. Huber tracks MSE's parabola for |r| < δ, then switches to MAE's straight line — quadratic in the middle, linear in the tails." />
 
-The loss picture shows the bowl shape, but the **gradient** picture is where robustness actually lives — because the optimizer only ever sees the gradient, never the loss value itself.
+Look at the outer edges of that plot: MSE's parabola climbs away from the others fast, which is the picture of one bad row dominating a loss number. The loss picture shows the bowl shape, but the **gradient** picture is where robustness actually lives — because the optimizer only ever sees the gradient, never the loss value itself.
 
 <LossChart variant="gradient" delta={1} caption="Gradient vs. residual — the panel that explains robustness. MSE's gradient grows without bound (a single big residual can dominate); MAE's is pinned at ±1; Huber's rises linearly, then saturates at ±δ." />
 
-Read the right panel as the thesis of the lesson: **outlier sensitivity is just the slope of the gradient curve in the tails.** MSE's gradient keeps climbing, so one residual of 100 pulls 100× harder than a residual of 1. MAE flattens to $\pm 1$ immediately, so every residual — outlier or not — pulls with the same unit force. Huber is the deliberate compromise: linear (MSE-like, statistically efficient) near zero, then clamped (MAE-like, robust) once $|r|$ passes $\delta$.
+Watch the far right of the second panel and ask which curves are still rising. Read the right panel as the thesis of the lesson: **outlier sensitivity is just the slope of the gradient curve in the tails.** MSE's gradient keeps climbing, so one residual of 100 pulls 100× harder than a residual of 1. MAE flattens to $\pm 1$ immediately, so every residual — outlier or not — pulls with the same unit force. Huber is the deliberate compromise: linear (MSE-like, statistically efficient) near zero, then clamped (MAE-like, robust) once $|r|$ passes $\delta$.
 
 ## Why losses, again, before models
 
 > **Goal — see classification through the same lens as regression: the loss is the spec.** In c1.2 we argued every regression loss is a noise model. Classification is the discrete-label case of the same principle — and the loss decides not just the decision boundary but the model's *confidence*, which is what production systems threshold, rank, and calibrate on.
 
-A classifier rarely ships its argmax alone. It ships a *score* — and downstream code thresholds that score (fraud above 0.8 → block), ranks by it (show the top-10 most-likely-relevant), or feeds it into expected-value math (probability × dollar amount). All three break silently if the score is poorly calibrated. So the loss is doing two jobs at once: shaping the boundary, and shaping the probabilities. Most courses only teach the first.
+A classifier rarely ships its argmax alone. It ships a *score* — and downstream code thresholds that score (fraud above 0.8 → block), ranks by it (show the top-10 most-likely-relevant), or feeds it into expected-value math (probability × dollar amount). All three break silently if the score is poorly calibrated. Nothing throws. The dashboard still shows accuracy. So the loss is doing two jobs at once: shaping the boundary, and shaping the probabilities. Most courses only teach the first.
+
+Same drill as before: the words first.
 
 > **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
 >
@@ -321,7 +387,9 @@ A classifier rarely ships its argmax alone. It ships a *score* — and downstrea
 
 > **Goal — anchor cross-entropy as MLE, so it stops looking like an arbitrary formula.**
 
-Assume each label is drawn from a Categorical distribution whose parameters are your model's predicted probabilities $q = \text{softmax}(z)$. The likelihood of one observed one-hot label $y$ is $\prod_k q_k^{y_k}$, so its log-likelihood is $\sum_k y_k \log q_k$. Maximizing the total log-likelihood over the dataset is identical to minimizing
+Cross-entropy usually shows up in courses as a formula handed down from somewhere. It isn't. It falls out of the same three-step derivation you just did twice for regression: assume a distribution for the label, write the likelihood, take a negative log.
+
+Assume each label is drawn from a Categorical distribution whose parameters are your model's predicted probabilities $q = \text{softmax}(z)$. The likelihood of one observed one-hot label $y$ is $\prod_k q_k^{y_k}$, so its log-likelihood is $\sum_k y_k \log q_k$. That product looks scarier than it is: $y$ is one-hot, so every exponent is 0 except the true class, and the whole product collapses to "the probability you assigned to the class that actually happened." Maximizing the total log-likelihood over the dataset is identical to minimizing
 
 $$\mathcal{L}_{\text{CE}} = -\sum_k y_k \log q_k$$
 
@@ -330,6 +398,8 @@ which is exactly **cross-entropy**. So CE is not a design choice pulled from a h
 There's a second, equally important reading. Write the cross-entropy between the label distribution $p$ and the prediction $q$:
 
 $$\text{CE}(p, q) = -\sum_k p_k \log q_k = \underbrace{-\sum_k p_k \log p_k}_{H(p)} + \underbrace{\sum_k p_k \log \frac{p_k}{q_k}}_{\text{KL}(p\,\|\,q)} = H(p) + \text{KL}(p\,\|\,q)$$
+
+That's an identity, not an approximation: add and subtract $\sum_k p_k \log p_k$ and regroup. The first brace depends only on the labels. The second brace is the only place $q$ appears.
 
 The entropy $H(p)$ is fixed by the data, so **minimizing CE over $q$ is minimizing $\text{KL}(p\,\|\,q)$** — pulling your predicted distribution onto the label distribution. With one-hot labels $H(p)=0$, so CE *equals* the KL divergence. This framing is what makes label smoothing and distillation make sense later: both work by changing the *target* $p$.
 
@@ -343,50 +413,62 @@ Binary, with $q = \sigma(z)$ and label $y \in \{0,1\}$:
 
 $$\mathcal{L}_{\text{BCE}} = -\bigl[\, y \log q + (1-y)\log(1-q)\,\bigr]$$
 
+One of the two terms is always zero. If the label is 1 you're charged $-\log q$; if it's 0 you're charged $-\log(1-q)$. Either way: negative log of the probability you gave to what actually happened.
+
 Multiclass, with $q = \text{softmax}(z)$ and one-hot $y$: $\mathcal{L}_{\text{CE}} = -\log q_{c}$ where $c$ is the true class. (Cross-entropy of the true class only — every other term is multiplied by zero.)
 
 ### The gradient is astonishingly clean: $\partial \mathcal{L}/\partial z = q - y$
 
-The softmax Jacobian is $\partial q_i/\partial z_j = q_i(\delta_{ij} - q_j)$. Chain-rule through $\mathcal{L} = -\sum_i y_i \log q_i$:
+Two ugly objects are about to meet and cancel. The softmax Jacobian is $\partial q_i/\partial z_j = q_i(\delta_{ij} - q_j)$, where $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise. The log's derivative contributes a $1/q_i$. Chain-rule through $\mathcal{L} = -\sum_i y_i \log q_i$:
 
 $$\frac{\partial \mathcal{L}}{\partial z_j} = \sum_i \left(-\frac{y_i}{q_i}\right) q_i(\delta_{ij} - q_j) = -\sum_i y_i(\delta_{ij} - q_j) = -y_j + q_j \sum_i y_i = q_j - y_j$$
 
-using $\sum_i y_i = 1$. So $\nabla_z \mathcal{L}_{\text{CE}} = q - y$ — **predicted minus actual**, the same beautiful form as the linear-regression gradient. The $1/q_i$ from the log derivative cancels the $q_i$ in the softmax Jacobian. **That cancellation is the entire reason cross-entropy is the natural partner of softmax** (and BCE of sigmoid: $\partial \mathcal{L}_{\text{BCE}}/\partial z = \sigma(z) - y$). Pair CE with a different output nonlinearity and you lose it.
+Walk the steps: the $q_i$ from the Jacobian eats the $1/q_i$ from the log; the $\delta_{ij}$ collapses the sum to its $j$-th term; and the last sum is 1 because the label vector's entries add to one, using $\sum_i y_i = 1$.
+
+So $\nabla_z \mathcal{L}_{\text{CE}} = q - y$ — **predicted minus actual**, the same beautiful form as the linear-regression gradient. The $1/q_i$ from the log derivative cancels the $q_i$ in the softmax Jacobian. **That cancellation is the entire reason cross-entropy is the natural partner of softmax** (and BCE of sigmoid: $\partial \mathcal{L}_{\text{BCE}}/\partial z = \sigma(z) - y$). Pair CE with a different output nonlinearity and you lose it. The saturating factor that would otherwise multiply your gradient simply isn't there.
 
 ### Train on logits, not probabilities
 
-$\log \text{softmax}(z)_k = z_k - \operatorname{logsumexp}(z)$, and $\operatorname{logsumexp}(z) = m + \log\sum_j e^{z_j - m}$ with $m = \max_j z_j$. Computing softmax *then* taking the log overflows ($e^{1000} = \infty$) and underflows ($\log 0 = -\infty$); the fused, max-subtracted form is numerically stable. This is why PyTorch's `CrossEntropyLoss` takes **raw logits** (it is `LogSoftmax` + `NLLLoss` internally) and why `BCEWithLogitsLoss` exists. **Feeding probabilities into a logit loss — or applying softmax twice — is a silent correctness bug**, not an error.
+$\log \text{softmax}(z)_k = z_k - \operatorname{logsumexp}(z)$, and $\operatorname{logsumexp}(z) = m + \log\sum_j e^{z_j - m}$ with $m = \max_j z_j$. Read the second identity: pull out the largest logit before exponentiating, so the biggest thing you ever exponentiate is $e^0 = 1$. Computing softmax *then* taking the log overflows ($e^{1000} = \infty$) and underflows ($\log 0 = -\infty$); the fused, max-subtracted form is numerically stable. This is why PyTorch's `CrossEntropyLoss` takes **raw logits** (it is `LogSoftmax` + `NLLLoss` internally) and why `BCEWithLogitsLoss` exists. **Feeding probabilities into a logit loss — or applying softmax twice — is a silent correctness bug**, not an error. Your training run will complete. Your model will be worse and nothing will tell you why.
 
 ### Why CE beats MSE for classification — two arguments
 
-**1. Vanishing gradients.** With sigmoid + squared error, $\mathcal{L} = \tfrac12(\sigma(z) - y)^2$ gives $\partial \mathcal{L}/\partial z = (\sigma(z) - y)\,\sigma'(z)$, and $\sigma'(z) = \sigma(1-\sigma) \to 0$ when the unit saturates. A **confidently wrong** example ($z = -10$, $y = 1$) has gradient magnitude $\approx e^{-10} \approx 4.5\times 10^{-5}$ — the model that most needs to learn barely moves. Cross-entropy's gradient is $\sigma(z) - y \to -1$ in that same situation: maximal push exactly when most wrong.
+You could put squared error on top of a sigmoid. It's a valid function, it's differentiable, it has a minimum in the right place. Here is why nobody does.
+
+**1. Vanishing gradients.** With sigmoid + squared error, $\mathcal{L} = \tfrac12(\sigma(z) - y)^2$ gives $\partial \mathcal{L}/\partial z = (\sigma(z) - y)\,\sigma'(z)$, and $\sigma'(z) = \sigma(1-\sigma) \to 0$ when the unit saturates. That extra $\sigma'(z)$ factor is the one that cancelled away under CE. Now watch what it does. A **confidently wrong** example ($z = -10$, $y = 1$) has gradient magnitude $\approx e^{-10} \approx 4.5\times 10^{-5}$ — the model that most needs to learn barely moves. Cross-entropy's gradient is $\sigma(z) - y \to -1$ in that same situation: maximal push exactly when most wrong. Same example, same wrongness; one loss shrugs and the other shoves.
 
 **2. Convexity.** For a linear model, BCE is convex in the weights; sigmoid + MSE is *non-convex* (a sigmoid composed with a quadratic), so it can trap optimization in bad local minima even in the simplest setting.
 
 <ClassificationLossCurves caption="Loss vs margin m = y·f(x). 0-1 (gray step) is what you actually want to minimize but has zero gradient everywhere. Hinge (red, previewing c1.8's SVM) is convex, kicks in below m=1, and vanishes on the safe side. Logistic (blue) is CE's margin form — always strictly positive, with a gradient that stays useful even for confidently-wrong points. Sigmoid+MSE (amber, dashed) saturates in both tails — the vanishing-gradient failure argued above, now visible as flat regions where the curve stops descending." />
 
+Trace the amber curve leftward, into the confidently-wrong region, and notice that it goes flat. That flatness is the $4.5\times 10^{-5}$ you just computed.
+
 ### Cross-entropy is a *proper scoring rule*
 
 > **Goal — establish the precise reason CE is a good training loss and accuracy is not.**
+
+Both arguments above are about optimization. There's a third reason, and it's about what the minimizer *is*.
 
 Hold $x$ fixed and ask which constant forecast $q$ minimizes the expected loss $\mathbb{E}_{y\sim p}[-\log q_y]$. By Gibbs' inequality ($\text{KL}(p\,\|\,q)\ge 0$, equality iff $q=p$), the unique minimizer is $q = p$, the **true conditional distribution**. A loss with this property is a *strictly proper scoring rule*. Accuracy/0-1 loss is *not* proper — many different probability forecasts produce the same accuracy, so optimizing accuracy doesn't pin down the right probabilities, and its gradient is zero almost everywhere. That is the rigorous version of "use cross-entropy to train, accuracy to report."
 
 *In plain English:* a proper scoring rule is one whose optimal forecast is *telling the truth* — no constant lie wins in expectation. If the true positive rate is 30%, the forecast that minimizes CE in expectation is exactly 0.30; hedging up or down loses on average. Accuracy is not like this: forecasting "0.51" and "0.99" score identically on every example the model would call positive.
 
+Which sets up the next question. If CE's minimizer is the truth, why do trained networks lie?
+
 ## Calibration: the part everyone skips
 
 > **Goal — judge a classifier the way a quant does: not just is the argmax right, but is the 0.9 really a 0.9.**
 
-CE's minimizer is the true posterior — *in the limit of infinite data and a correctly specified model*. Real deep nets violate both, and the failure mode is systematic: **modern networks are overconfident**. Guo et al. (2017) showed that increasing depth/width and adding batch normalization *worsen* calibration, and that networks overfit NLL — test error keeps falling while test NLL rises, because the model inflates confidence on examples it already gets right.
+CE's minimizer is the true posterior — *in the limit of infinite data and a correctly specified model*. Read the fine print in that sentence, because your model satisfies neither condition. Real deep nets violate both, and the failure mode is systematic: **modern networks are overconfident**. Guo et al. (2017) showed that increasing depth/width and adding batch normalization *worsen* calibration, and that networks overfit NLL — test error keeps falling while test NLL rises, because the model inflates confidence on examples it already gets right. Your accuracy curve looks great the whole time this is happening.
 
 Tools to know:
 
-- **Reliability diagram.** Bin predictions by confidence, plot empirical accuracy vs. mean confidence; the diagonal is perfect calibration.
+- **Reliability diagram.** Bin predictions by confidence, plot empirical accuracy vs. mean confidence; the diagonal is perfect calibration. It is a counting exercise: gather every prediction near 0.95, go check what fraction were right, plot the pair.
 
 <ReliabilityDiagram caption="Reliability diagram: predicted confidence (x) vs empirical accuracy (y). The dashed diagonal is perfect calibration. Modern nets (red) sag below the diagonal on the high-confidence bins — a 0.95 prediction is only ~0.82 accurate; that's the 'overconfident' Guo et al. signature. Temperature scaling (blue) is a one-parameter post-hoc fix that snaps the curve back onto the diagonal without changing the argmax — so the accuracy number is unchanged and the probabilities are usable." />
-- **Expected Calibration Error (ECE).** $\text{ECE} = \sum_b \frac{|B_b|}{N}\,\bigl|\,\text{acc}(B_b) - \text{conf}(B_b)\,\bigr|$. Caveat worth stating in an interview: ECE is sensitive to the binning scheme and only measures *top-label* calibration — class-wise ECE or the Brier score are more robust.
+- **Expected Calibration Error (ECE).** $\text{ECE} = \sum_b \frac{|B_b|}{N}\,\bigl|\,\text{acc}(B_b) - \text{conf}(B_b)\,\bigr|$. In words: for each bin, how far the curve sits from the diagonal, averaged with each bin weighted by how many predictions landed in it. Caveat worth stating in an interview: ECE is sensitive to the binning scheme and only measures *top-label* calibration — class-wise ECE or the Brier score are more robust.
 - **Brier score** $= \frac1N\sum_n \|q_n - y_n\|^2$ — MSE on probabilities, itself a proper scoring rule. It splits cleanly into a **calibration** term and a **discrimination** term (plus an irreducible base-rate term) — for the formal reliability–resolution–uncertainty (Murphy) decomposition, ask an AI assistant; an interviewer won't.
-- **Temperature scaling** (Guo 2017). Post-hoc, learn a single scalar $T>0$ and predict $\text{softmax}(z/T)$, fitting $T$ by minimizing validation NLL. $T>1$ softens overconfidence. **It cannot change accuracy** — dividing all logits by a positive constant preserves the argmax — so it's a free calibration fix that never costs you decisions.
+- **Temperature scaling** (Guo 2017). Post-hoc, learn a single scalar $T>0$ and predict $\text{softmax}(z/T)$, fitting $T$ by minimizing validation NLL. One parameter, fit after training, on held-out data. $T>1$ softens overconfidence. **It cannot change accuracy** — dividing all logits by a positive constant preserves the argmax — so it's a free calibration fix that never costs you decisions.
 
 This is the stats/quant lens on classification: cross-entropy and Brier are *proper scoring rules*; perplexity (the language-model headline metric) is just $\exp(\text{CE})$; calibration is the bridge between a model's loss and a decision system's expected value.
 
@@ -394,25 +476,31 @@ This is the stats/quant lens on classification: cross-entropy and Brier are *pro
 
 > **Goal — fix the rare-class problem by reshaping the loss, and know exactly what each reshape costs.**
 
+Everything so far has treated CE as the honest objective. This section is about deliberately breaking it, and about being clear-eyed regarding what breaks along with it.
+
 When positives are 1% of the data, plain CE lets the 99% majority dominate the gradient (see c1.1's gradient-share argument). Three standard levers:
 
 ### Reweighting
 
-Scale each class's loss by a constant. In PyTorch, `CrossEntropyLoss(weight=...)` per class, or `BCEWithLogitsLoss(pos_weight=#neg/#pos)` for the positive term. Cheap, no extra data. Raising `pos_weight` trades precision for recall. Caveat: with `weight`, the `'mean'` reduction divides by the *sum of weights present*, not by $N$ — a classic gotcha.
+Scale each class's loss by a constant. The crudest possible intervention: multiply. In PyTorch, `CrossEntropyLoss(weight=...)` per class, or `BCEWithLogitsLoss(pos_weight=#neg/#pos)` for the positive term. Cheap, no extra data. Raising `pos_weight` trades precision for recall. Caveat: with `weight`, the `'mean'` reduction divides by the *sum of weights present*, not by $N$ — a classic gotcha.
 
 ### Focal loss (Lin et al., ICCV 2017)
 
-Define $p_t = q$ if $y=1$ else $1-q$ (the probability assigned to the *true* class). Then
+Reweighting treats every negative alike. But most of those 99% negatives are already handled: the model calls them negative with probability 0.99 and gets no useful learning signal from them, only volume. Focal loss down-weights by *how easy an example already is*, not by which class it belongs to.
+
+Define $p_t = q$ if $y=1$ else $1-q$ (the probability assigned to the *true* class). So $p_t$ near 1 means "already correct and confident"; $p_t$ near 0 means "confidently wrong." Then
 
 $$\text{FL}(p_t) = -\alpha_t\,(1 - p_t)^{\gamma}\,\log(p_t)$$
 
-The **modulating factor** $(1-p_t)^\gamma$ shrinks the loss on easy examples; $\gamma$ (paper default **2**) is the focusing parameter; at $\gamma = 0$ focal loss *is* $\alpha$-balanced CE. Quantify it: with $\gamma = 2$, an example at $p_t = 0.9$ is down-weighted by $(0.1)^2 = 0.01$ — **100×** — and at $p_t \approx 0.968$ by **1000×**, while a hard example at $p_t = 0.1$ is barely touched ($(0.9)^2 \approx 0.81$). Focal loss let RetinaNet solve the ~1:1000 foreground/background imbalance of dense detection, hitting **36.0 AP vs. 32.8** for the best online-hard-example-mining baseline.
+That's ordinary CE ($-\log p_t$) multiplied by a factor that goes to zero as the example gets easy, plus the usual class weight $\alpha_t$.
+
+The **modulating factor** $(1-p_t)^\gamma$ shrinks the loss on easy examples; $\gamma$ (paper default **2**) is the focusing parameter; at $\gamma = 0$ focal loss *is* $\alpha$-balanced CE. Quantify it: with $\gamma = 2$, an example at $p_t = 0.9$ is down-weighted by $(0.1)^2 = 0.01$ — **100×** — and at $p_t \approx 0.968$ by **1000×**, while a hard example at $p_t = 0.1$ is barely touched ($(0.9)^2 \approx 0.81$). One example loses 99% of its voice, the other keeps 81% of it. Focal loss let RetinaNet solve the ~1:1000 foreground/background imbalance of dense detection, hitting **36.0 AP vs. 32.8** for the best online-hard-example-mining baseline.
 
 <FocalDownweighting caption="Focal loss vs CE, as a function of the true-class probability p_t. CE (γ=0) treats a p_t=0.9 example (already confident and correct) the same weight as a p_t=0.1 example (hard). Focal's (1−p_t)^γ multiplier flattens the easy-side almost to zero: at γ=2 the p_t=0.9 point falls to 1% of its CE loss (100× down-weighting) and p_t≈0.968 falls to 0.1% (1000×), while p_t=0.1 keeps 81% of its weight. That's how you free the ~1:1000 foreground/background imbalance in dense detection: hard examples still drive learning, easy ones stop dominating." />
 
 ### Class-balanced loss (Cui et al., CVPR 2019)
 
-Reweight by the inverse **effective number of samples**, $E_n = (1 - \beta^n)/(1 - \beta)$, with $\beta \in \{0.99, 0.999, 0.9999\}$. The intuition: as you add examples of a class they cover *overlapping* feature volume, so the marginal information saturates — the "useful count" is $E_n < n$. It interpolates: $\beta \to 0$ gives no reweighting; $\beta \to 1$ gives inverse-frequency ($1/n$) weighting. It's *loss-agnostic* — you apply the $1/E_n$ factor on top of CE, BCE, or focal.
+Reweight by the inverse **effective number of samples**, $E_n = (1 - \beta^n)/(1 - \beta)$, with $\beta \in \{0.99, 0.999, 0.9999\}$. The intuition: as you add examples of a class they cover *overlapping* feature volume, so the marginal information saturates — the "useful count" is $E_n < n$. The thousandth photo of a golden retriever tells you less than the tenth did. It interpolates: $\beta \to 0$ gives no reweighting; $\beta \to 1$ gives inverse-frequency ($1/n$) weighting. It's *loss-agnostic* — you apply the $1/E_n$ factor on top of CE, BCE, or focal.
 
 > **Stop and think.** Is reweighting the loss equivalent to resampling the data? *Hint: in expectation over a full epoch they can match — but oversampling changes the empirical distribution (more gradient steps, overfitting risk on duplicated rares) while reweighting changes per-example gradient magnitude (noisier steps). They diverge under minibatch SGD, and — see the failure modes — both may be the wrong lever entirely.*
 
@@ -420,9 +508,15 @@ Reweight by the inverse **effective number of samples**, $E_n = (1 - \beta^n)/(1
 
 > **Goal — understand a one-line trick that improves calibration and quietly breaks two other things.**
 
-Replace the one-hot target with $y^{\text{LS}} = (1-\varepsilon)\,y + \varepsilon/K$ (typically $\varepsilon = 0.1$). Equivalently, the loss becomes $(1-\varepsilon)\,\text{CE}(\text{onehot}, q) + \varepsilon\,\text{CE}(\text{uniform}, q)$ — you're now minimizing KL to a softened target, so the model can no longer drive any logit to $\pm\infty$. Müller et al. (2019) showed this improves calibration and often generalization. The costs, which are the interesting part: it **collapses each class's penultimate representations into tight clusters**, which (1) **hurts knowledge distillation** — the "dark knowledge" in soft logits is erased, so a smoothed teacher makes worse students — and (2) can backfire under heavy label noise. Label smoothing is a *trade*, not a free win.
+The three levers above all changed the weight on the loss. This one changes the target instead.
+
+Replace the one-hot target with $y^{\text{LS}} = (1-\varepsilon)\,y + \varepsilon/K$ (typically $\varepsilon = 0.1$). Read it: take 10% of the probability mass off the true class and spread it evenly over all $K$ classes. Equivalently, the loss becomes $(1-\varepsilon)\,\text{CE}(\text{onehot}, q) + \varepsilon\,\text{CE}(\text{uniform}, q)$ — you're now minimizing KL to a softened target, so the model can no longer drive any logit to $\pm\infty$. There is no longer a reward for infinite confidence, because the target is no longer certain.
+
+Müller et al. (2019) showed this improves calibration and often generalization. The costs, which are the interesting part: it **collapses each class's penultimate representations into tight clusters**, which (1) **hurts knowledge distillation** — the "dark knowledge" in soft logits is erased, so a smoothed teacher makes worse students — and (2) can backfire under heavy label noise. Label smoothing is a *trade*, not a free win.
 
 ## Tradeoff matrix
+
+Everything above, on two cards. Read each row as a sentence: this loss assumes this noise, so it predicts this thing and reacts this way to outliers.
 
 | Loss | Noise model | Predicts | Outlier sensitivity | Differentiable everywhere | Closed-form linear fit |
 |---|---|---|---|---|---|
@@ -443,13 +537,17 @@ Replace the one-hot target with $y^{\text{LS}} = (1-\varepsilon)\,y + \varepsilo
 
 ## Worked decision walk-throughs
 
+Now run the reasoning forward on concrete problems. In each one, the question to ask first is what the noise looks like, not which loss you used last time.
+
 **Scenario A: predicting house sale prices.** Labels in the long upper tail (mansions, luxury sales) skew the distribution. **MSE** would chase those mansions and inflate predictions on ordinary homes. **MAE** predicts the median sale price — much closer to what you actually want for typical valuations. Most production models in this domain use MAE or quantile loss (for confidence intervals).
 
-**Scenario B: forecasting daily ad revenue. Normal-day noise scale is about \$10k/day ($\sigma \approx 10$, in \$k); once a month there's a \$200k promotional spike.** Promotional spikes are real, not measurement errors — you don't want to entirely ignore them. **MSE** lets them dominate and biases the model. **MAE** treats them like normal residuals — under-fits them. **Huber** with $\delta \approx 15$ (i.e. \$15k): squared treatment on normal days, linear treatment on promotional days. The model fits the bulk well and tolerates spikes without chasing them.
+**Scenario B: forecasting daily ad revenue. Normal-day noise scale is about USD 10k/day ($\sigma \approx 10$, in units of USD 1k); once a month there's a USD 200k promotional spike.** Promotional spikes are real, not measurement errors — you don't want to entirely ignore them. **MSE** lets them dominate and biases the model. **MAE** treats them like normal residuals — under-fits them. **Huber** with $\delta \approx 15$ (i.e. USD 15k): squared treatment on normal days, linear treatment on promotional days. The model fits the bulk well and tolerates spikes without chasing them.
 
 **Scenario C: tabular regression with XGBoost, you want MAE for outlier robustness.** (Gradient-boosted trees themselves — CART, bagging, boosting/GBDT — are the subject of **c1.6 (Trees & ensembles)**; here we only need the leaf-fitting step.) XGBoost's tree-fitting uses a second-order (Newton) step, and the leaf-value formula $v^\star = -\sum g_i / (\sum h_i + \lambda)$ divides by the summed Hessian. MAE's Hessian is zero everywhere, so a *naive* MAE objective (gradient $\pm 1$, Hessian $0$) gives the optimizer nothing to size its steps with — the denominator collapses to the regularizer $\lambda$ and leaf values are junk. Two fixes: (1) **modern XGBoost ($\ge$ 1.7) ships native `reg:absoluteerror`**, which sidesteps the problem with *adaptive leaf values* — it grows the tree structure with a placeholder Hessian, then overwrites each leaf with the **median** of its residuals (exactly Friedman's classic LAD-TreeBoost). (2) **pseudo-Huber loss**, $\mathcal{L}(r) = \delta^2\bigl(\sqrt{1 + (r/\delta)^2} - 1\bigr)$ — a smooth Huber approximation with a strictly positive Hessian, shipped as `reg:pseudohubererror`.
 
 **Scenario D: latency prediction, you care about p99 not p50.** Use **pinball loss at $q = 0.99$**. Reports the conditional 99th-percentile latency, not the median.
+
+Same exercise on the classification side, where the extra question is what happens to the probabilities.
 
 **Scenario A: balanced 10-class image classifier.** Cross-entropy. If you'll threshold or rank on the probabilities, add **temperature scaling** post-hoc (free calibration, no accuracy cost), and consider label smoothing $\varepsilon=0.1$ — *unless* this model is a distillation teacher, in which case skip it.
 
@@ -461,6 +559,8 @@ Replace the one-hot target with $y^{\text{LS}} = (1-\varepsilon)\,y + \varepsilo
 
 
 ## Production failure modes
+
+These are the shapes the mistakes actually take once code is running. Most of them throw no exception.
 
 1. **MSE on rare-but-real spikes.** You're predicting daily revenue. The Black Friday outlier dominates training, your weekday predictions become inflated, weekday MAPE doubles.
 2. **MAE chosen for "robustness," then a custom XGBoost objective won't learn.** A hand-rolled MAE objective returns Hessian $\equiv 0$, so the Newton leaf-value step has nothing to divide by. Fix: use the native `reg:absoluteerror` (adaptive leaf values, $\ge$ XGBoost 1.7) or pseudo-Huber.
