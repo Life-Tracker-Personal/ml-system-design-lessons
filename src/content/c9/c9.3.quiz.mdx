@@ -1,0 +1,290 @@
+---
+lessonId: c9.3
+chapter: 9
+title: Quiz — Bias and variance across model families
+description: Seven questions on the trace formula for prediction variance, the bagging correlation floor, boosting versus bagging, logistic regression under separation, double descent, k-nearest neighbours, and reading a train-validation pair.
+estimatedMinutes: 65
+---
+
+These seven questions ask you to produce the formula for a model family, put numbers in it, and then commit to a modelling choice and defend it: one trace that covers four families, the correlation floor that caps what averaging can buy, the algebraic difference between a sum and an average of trees, and the part of the classical picture that double descent actually breaks.
+
+<Quiz id="1">
+
+**Q1. One trace, four families.** A linear smoother writes fitted values as $\hat{y} = Sy$, where $y$ is the vector of $n$ training labels and $S$ is an $n \times n$ matrix that depends on the inputs but not the labels. (a) Derive the average fitted-value variance $\frac{1}{n}\sum_i \operatorname{Var}(\hat{y}_i)$ in terms of $S$ and the noise variance $\sigma^2$. (b) Evaluate it for ordinary least squares and for $k$-nearest neighbours, showing why the traces are $p$ and $n/k$. (c) Give the ridge smoother and its effective degrees of freedom in terms of the singular values of $X$. (d) A colleague says "collinearity inflates prediction variance." Correct or refine the statement using the formula.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Labels are $y = f + \varepsilon$ with $\operatorname{Cov}(\varepsilon) = \sigma^2 I$. Since $S$ does not depend on $y$,
+
+$$
+\operatorname{Cov}(\hat{y}) = S \operatorname{Cov}(y) S^\top = \sigma^2 S S^\top
+$$
+
+The $i$-th fitted value has variance $\sigma^2 (SS^\top)_{ii}$, so averaging over $i$ picks up the trace:
+
+$$
+\frac{1}{n}\sum_{i=1}^{n}\operatorname{Var}(\hat{y}_i) = \frac{\sigma^2}{n}\operatorname{tr}(SS^\top)
+$$
+
+**(b)** For OLS, $S = H = X(X^\top X)^{-1}X^\top$ with $X$ of shape $n \times p$. $H$ is symmetric and idempotent ($HH = H$), so $\operatorname{tr}(HH^\top) = \operatorname{tr}(H)$. The trace of a projection equals the dimension of the space it projects onto, which is $p$ for a full-rank design. Average prediction variance is $p\sigma^2/n$.
+
+For $k$-NN, row $i$ of $S$ has $1/k$ in the $k$ neighbour columns and zero elsewhere. Then $(SS^\top)_{ii} = k \cdot (1/k)^2 = 1/k$, so each fitted value has variance $\sigma^2/k$ and $\operatorname{tr}(SS^\top) = n/k$. Average prediction variance is $\sigma^2/k$.
+
+**(c)** $S_\lambda = X(X^\top X + \lambda I)^{-1}X^\top$, and
+
+$$
+\mathrm{df}(\lambda) = \operatorname{tr}(S_\lambda) = \sum_{j=1}^{p}\frac{d_j^2}{d_j^2 + \lambda}
+$$
+
+where $d_j$ is the $j$-th singular value of $X$. At $\lambda = 0$ each term is 1 and $\mathrm{df} = p$. As $\lambda$ grows each term slides toward 0, hardest for small $d_j$. Ridge dials $p$ down continuously instead of deleting features.
+
+**(d)** The statement is wrong as written for the in-sample prediction variance and right for coefficients. $\operatorname{tr}(H) = p$ regardless of conditioning, so average fitted-value variance stays $p\sigma^2/n$ no matter how collinear the columns are. What blows up is $\operatorname{Cov}(\hat\beta) = \sigma^2 (X^\top X)^{-1}$, whose $j$-th diagonal entry is inflated by $\mathrm{VIF}_j = 1/(1 - R_j^2)$, with $R_j^2$ the R-squared from regressing feature $j$ on the others. Two features correlated at 0.99 give $\mathrm{VIF} = 50.3$. The sum of the collinear coefficients stays stable while the individual coefficients flip sign between refits. That is why a collinear model can predict acceptably and still yield uninterpretable coefficients, and why the refinement matters: collinearity is an interpretation problem first and an extrapolation problem second.
+
+**Rubric:**
+- Derives $\sigma^2\operatorname{tr}(SS^\top)/n$ from $\operatorname{Cov}(\hat y) = \sigma^2 SS^\top$
+- Uses idempotence to get $\operatorname{tr}(H) = p$, not just asserts it
+- Constructs the $k$-NN smoother rows explicitly and gets $\sigma^2/k$
+- Ridge df written with singular values, with the $\lambda = 0$ and $\lambda \to \infty$ limits stated
+- Separates in-sample prediction variance from coefficient variance in part (d), with a VIF number
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. The correlation floor.** $B$ trees produce predictions $Z_1, \dots, Z_B$ at a fixed query point, identically distributed with variance $\sigma^2$ and pairwise correlation $\rho$. (a) Derive the variance of the average, counting terms. (b) Identify the floor and evaluate it at $\rho = 0.9$ and $\rho = 0.3$ with $B = 100$ and $\sigma^2 = 1$. (c) Explain the random forest design decision that follows, name its cost, and name the separate bias cost bagging pays. (d) Your team doubles the forest from 500 to 1000 trees and reports no improvement. Diagnose it with the formula and say what to change instead.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The variance of a sum is the sum of all $B^2$ covariance entries: $B$ diagonal entries each $\sigma^2$, and $B(B-1)$ off-diagonal entries each $\rho\sigma^2$.
+
+$$
+\operatorname{Var}\!\left(\frac{1}{B}\sum_{b=1}^{B} Z_b\right) = \frac{1}{B^2}\bigl[B\sigma^2 + B(B-1)\rho\sigma^2\bigr] = \rho\sigma^2 + \frac{1-\rho}{B}\sigma^2
+$$
+
+**(b)** The second term vanishes as $B \to \infty$; the first does not contain $B$ at all. $\rho\sigma^2$ is a floor no amount of averaging crosses. At $\rho = 0.9$, $\sigma^2 = 1$, $B = 100$: variance $= 0.9 + 0.1/100 = 0.901$, against a single tree's 1.00. All that averaging bought a 10 percent reduction. At $\rho = 0.3$: $0.3 + 0.7/100 = 0.307$ against a floor of 0.300, a threefold better result from the same number of trees.
+
+**(c)** Since only $\rho$ moves the floor, the design goal is to decorrelate the trees. Breiman's random forest restricts each split to a random subset of `mtry` features drawn fresh at every node, typically $\sqrt{p}$ for classification. Trees can no longer all lead with the same dominant feature, so their errors decorrelate and $\rho$ falls. The cost is a bias increase, because each split now optimizes over a handicapped candidate set. Bagging pays a second and separate bias cost: a bootstrap sample contains $1 - (1-1/n)^n \to 1 - e^{-1} = 63.2$ percent of the distinct rows, so each tree trains on about 63 percent of the data.
+
+**(d)** Doubling $B$ only halves the $(1-\rho)/B$ term. At $\rho = 0.5$ and $\sigma^2 = 1$, going from 500 to 1000 moves variance from $0.5 + 0.001 = 0.5010$ to $0.5 + 0.0005 = 0.5005$, a 0.1 percent improvement for double the inference cost. The change that matters is `mtry`, since it is the only knob in the list that moves $\rho$. Lower it and re-evaluate; the tradeoff is that pushing `mtry` too low starves each split and raises bias enough to swamp the variance gain, which is why it is tuned rather than set by rule.
+
+**Rubric:**
+- Counts $B$ diagonal and $B(B-1)$ off-diagonal terms explicitly
+- Lands on $\rho\sigma^2 + (1-\rho)\sigma^2/B$ and names the first term as the floor
+- Numeric comparison at two values of $\rho$ with the same $B$
+- `mtry` identified as the $\rho$ knob, with the bias cost stated
+- 63.2 percent bootstrap coverage named as a distinct bias source
+- Part (d) answered with arithmetic, and `mtry` proposed with its downside
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Why more trees never hurt a forest and more rounds eventually hurt a boosted model.** (a) State the update rule for gradient boosting and say which term of the decomposition each round attacks. (b) Explain, in terms of the ensemble's algebraic form, why the correlation-floor argument does not apply. (c) Sketch the two test-error curves and say what each does as its tree count grows. (d) Give the interaction between the learning rate $\nu$ and the number of rounds $M$, and state the validation protocol that keeps the stopping round honest.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Each round fits a base learner $h_m$ to the negative gradient of the loss evaluated at the current predictions, then adds a shrunken copy:
+
+$$
+F_m(x) = F_{m-1}(x) + \nu\,h_m(x)
+$$
+
+with learning rate $\nu$, typically 0.01 to 0.1. The base learners are deliberately weak, often depth-1 stumps or depth-3 trees, so they start high bias and low variance. Every round is a descent step on training loss, so every round removes bias. Boosting attacks the bias term; bagging attacks the variance term.
+
+**(b)** The floor argument is about an *average*. A forest prediction is $\frac{1}{B}\sum_b Z_b$, and the $1/B$ is what makes the cross terms shrink. A boosted prediction is a *sum* of $M$ shrunken learners with no $1/M$ in front. There is nothing being averaged away, so variance accumulates with $M$ rather than decaying. Eventually the accumulated variance overtakes the bias reduction and test error turns upward.
+
+**(c)** Forest: test error falls, flattens, and stays flat forever. $B$ is a Monte Carlo averaging parameter, not a capacity parameter, so more trees cost compute and nothing else. Boosting: test error falls to a minimum and then rises. $M$ is a capacity parameter. Training error is monotone decreasing in both cases and tells you nothing about the difference, which is why the answer must be about the test curves.
+
+**(d)** They trade off close to reciprocally: halving $\nu$ roughly doubles the $M$ needed to reach the same fit. Small $\nu$ with large $M$ generalizes better because each step commits less, at proportional compute cost. Depth of the base learner is a third capacity knob and interacts with both.
+
+The honest protocol needs three splits, not two. Choose $M$ by early stopping on a validation set, then report on a test set that played no role in choosing it. The stopping round is a fitted parameter. Selecting it on the same data you report is how a model that "stopped at round 800" turns out to be several points worse at round 800 on genuinely held-out data.
+
+**Rubric:**
+- Update rule written with the shrinkage factor and the negative-gradient target
+- Says boosting reduces bias per round, bagging reduces variance
+- Sum versus average given as the reason the floor argument does not transfer
+- $B$ named a Monte Carlo knob, $M$ named a capacity knob
+- $\nu$-$M$ reciprocal interaction stated
+- Three-way split demanded, with the reason the stopping round is a fitted parameter
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. Logistic regression, bias and variance.** (a) Where is the bias, and give a concrete data geometry where it is fatal. (b) Give the asymptotic covariance of the maximum likelihood estimate and read two consequences off it. (c) What happens under perfect separation, and why? (d) Your team reports coefficients around 40 with standard errors around 900 from a subgroup model, fit with scikit-learn defaults. Explain what almost certainly happened and what you would do.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The model is $\log\bigl(p(x)/(1 - p(x))\bigr) = x^\top\beta$, linear in the features on the log-odds scale, so the decision boundary is a hyperplane. The bias is whatever the true boundary does that a hyperplane cannot. Two concentric class rings on a plane are the clean example: the best hyperplane there is near chance accuracy, and that error is bias rather than noise, because it does not shrink as $n$ grows. High bias by construction is the phrase to use.
+
+**(b)** The asymptotic covariance is $(X^\top W X)^{-1}$ with $W$ diagonal and $W_{ii} = \hat{p}_i(1 - \hat{p}_i)$.
+
+Consequence one: the effective sample size is $\sum_i \hat{p}_i(1-\hat{p}_i)$, not $n$. Confident predictions contribute almost nothing, since $\hat p(1-\hat p) \to 0$ at both ends. A class ratio of 1 in 1000 gives roughly $n \times 0.001$ worth of information. Class imbalance is a variance problem, and the mechanism is these weights.
+
+Consequence two: variance still scales with $p/n$ and is inflated by collinearity through the inverse, exactly as in ordinary least squares.
+
+**(c)** Under perfect separation, scaling $\beta$ up by any factor pushes every fitted probability closer to 0 or 1 in the correct direction, so the log-likelihood keeps increasing and never attains a maximum. The MLE diverges, $\|\beta\| \to \infty$, and the variance is unbounded. In practice the optimizer halts on an iteration limit, so you get a finite number that is an artifact of the stopping rule.
+
+**(d)** Coefficients of that magnitude with standard errors two orders larger is the signature of separation or near-separation in the subgroup, with the optimizer stopping on an iteration cap. The fix is a penalty. L2-penalized logistic regression maximizes the log-likelihood minus $\lambda\|\beta\|_2^2$, which makes the objective strictly concave, yields a finite unique solution even under separation, and buys variance reduction with a bias increase. This is ridge's trade on a different loss. The wrinkle worth flagging: scikit-learn's `LogisticRegression` has shipped `penalty="l2"` with `C=1.0` by default for its whole modern history, so if the reported numbers came from defaults the penalty was already on and the separation is severe enough to survive it, or the features were unscaled so the penalty landed unevenly. Either way, check the subgroup for a feature that perfectly predicts the label, scale the features, and report the penalized estimate as what it is rather than as the MLE.
+
+**Rubric:**
+- Bias located in the hyperplane boundary with a concrete failing geometry
+- $(X^\top W X)^{-1}$ with $W_{ii} = \hat p_i(1-\hat p_i)$ written correctly
+- Effective sample size as the sum of the weights, connected to class imbalance
+- Separation explained by the likelihood increasing without bound, not just asserted
+- L2 penalty named as the fix, with concavity and the bias-for-variance trade
+- Mentions that the library default is already penalized, so a reported coefficient is not the MLE
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Double descent.** A candidate says modern networks with far more parameters than training rows generalize well, so bias-variance is broken. (a) Say precisely which part of the classical story is a theorem and which part is an empirical assumption. (b) Describe the three regimes on a plot of test risk against $p/n$. (c) Explain the spike and explain the second descent, naming the quantity that actually controls variance. (d) Give two facts that separate a real understanding from a memorized one.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The decomposition is an algebraic identity. For squared loss, expected test error at a point equals squared bias plus variance plus irreducible noise, obtained by adding and subtracting the average prediction and observing that the cross term has expectation zero. Model size never enters that derivation, so it cannot be wrong about large models. The part that is empirical, and the part that fails, is the auxiliary claim that variance increases monotonically with parameter count.
+
+**(b)** With $p$ the parameter count and $n$ the number of training rows, plot test risk against $p/n$. Below $p/n = 1$ you see the classical U: bias falls, variance rises, there is an interior minimum. At $p/n = 1$, the interpolation threshold, risk spikes, sometimes enormously. Above it risk falls again, often to a lower minimum than the classical one.
+
+**(c)** The spike is conditioning. At $p = n$ there is essentially one function that interpolates the training data and the model has no freedom to pick a well-behaved one. The smallest singular value of the design matrix is near zero, the inverse blows up, and the fit oscillates violently between training points.
+
+Past the threshold there are infinitely many interpolating solutions and the loss is zero for all of them, so which one you get is decided by the optimizer, not the objective. Gradient descent started from zero on a least-squares problem provably converges to the minimum $\ell_2$-norm interpolating solution, because every gradient step lies in the row space of $X$ and the iterates never leave that subspace. Adding parameters gives that minimum-norm solution more directions to spread the fit across, so its norm falls as $p$ rises. **Norm controls the variance, not parameter count.** The variance term behaves exactly as the identity says; the classical intuition about how it moves is what was wrong.
+
+**(d)** First, this is not a deep learning phenomenon. The same curve appears in plain linear regression with more columns than rows using the minimum-norm least-squares solution, with no network anywhere. Belkin, Hsu, Ma and Mandal named the effect in 2019; Hastie, Montanari, Rosset and Tibshirani derived the asymptotics for ridgeless least squares and random-features models and reproduced the peak analytically; Nakkiran and coauthors showed the same shape in deep networks in 2021, including a version where the capacity axis is training epochs rather than parameters.
+
+Second, the peak is a symptom of interpolating without regularization. In the same analysis, ridge with an optimally tuned $\lambda$ removes the spike entirely and the risk curve becomes monotone. Double descent is what you see when a model is forced to interpolate at exactly the wrong capacity, not a law that large models obey.
+
+**Rubric:**
+- Identity versus empirical assumption stated cleanly, with the cross-term derivation named
+- Three regimes described against $p/n$ with the threshold at 1
+- Spike explained by conditioning and the smallest singular value
+- Minimum-norm implicit bias of gradient descent, with the row-space argument
+- States that norm rather than parameter count governs variance
+- Both honesty points: the linear-regression version, and that tuned ridge removes the peak
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. $k$-nearest neighbours as the cleanest dial.** (a) Write the estimator and derive its variance and bias in closed form, defining every symbol. (b) State exactly what "1-NN has zero bias and maximum variance" means, with the qualifier that makes it true. (c) Work the arithmetic: one-dimensional grid inputs with spacing $h = 0.1$, true function $f(x) = x^2$, noise standard deviation $\sigma = 0.5$, query on a grid point. Find the optimal odd $k$. (d) Two candidates propose $k = 1$ and $k = 25$ for a production regression on 5000 rows. Pick one and defend the pick.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** For regression,
+
+$$
+\hat{f}(x_0) = \frac{1}{k}\sum_{\ell \in N_k(x_0)} y_\ell, \qquad y_\ell = f(x_\ell) + \varepsilon_\ell
+$$
+
+where $x_0$ is the query point, $N_k(x_0)$ is the index set of the $k$ nearest training inputs, $f$ is the true regression function, and $\varepsilon_\ell$ is independent noise with mean zero and variance $\sigma^2$. Conditioning on the input locations, the terms separate immediately:
+
+$$
+\operatorname{Var}\bigl(\hat{f}(x_0)\bigr) = \frac{\sigma^2}{k}, \qquad \mathrm{Bias}\bigl(\hat{f}(x_0)\bigr) = f(x_0) - \frac{1}{k}\sum_{\ell \in N_k(x_0)} f(x_\ell)
+$$
+
+Variance is $\sigma^2/k$ with nothing else in it, monotone decreasing in $k$. Bias is how far the local average of the true function sits from its value at the query, which grows as the neighbourhood widens. The smoother has $\operatorname{tr}(S) = n/k$, so effective degrees of freedom are $n/k$: $k = 1$ gives $n$ degrees of freedom for $n$ points, which is interpolation, and $k = n$ gives 1, which is a constant model.
+
+**(b)** Variance at $k = 1$ is exactly $\sigma^2$, the full noise variance, and it never falls with more data. Bias is $f(x_0) - f(x_{(1)})$ where $x_{(1)}$ is the single nearest training point; as $n$ grows that point converges to $x_0$ and the bias goes to zero for any continuous $f$. So the correct statement is *asymptotically* unbiased, and permanently stuck at the full noise variance. Saying "zero bias" without the asymptotic qualifier is the omission that gets probed.
+
+**(c)** For odd $k = 2m+1$ the neighbours sit at $x_0 + jh$, $j = -m, \dots, m$. Their average true value is
+
+$$
+\frac{1}{k}\sum_{j=-m}^{m}(x_0 + jh)^2 = x_0^2 + \frac{h^2}{k}\sum_{j=-m}^{m}j^2 = x_0^2 + h^2\,\frac{m(m+1)}{3}
+$$
+
+so the bias magnitude is $h^2 m(m+1)/3$, independent of where the query sits. With $\sigma^2 = 0.25$:
+
+| $k$ | $m$ | bias | bias$^2$ | variance | total |
+|---|---|---|---|---|---|
+| 1 | 0 | 0 | 0 | 0.2500 | 0.2500 |
+| 3 | 1 | 0.0067 | 0.00004 | 0.0833 | 0.0834 |
+| 5 | 2 | 0.0200 | 0.00040 | 0.0500 | 0.0504 |
+| 9 | 4 | 0.0667 | 0.00444 | 0.0278 | 0.0322 |
+| 11 | 5 | 0.1000 | 0.01000 | 0.0227 | 0.0327 |
+| 25 | 12 | 0.5200 | 0.27040 | 0.0100 | 0.2804 |
+
+The minimum is at $k = 9$. Confirm it with calculus: minimize $h^4m^4/9 + \sigma^2/(2m)$, giving $m^5 = 9\sigma^2/(8h^4) = 2812.5$, so $m \approx 4.9$ and $k \approx 10$, matching the table.
+
+**(d)** Neither number should be picked from a preference; both should be picked by cross-validation on the actual data. But forced to choose without running it, take $k = 25$. The reason is asymmetric risk. At $k = 1$ the variance is pinned at the full $\sigma^2$ forever and cannot be reduced by anything except changing $k$, and every label error in the training set is reproduced verbatim at query time. At $k = 25$ the variance is $\sigma^2/25$, and the cost is a bias that depends on how fast $f$ curves over a 25-point neighbourhood, which with 5000 rows is a narrow region in low dimension. Choosing $k=1$ is defensible only when the labels are essentially noiseless, which is rare in production.
+
+Two conditions I would state before committing. The features must be scaled, or distance is dominated by whichever column has the largest units and the cross-validated optimum is measuring one feature. And in high dimension the neighbours of $x_0$ stop being near $x_0$ at all, the bias term stops being small for any $k$, and the whole family should be reconsidered rather than tuned.
+
+**Rubric:**
+- Estimator and both closed forms written with every symbol defined
+- $\mathrm{df} = n/k$ connected to interpolation at $k=1$ and a constant at $k=n$
+- 1-NN answered with the asymptotic qualifier on bias and the permanence of $\sigma^2$
+- Bias formula $h^2m(m+1)/3$ derived, table produced, optimum at $k = 9$
+- Calculus check reproducing $k \approx 10$
+- Part (d) commits to a choice with an asymmetric-risk argument, and names feature scaling and the curse of dimensionality as preconditions
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Reading a train and validation pair.** For each of the four cases below, name the dominant term and the first thing you would change. Floor means the irreducible error a perfect model would still make. (a) Train 18 percent, validation 20 percent, floor 2 percent. (b) Train 1 percent, validation 15 percent, floor 2 percent. (c) Train 18 percent, validation 35 percent, floor 2 percent. (d) Train 1 percent, validation 2 percent, production 20 percent. Then say why the diagnostic needs three numbers rather than two, and how you would estimate the floor.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+The protocol has two comparisons in a fixed order. Training error against the floor is the bias term, and more data does nothing for it. Validation error against training error is the variance term.
+
+**(a)** Bias dominates: 16 points of gap to the floor against 2 points of train-validation gap, a factor of eight. Increase capacity. A larger model, richer or interacted features, weaker regularization, or longer training. Collecting more rows is the wrong first move, since the model is not even fitting the rows it has.
+
+**(b)** Variance dominates: 1 point above the floor on train, 14 points of gap. Regularize, augment, simplify the model, or add data. All four attack the same term.
+
+**(c)** Both terms are large: 16 points of bias and 17 points of gap. Fix bias first. A model that cannot fit its own training data will not be rescued by regularization, and regularizing here makes the bias worse. Raise capacity until training error approaches the floor, then attack the gap.
+
+**(d)** Neither term. Both reported numbers are healthy, so the bias-variance frame does not describe the failure at all. This is distribution shift or leakage in how the validation split was built. A train-validation gap is evidence about variance only when the two sets are draws from the same distribution. If validation was split by random row while production runs forward in time, a random split lets tomorrow's rows sit next to today's and the gap can be leakage or drift. Reaching for regularization here is the trap: it attacks a term that is already small and leaves the actual cause untouched.
+
+**Why three numbers.** Training error alone cannot distinguish a hard problem from an underfit model. A training error of 18 percent is a disaster against a floor of 2 percent and near-optimal against a floor of 17 percent. Without a floor estimate, case (a) and a well-fit model on a noisy problem look identical.
+
+**Estimating the floor.** Human performance on the same inputs, a strong existing production baseline, or direct measurement of label noise by relabeling a sample and computing the disagreement rate. Any of the three gives a usable number, and having a rough one beats having none.
+
+**Rubric:**
+- States the two comparisons in order: train-to-floor is bias, validation-to-train is variance
+- (a) bias, increase capacity, explicitly rejects more data
+- (b) variance, with the four standard remedies
+- (c) both, and fixes bias first with the reason
+- (d) refuses the bias-variance frame and names shift or leakage, with the same-distribution condition stated
+- Explains why the floor is needed and gives at least two ways to estimate it
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: model families
+
+Thirteen questions on where each family sits on the two axes, and which knob moves it.
+
+1. **Doubling data or halving features** Give the average prediction variance of ordinary least squares in terms of $n$, $p$ and $\sigma^2$, and derive it from the hat matrix. Then answer: which reduces variance more, doubling the training rows or halving the features? Say why the two are not interchangeable.
+2. **Collinearity, precisely** Two features are correlated at 0.99. Compute the variance inflation factor. Then answer the follow-up carefully: does collinearity raise the variance of the predictions, the coefficients, or both? Explain the difference using the trace of the hat matrix.
+3. **Is logistic regression high bias or high variance** Answer, then justify with the functional form. List everything that raises its variance, and give the matrix whose inverse those effects come from.
+4. **Perfect separation** A logistic regression is fit on a subgroup where one feature perfectly predicts the label. What happens to the estimate and why, what does the optimizer actually return, and what is the standard fix? Say why the fix is the same trade ridge makes.
+5. **Naive Bayes against logistic regression** Both give you a linear decision boundary. Which one carries more bias and why, which one wins at small $n$, and what happens to each when two features are near-duplicates?
+6. **1-NN bias and variance** State the bias and variance of 1-nearest-neighbour regression exactly. Include the qualifier that makes the bias claim true, and say what happens to each as $n$ grows.
+7. **Picking $k$, defend it** For a production regression on 5000 rows, one engineer wants $k = 1$ and another wants $k = 25$. Pick one and defend the pick out loud. State the closed-form variance you are relying on, and name two preconditions you would check before trusting any cross-validated $k$.
+8. **Why a deep tree has high variance** A fully grown decision tree is low bias and high variance. Explain the mechanism precisely, at the level of how a split is chosen. "It memorizes the training data" is the symptom, not the answer.
+9. **The correlation floor** Derive the variance of an average of $B$ identically distributed trees with pairwise correlation $\rho$. Identify the floor, and then answer: does adding more trees to a random forest cause overfitting? Say which knob moves the floor and what it costs.
+10. **Random forest or gradient boosting, defend it** You have tabular data, moderate size, and a deadline. Pick one and defend the pick out loud. Say which term of the decomposition each family attacks, which hyperparameters are capacity knobs in each, and what you give up by picking yours.
+11. **Rounds and learning rate** Why does adding rounds to a boosted model eventually raise test error while adding trees to a forest never does? Give the algebraic difference between the two ensembles, then state how the learning rate and the number of rounds trade off and how many data splits an honest early-stopping protocol needs.
+12. **Trees against a network on tabular data** Gradient-boosted trees still beat neural networks on most tabular problems. Give the bias-variance reason, name the property of tabular features that trees exploit, and say what about a dataset would flip the ranking.
+13. **Double descent** Modern networks have far more parameters than training rows and still generalize. Does that break the bias-variance decomposition? Name which part is an identity and which part is an empirical assumption, explain the spike at the interpolation threshold, and say what actually controls variance past it. Add the fact that shows this is not a deep learning phenomenon.
