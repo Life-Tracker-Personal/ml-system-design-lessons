@@ -575,6 +575,44 @@ PCA does not initially “delete features.” It creates a new orthogonal coordi
 
 Why keep high-variance directions? For a fixed number of linear dimensions, they minimize squared reconstruction error. The discarded variance is exactly the information lost under that geometric criterion. But reconstruction of $X$ is not prediction of $y$—the crucial limitation.
 
+#### The two objectives are the same objective
+
+PCA gets described two different ways — "find the direction of maximum variance" and "find the line that the points are closest to" — and it is not obvious those are the same instruction. They are, and the reason is Pythagoras.
+
+Center the data so the centroid is the origin. Fix a unit direction $v$. Every point splits into a piece along $v$ and a piece perpendicular to it, and those two pieces are the legs of a right triangle with $x_i$ as the hypotenuse:
+
+$$\lVert x_i\rVert^2=\underbrace{(v^\top x_i)^2}_{\text{along }v}+\underbrace{d_i^2}_{\text{perpendicular}}$$
+
+Sum over all points. The left side, $\sum_i\lVert x_i\rVert^2$, does not depend on $v$ at all — it is a property of the data. So the two terms on the right trade off exactly: every unit of squared projection you gain is a unit of squared distance you lose.
+
+$$\max_{\lVert v\rVert=1}\ \sum_i(v^\top x_i)^2\qquad\Longleftrightarrow\qquad \min_{\lVert v\rVert=1}\ \sum_id_i^2$$
+
+<PCAPointSpace caption="The same 70-point cloud, twice, with the same PC1 line drawn through the centroid (red dot). Left: each gray point drops to a blue dot on the line — that is its score vᵀxᵢ — and the blue double arrow spans ±2 standard deviations of those scores. PCA maximizes their spread. Right: the identical drops, drawn as the segments they are. PCA minimizes the sum of their squared lengths. The orange point is annotated in both panels: its score on the left, its perpendicular distance dᵢ on the right, with the right-angle marker showing the two are legs of one right triangle. The dashed gray segment is the vertical gap — that is the kind of distance OLS minimizes, to its own different line, which is why the OLS fit and PC1 are not the same line." />
+
+This is also the cleanest way to see why PCA is not regression. Both fit a line through a cloud, but they measure error along different directions: OLS measures **vertically**, because $y$ is special and $x$ is taken as given. PCA measures **perpendicularly**, because no variable is special — it is describing the cloud, not predicting one coordinate from the others. Swap $y$ and $x$ and the OLS line changes; the PCA line does not.
+
+#### The dual picture: feature space
+
+The scatter plot above is **point space** — $n$ points living in $\mathbb R^d$, one axis per feature. There is a second, less familiar picture that the same matrix supports, and it is worth carrying because some facts are obvious in it that are invisible in the scatter.
+
+Turn the matrix on its side. Instead of $n$ points in $d$ dimensions, look at $d$ vectors in $\mathbb R^n$ — one arrow per *column* of $X$, living in a space whose axes are the observations. This is **feature space** (classically, "variable space").
+
+Two facts make it readable. For centered columns,
+
+$$\lVert x_j\rVert^2=\sum_i x_{ij}^2=(n-1)s_j^2,\qquad \cos\angle(x_j,x_k)=\frac{x_j^\top x_k}{\lVert x_j\rVert\,\lVert x_k\rVert}=r_{jk}$$
+
+So **length is standard deviation and angle is correlation**. Two strongly correlated features are two long arrows at a narrow angle. Two uncorrelated features are perpendicular. A feature with no variance is a point at the origin.
+
+<PCAFeatureSpace caption="Two standardized features with correlation r = 0.8, drawn as vectors in observation space. Because they are standardized the arrows have equal length, so the correlation shows up purely as the angle between them: cos θ = 0.8, about 37°. PCA finds an orthogonal pair inside the plane they span. z₁ bisects them and is long; z₂ is perpendicular and short. For this matrix λ₁ = 1.8 and λ₂ = 0.2, so z₁ is exactly √(1.8/0.2) = 3 times the length of z₂ — the whole compression argument, visible as a length ratio." />
+
+Read the compression story off the picture. The two feature arrows nearly coincide, so almost everything they span is captured by one direction; $z_2$ is the small leftover. Push $r_{12}\to1$ and the arrows merge, $\lambda_2\to0$, and the second component vanishes — perfect collinearity is *literally* two arrows lying on top of each other, with a genuinely one-dimensional span. Push $r_{12}\to0$ and the arrows go perpendicular, $\lambda_1=\lambda_2=1$, and there is no preferred direction to find: PCA has nothing to compress.
+
+The final row of the figure is the conservation law that makes PCA a rotation rather than a reduction. Since $V$ is orthogonal it preserves total squared length,
+
+$$\sum_j\lVert x_j\rVert^2=\sum_k\lVert z_k\rVert^2$$
+
+so the components redistribute variance among directions without creating or destroying any of it. Reduction happens later, and only when you delete columns.
+
 ### The mechanics: center, usually scale, then decompose
 
 Center $X$, then take the **SVD**
