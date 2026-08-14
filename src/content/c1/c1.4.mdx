@@ -593,6 +593,243 @@ Centering is mandatory because PCA describes variation around the mean. Scaling 
 
 The sign of a component is arbitrary: $v_j$ and $-v_j$ describe the same axis. Interpret relative loading magnitudes and directions, not the sign in isolation.
 
+### How the decomposition is actually computed
+
+"Eigendecompose the covariance matrix" hides the part that matters. You do **not** solve the eigenvalue equation symbolically. You turn it into an iterative optimization problem. Because the covariance matrix is symmetric positive semidefinite, that turns out to be especially clean.
+
+The whole hierarchy below comes from one idea: **repeated linear transformations reveal invariant directions.** Everything else is bookkeeping to make that idea fast and to stop the directions collapsing onto each other.
+
+#### PCA is the maximizer of a quadratic form
+
+Let
+
+$$C=\frac{1}{n}X^\top X$$
+
+be the covariance matrix. The first principal component solves
+
+$$\max_{\lVert v\rVert=1} v^\top Cv$$
+
+Theory says the answer is the eigenvector with the largest eigenvalue. But suppose you do not know the eigenvectors. How do you find it numerically?
+
+Because $C$ is symmetric it has an orthonormal eigenbasis,
+
+$$C=V\Lambda V^\top,\qquad \lambda_1\ge\lambda_2\ge\cdots\ge\lambda_d\ge0$$
+
+Take literally any starting vector $q_0$. The eigenvectors form a basis, so
+
+$$q_0=c_1v_1+c_2v_2+\cdots+c_dv_d$$
+
+Multiply by $C$. Each eigenvector is just scaled by its own eigenvalue:
+
+$$Cq_0=c_1\lambda_1v_1+c_2\lambda_2v_2+\cdots+c_d\lambda_dv_d$$
+
+Multiply again:
+
+$$C^2q_0=c_1\lambda_1^2v_1+c_2\lambda_2^2v_2+\cdots+c_d\lambda_d^2v_d$$
+
+After $t$ multiplications:
+
+$$C^tq_0=c_1\lambda_1^tv_1+c_2\lambda_2^tv_2+\cdots+c_d\lambda_d^tv_d$$
+
+Factor out $\lambda_1^t$:
+
+$$C^tq_0=\lambda_1^t\left[c_1v_1+c_2\left(\frac{\lambda_2}{\lambda_1}\right)^tv_2+\cdots\right]$$
+
+If $\lambda_1>\lambda_2$ then every ratio $(\lambda_j/\lambda_1)^t\to0$. So after normalizing,
+
+$$\boxed{\ \frac{C^tq_0}{\lVert C^tq_0\rVert}\longrightarrow\pm v_1\ }$$
+
+provided $c_1\neq0$. That is **power iteration**. There is no determinant anywhere.
+
+#### The algorithm for the top direction
+
+Start with any unit vector $q$. Repeat:
+
+$$z=Cq,\qquad q\leftarrow\frac{z}{\lVert z\rVert}$$
+
+Eventually $q\approx v_1$.
+
+How do you get the eigenvalue? Once $q\approx v_1$ we have $Cq\approx\lambda_1q$. Left-multiply by $q^\top$:
+
+$$q^\top Cq\approx\lambda_1q^\top q=\lambda_1$$
+
+because $q$ is normalized. So
+
+$$\boxed{\ \lambda_1\approx q^\top Cq\ }$$
+
+This is the **Rayleigh quotient**. The whole top eigenpair falls out of *multiply, normalize, repeat*.
+
+The convergence rate is $\lvert\lambda_2/\lambda_1\rvert$ per step, which tells you exactly when this is slow: when the top two eigenvalues are close, the second term dies slowly and you need many iterations to separate the directions.
+
+#### A concrete run
+
+Take
+
+$$C=\begin{bmatrix}3&1\\1&3\end{bmatrix}$$
+
+and pretend you know nothing about its eigenvalues. Start from $q_0=\begin{bmatrix}1\\0\end{bmatrix}$.
+
+$$Cq_0=\begin{bmatrix}3\\1\end{bmatrix}\quad\Rightarrow\quad q_1=\frac{1}{\sqrt{10}}\begin{bmatrix}3\\1\end{bmatrix}$$
+
+Keep multiplying, ignoring normalization for a moment since it does not change direction:
+
+$$C\begin{bmatrix}3\\1\end{bmatrix}=\begin{bmatrix}10\\6\end{bmatrix},\qquad C\begin{bmatrix}10\\6\end{bmatrix}=\begin{bmatrix}36\\28\end{bmatrix},\qquad C\begin{bmatrix}36\\28\end{bmatrix}=\begin{bmatrix}136\\120\end{bmatrix}$$
+
+Watch the ratio of the two entries: $1/3$, then $0.6$, then $0.78$, then $120/136\approx0.88$. It is heading to $1$, so the direction is heading to $\begin{bmatrix}1\\1\end{bmatrix}$. Normalized,
+
+$$v_1=\frac{1}{\sqrt2}\begin{bmatrix}1\\1\end{bmatrix},\qquad v_1^\top Cv_1=4$$
+
+The top eigenpair, found numerically, with no polynomial solved. (The other eigenpair here is $\lambda_2=2$ at $\tfrac1{\sqrt2}[1,-1]^\top$, so the convergence rate was $\lambda_2/\lambda_1=0.5$ — the error halves each step, which is what the table of ratios shows.)
+
+#### PCA needs several eigenvectors, so stop them collapsing
+
+Power-iterate several vectors independently and they all converge to $v_1$. You need something that stops them landing on the same direction.
+
+Say you want $k$ components. Instead of one vector, keep a matrix of $k$ orthonormal columns:
+
+$$Q=\begin{bmatrix}q_1&q_2&\cdots&q_k\end{bmatrix}$$
+
+Multiply all of them at once, $Z=CQ$. Every column starts drifting toward $v_1$, so immediately re-orthogonalize the columns by taking a QR decomposition $Z=QR$, throwing away $R$ and keeping the new orthonormal $Q$. Repeat:
+
+$$\boxed{\ Z_t=CQ_t,\qquad Q_{t+1}=\operatorname{orth}(Z_t)\ }$$
+
+This is **orthogonal iteration**, also called simultaneous power iteration. Why does it work? If the starting block is $Q_0=VA$ — its columns are combinations of eigenvectors — then
+
+$$C^tQ_0=V\Lambda^tA$$
+
+and because $\lambda_1^t,\ldots,\lambda_k^t$ dominate the smaller powers, the *subspace* spanned by those columns converges to $\operatorname{span}(v_1,\ldots,v_k)$. The QR step is what keeps the individual columns from all becoming the same vector.
+
+That is already a working algorithm for PCA's top $k$ directions.
+
+#### The same idea, rewritten, is the QR eigensolver
+
+Now suppose you want *all* eigenvalues. Start with $A_0=C$, factor it, then multiply the factors back in the opposite order:
+
+$$A_0=Q_0R_0,\qquad A_1=R_0Q_0$$
+
+Why would reversing the factors help? Because $A_0=Q_0R_0$ implies $R_0=Q_0^\top A_0$, and therefore
+
+$$\boxed{\ A_1=R_0Q_0=Q_0^\top A_0Q_0\ }$$
+
+That is a **similarity transformation**, and similarity transformations preserve eigenvalues. The one-line proof: if $Av=\lambda v$ and $B=Q^\top AQ$, set $w=Q^\top v$. Then
+
+$$Bw=Q^\top AQQ^\top v=Q^\top Av=\lambda Q^\top v=\lambda w$$
+
+so $A$ and $B$ have exactly the same eigenvalues. Repeat the step:
+
+$$A_t=Q_tR_t,\qquad A_{t+1}=R_tQ_t$$
+
+For a symmetric matrix the result is remarkable — the iterates converge to
+
+$$A_t\longrightarrow\begin{bmatrix}\lambda_1&&0\\&\ddots&\\0&&\lambda_d\end{bmatrix}$$
+
+The eigenvalues literally appear on the diagonal. That is the **QR algorithm**.
+
+#### Why it drives toward diagonal form
+
+Repeated QR iteration is closely related to running simultaneous power iteration on all the basis vectors at once. In simultaneous power iteration, $C^tQ_0$ becomes dominated by the eigenvectors of the largest eigenvalues; QR repeatedly extracts an orthonormal basis for those increasingly eigenvector-aligned directions.
+
+If you accumulate the rotations,
+
+$$\bar Q_t=Q_0Q_1\cdots Q_t$$
+
+then the algorithm is effectively driving $\bar Q_t\to V$, the eigenvector matrix. So
+
+$$\bar Q_t^\top C\bar Q_t\longrightarrow V^\top CV$$
+
+and since $CV=V\Lambda$,
+
+$$V^\top CV=V^\top V\Lambda=\Lambda$$
+
+giving
+
+$$\boxed{\ \bar Q_t^\top C\bar Q_t\longrightarrow\Lambda\ }$$
+
+The QR algorithm is iteratively rotating the coordinate system until the matrix becomes diagonal. That is the entire idea.
+
+#### The cost problem, and how symmetry fixes it
+
+A dense $d\times d$ QR decomposition costs about $O(d^3)$. Doing that at every iteration would be wasteful. But covariance matrices are symmetric, and you can exploit that *before* iterating.
+
+Transform $C$ into a **tridiagonal** matrix
+
+$$T=\begin{bmatrix}a_1&b_1&0&\cdots\\b_1&a_2&b_2&\cdots\\0&b_2&a_3&\cdots\\\vdots&&&\ddots\end{bmatrix}$$
+
+built so that $T=Q^\top CQ$ — again a similarity transformation, so $T$ has exactly the same eigenvalues as $C$.
+
+#### Householder reflections do the tridiagonalization
+
+Suppose the first column of $C$ is $[c_{11},x_1,x_2,x_3,\ldots]^\top$. You want to reflect the lower piece $x=[x_1,x_2,x_3,\ldots]^\top$ onto the first coordinate direction:
+
+$$Hx=\begin{bmatrix}\pm\lVert x\rVert\\0\\0\\\vdots\end{bmatrix}$$
+
+Construct $u=x\pm\lVert x\rVert e_1$, normalize to $v=u/\lVert u\rVert$, and define
+
+$$H=I-2vv^\top$$
+
+Why is that a reflection? Split any vector into parts parallel and perpendicular to $v$: $x=x_\perp+\alpha v$. Then since $v^\top x_\perp=0$ and $\lVert v\rVert=1$,
+
+$$Hx=(I-2vv^\top)(x_\perp+\alpha v)=x_\perp+\alpha v-2\alpha v=x_\perp-\alpha v$$
+
+It leaves the perpendicular component alone and flips the parallel one. Choose $v$ and you can zero every entry below whichever entry you want to keep.
+
+Apply the reflection on both sides. Since $H^\top=H$,
+
+$$C_1=H^\top CH=HCH$$
+
+which is a similarity transformation, so eigenvalues are preserved. Work column by column, $C\to C_1\to C_2\to\cdots\to T$. Because the matrix is symmetric, killing the entries below the subdiagonal simultaneously kills the matching entries above the superdiagonal:
+
+$$\boxed{\ \text{symmetric dense matrix}\longrightarrow\text{symmetric tridiagonal matrix}\ }$$
+
+#### Why tridiagonal is such a big win
+
+A dense matrix has roughly $d^2$ nonzero entries. A tridiagonal one has about $3d$. Matrix-vector multiplication drops from $O(d^2)$ to $O(d)$, and the QR steps exploit the same sparsity.
+
+So the expensive part of a full dense eigendecomposition is the **one-time** reduction $C\to T$ at $O(d^3)$. Everything after that is vastly cheaper. This is why the standard symmetric eigensolver is "reduce, then iterate" rather than "iterate on the dense matrix."
+
+#### PCA usually does not want all the eigenvectors
+
+Usually $k\ll d$. You might have $10{,}000$ features and want $50$ components. Computing all $10{,}000$ eigenvectors to throw away $9{,}950$ of them is wasteful. You only want the subspace $\operatorname{span}(v_1,\ldots,v_k)$.
+
+Power iteration already told you something useful: the sequence $q,\ Cq,\ C^2q,\ C^3q,\ldots$ carries progressively more information about the dominant eigenvectors. So keep all of it. Form the **Krylov subspace**
+
+$$\boxed{\ \mathcal K_m(C,q)=\operatorname{span}\lbrace q,Cq,C^2q,\ldots,C^{m-1}q\rbrace\ }$$
+
+Instead of solving a $d\times d$ eigenproblem, find an orthonormal basis $Q_m$ for this much smaller $m$-dimensional space and project $C$ into it:
+
+$$T_m=Q_m^\top CQ_m$$
+
+Now $T_m$ is only $m\times m$. Solve the small problem $T_my=\theta y$, then lift the answer back:
+
+$$v\approx Q_my$$
+
+That is the core of **Lanczos**: use repeated $Cq$ operations to discover the small subspace containing the dominant eigenvectors, then solve the eigenproblem only inside that subspace. Because $C$ is symmetric, the orthogonalization simplifies dramatically and $T_m$ comes out tridiagonal on its own.
+
+#### PCA lets you skip building $C$ entirely
+
+Recall $C=\frac1nX^\top X$. Lanczos only ever needs the *action* of $C$ on a vector, never $C$ itself. And
+
+$$Cv=\frac1nX^\top Xv=\frac1nX^\top(Xv)$$
+
+So you can go $v\xrightarrow{\ X\ }Xv\xrightarrow{\ X^\top\ }X^\top Xv$ without ever forming the $d\times d$ covariance matrix.
+
+This is a large practical win. If $d$ is $10{,}000$, then $C$ is a hundred million entries you never have to store. It is also more numerically accurate: forming $X^\top X$ squares the condition number, so you lose roughly half your significant digits before you start. This is exactly why PCA implementations run SVD on $X$ directly rather than eigendecomposing $X^\top X$, and it is what truncated and randomized SVD solvers are built on.
+
+#### The hierarchy to keep in your head
+
+PCA asks for $\max_{\lVert v\rVert=1}v^\top Cv$, which is an eigenvector problem. But numerically you never solve $\det(C-\lambda I)=0$. Instead:
+
+| Goal | Method | Idea |
+|---|---|---|
+| Top eigenpair | Power iteration | Repeated multiplication amplifies the dominant eigendirection |
+| Top $k$ | Orthogonal iteration | Power iteration on a block, plus QR to stop columns collapsing |
+| All eigenvalues | QR algorithm | Write that iteration as repeated similarity transforms |
+| Full symmetric problem | Householder $\to$ tridiagonal, then QR | Pay $O(d^3)$ once so every iteration is cheap |
+| Top $k$, $d$ huge | Krylov / Lanczos | Solve the eigenproblem inside a small subspace |
+| PCA specifically | Apply it to $X$, not $X^\top X$ | Only $Xv$ and $X^\top u$ are ever needed |
+
+The deepest idea is not "find the roots of the characteristic polynomial." It is that **repeated linear transformations reveal invariant directions**, and every algorithm above is a way of exploiting that without letting the directions collapse or the cost explode.
+
 ### PCA versus feature selection
 
 Feature selection keeps original columns; PCA replaces them with mixtures. Ten correlated measurements may compress into one stable component, but “PC1 increased” is harder to explain than “revenue increased.” PCA is attractive for compression, visualization, de-noising, and conditioning; it is costly when original-variable interpretation matters.
