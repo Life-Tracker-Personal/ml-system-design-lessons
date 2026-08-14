@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { ArrowRightIcon } from "lucide-react";
-import { listLessons } from "@/lib/lessons";
+import { listLessons, listChapters, CHAPTER_TITLES } from "@/lib/lessons";
 import { SiteHeader } from "@/components/site/site-header";
 
 export default async function HomePage() {
-  const lessons = await listLessons("c1");
+  const chapterIds = await listChapters();
+  const chapters = await Promise.all(
+    chapterIds.map(async (id) => ({ id, lessons: await listLessons(id) })),
+  );
+  const withLessons = chapters.filter((c) => c.lessons.length > 0);
+  const lessons = withLessons.flatMap((c) => c.lessons);
   const totalMinutes = lessons.reduce(
     (sum, l) => sum + (l.estimatedMinutes ?? 0),
     0,
@@ -71,17 +76,20 @@ export default async function HomePage() {
 
       {/* Catalog */}
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-14">
+        {withLessons.map(({ id: chapterId, lessons: chapterLessons }, ci) => (
+        <section key={chapterId} className={ci > 0 ? "mt-12" : undefined}>
         <div className="mb-6 flex items-baseline justify-between">
           <h2 className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-            Chapter 1 — Introduction &amp; Overview
+            Chapter {chapterId.slice(1)} — {CHAPTER_TITLES[chapterId] ?? chapterId}
           </h2>
           <span className="text-xs text-muted-foreground tabular-nums">
-            {lessons.length} {lessons.length === 1 ? "lesson" : "lessons"}
+            {chapterLessons.length}{" "}
+            {chapterLessons.length === 1 ? "lesson" : "lessons"}
           </span>
         </div>
 
         <div className="space-y-3">
-          {lessons.map((lesson, i) => (
+          {chapterLessons.map((lesson, i) => (
             // Not a <Link> wrapper: the card holds a second link (Quiz), and
             // anchors can't nest. The title link is "stretched" over the card
             // via ::after so the whole card still opens the lesson.
@@ -100,7 +108,7 @@ export default async function HomePage() {
                 </div>
                 <h3 className="mt-0.5 text-[1.05rem] font-semibold tracking-tight">
                   <Link
-                    href={`/c/c1/${lesson.id}`}
+                    href={`/c/${chapterId}/${lesson.id}`}
                     className="after:absolute after:inset-0 after:content-['']"
                   >
                     {lesson.title}
@@ -120,7 +128,7 @@ export default async function HomePage() {
                 )}
                 {/* z-10 keeps this above the stretched title link. */}
                 <Link
-                  href={`/c/c1/${lesson.id}/quiz`}
+                  href={`/c/${chapterId}/${lesson.id}/quiz`}
                   className="relative z-10 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/8 hover:text-foreground"
                 >
                   Quiz
@@ -130,11 +138,13 @@ export default async function HomePage() {
             </div>
           ))}
         </div>
+        </section>
+        ))}
       </main>
 
       <footer className="border-t border-border/60">
         <div className="mx-auto max-w-3xl px-6 py-8 text-sm text-muted-foreground">
-          Synthesized for Tier 1 AI Engineer prep · built with Next.js
+          Synthesized for Tier 1 quant &amp; AI engineer prep · built with Next.js
         </div>
       </footer>
     </div>

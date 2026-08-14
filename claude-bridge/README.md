@@ -15,12 +15,12 @@ session as a free tutor backend. The website also supports OpenRouter directly
 
 ## Run
 
-Requires **Python 3.10+** and the `claude` CLI installed & logged in.
+Requires **Python 3.10+**, [uv](https://docs.astral.sh/uv/), and the `claude` CLI installed & logged in.
 
 ```bash
 cd claude-bridge
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
 python main.py                  # serves on 127.0.0.1:8787
 ```
 
