@@ -2,11 +2,11 @@
 lessonId: c1.4
 chapter: 1
 title: Quiz — Linear & logistic regression
-description: 13 conceptually difficult questions on OLS, MLE, Gauss-Markov, regularization, VIF, perfect separation, PCA, and errors-in-variables.
-estimatedMinutes: 50
+description: 14 conceptually difficult questions on OLS, MLE, Gauss-Markov, regularization, VIF, perfect separation, PCA, errors-in-variables, and how eigendecompositions are actually computed.
+estimatedMinutes: 58
 ---
 
-These 13 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
+These 14 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
 
 <Quiz id="1">
 
@@ -521,6 +521,105 @@ As $n\to\infty$, $\hat\beta$ converges to $\lambda\beta$, not to $\beta$. The es
 - (d) Separates inference from prediction: the attenuated slope is *optimal* for trading the noisy signal; the bias bites for structural estimates and cross-signal comparison
 - (e) States inconsistency explicitly — $n\to\infty$ tightens around $\lambda\beta$; no diagnostic reveals it; the fix requires outside information, not more rows
 - Bonus: multivariate case — attenuation set by the *residualized* variance (worse under collinearity), clean coefficients contaminated with indeterminate sign
+
+</details>
+
+</Quiz>
+
+<Quiz id="14">
+
+**Q14 · must-know. How would you actually compute the eigenvalues?** You have said PCA is an eigendecomposition of the covariance matrix $C=\frac1nX^\top X$. The interviewer asks how that gets computed.
+
+**(a)** Explain why "solve $\det(C-\lambda I)=0$" is the wrong answer, on two separate counts. Then say which direction the relationship between polynomial roots and eigenvalues actually runs in numerical software.
+
+**(b)** Start from $\max_{\lVert v\rVert=1}v^\top Cv$. Take any $q_0$, expand it in the eigenbasis, and multiply by $C$ repeatedly. Derive what $C^tq_0/\lVert C^tq_0\rVert$ converges to and under exactly which two conditions. Give the convergence rate, then show how you recover the eigenvalue once you have the vector.
+
+**(c)** You want the top $k$ components, so you run (b) from $k$ different random starting vectors. What goes wrong, and what is the minimal fix? Name the resulting algorithm and say precisely what the QR step is doing.
+
+**(d)** Now the full spectrum. Factor $A_t=Q_tR_t$ and re-multiply in the reverse order, $A_{t+1}=R_tQ_t$. Show in two lines why this leaves the eigenvalues unchanged, and say what a symmetric $A_t$ converges to and where the eigenvectors come from. Then: one dense QR step costs $O(d^3)$, so why is this algorithm not hopeless? Name the preprocessing step, the reflection that performs it, and where the total cost actually lands.
+
+**(e)** You have $d=10{,}000$ features and want $k=50$ components. Say why you would not run (d) at all, name what you would run instead, and explain why the whole computation needs only $Xv$ and $X^\top u$ products. Give two separate reasons — one about memory, one about numerical accuracy — for running SVD on $X$ rather than eigendecomposing $X^\top X$.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Two independent objections.**
+
+*No closed form.* By Abel–Ruffini there is no radical formula for polynomial roots past degree 4, so for $d>4$ you would need an iterative root-finder anyway. You have not escaped iteration; you have moved it somewhere worse.
+
+*Conditioning.* Root-finding from polynomial coefficients is badly conditioned — tiny perturbations in the coefficients move the roots enormously (Wilkinson's polynomial is the standard demonstration). Forming the characteristic polynomial discards the structure of the matrix and converts a well-conditioned symmetric eigenproblem into an ill-conditioned root problem. You would be throwing away the very property that makes the problem easy.
+
+*The direction reverses.* Software goes the other way. To find the roots of a polynomial you build its **companion matrix** and compute *its* eigenvalues — that is what `numpy.roots` does internally. Eigenvalue algorithms are the primitive; polynomial root-finding is the client.
+
+**(b) Power iteration.** $C$ is symmetric, so it has an orthonormal eigenbasis $C=V\Lambda V^\top$ with $\lambda_1\ge\cdots\ge\lambda_d\ge0$. Write $q_0=\sum_jc_jv_j$. Each multiplication scales each eigenvector by its own eigenvalue:
+
+$$C^tq_0=\sum_jc_j\lambda_j^tv_j=\lambda_1^t\left[c_1v_1+\sum_{j\ge2}c_j\left(\frac{\lambda_j}{\lambda_1}\right)^tv_j\right]$$
+
+If $\lambda_1>\lambda_2$ every ratio $(\lambda_j/\lambda_1)^t\to0$, so the normalized iterate $\to\pm v_1$.
+
+*The two conditions.* (i) A **strict gap** $\lambda_1>\lambda_2$ — with a repeated top eigenvalue the iteration converges to *some* vector in the top eigenspace, not a unique direction. (ii) $c_1\neq0$ — the start must have a component along $v_1$. In practice a random start satisfies this with probability 1, and rounding noise reintroduces the component even if you started orthogonal to it.
+
+*Rate.* Linear, with ratio $\lambda_2/\lambda_1$: the error falls by that factor each step. Close leading eigenvalues means slow convergence, which is the honest weakness of the method.
+
+*Eigenvalue.* Once $q\approx v_1$, $Cq\approx\lambda_1q$; left-multiply by $q^\top$ and use $\lVert q\rVert=1$:
+
+$$q^\top Cq\approx\lambda_1q^\top q=\lambda_1$$
+
+the **Rayleigh quotient**. Worth adding: it is accurate to *second* order — an $O(\epsilon)$ error in the eigenvector gives only $O(\epsilon^2)$ error in the eigenvalue, because the Rayleigh quotient is stationary at an eigenvector. The eigenvalue is always better converged than the vector.
+
+**(c) They all collapse onto $v_1$.** Independent starts do not help: every start has a $v_1$ component, and $v_1$ dominates all of them equally. You get $k$ noisy copies of the same direction.
+
+*Minimal fix.* Iterate them as a block and re-orthogonalize every step. With $Q$ holding $k$ orthonormal columns:
+
+$$Z_t=CQ_t,\qquad Q_{t+1}=\operatorname{orth}(Z_t)\ \text{ via }\ Z_t=QR,\ \text{keep }Q,\ \text{discard }R$$
+
+This is **orthogonal iteration** (simultaneous power iteration). The QR step is doing the anti-collapse work: multiplication by $C$ pushes every column toward $v_1$, and orthogonalization projects out the directions already claimed by earlier columns, so column $j$ retains the leading direction *not* spanned by columns $1..j-1$. The span converges to $\operatorname{span}(v_1,\ldots,v_k)$ at a rate set by $\lambda_{k+1}/\lambda_k$ — the gap at the *edge* of the block you kept.
+
+**(d) The QR algorithm.** $A_t=Q_tR_t$ with $Q_t$ orthogonal gives $R_t=Q_t^\top A_t$, hence
+
+$$A_{t+1}=R_tQ_t=Q_t^\top A_tQ_t$$
+
+a similarity transform. It preserves eigenvalues: if $Av=\lambda v$ and $B=Q^\top AQ$, set $w=Q^\top v$; then $Bw=Q^\top AQQ^\top v=Q^\top Av=\lambda Q^\top v=\lambda w$.
+
+For symmetric $A_t$ the iterates converge to $\Lambda$ — eigenvalues on the diagonal. The eigenvectors are the **accumulated rotations** $\bar Q_t=Q_0Q_1\cdots Q_t\to V$; you get them by carrying the product along, not by a second pass. (Non-symmetric matrices converge instead to real Schur form, quasi-upper-triangular with $2\times2$ blocks for complex-conjugate pairs.)
+
+*Why it is not hopeless.* Reduce before you iterate. Householder reflections $H=I-2vv^\top$ applied on both sides, $C\to HCH$ — still a similarity since $H$ is symmetric and orthogonal — drive $C$ to **tridiagonal** form (Hessenberg for a general matrix). Symmetry means clearing below the subdiagonal simultaneously clears above the superdiagonal.
+
+The cost then lands as: a one-time $O(d^3)$ for the reduction, after which each QR step on a tridiagonal matrix is $O(d)$ instead of $O(d^3)$. With shifts (Wilkinson) and deflation the iteration takes $O(1)$ steps per eigenvalue. So the total is $O(d^3)$ **dominated by the reduction, not the iteration** — which is the whole reason "reduce, then iterate" is the standard shape of a symmetric eigensolver.
+
+**(e) You want 50 of 10,000, so do not compute 10,000.** Running (d) means producing $9{,}950$ eigenvectors to discard them.
+
+*What to run.* A Krylov method — **Lanczos** for the symmetric case (`scipy.sparse.linalg.eigsh`, ARPACK underneath), or **randomized SVD** (`PCA(svd_solver="randomized")` in scikit-learn). Power iteration already showed that $q,Cq,C^2q,\ldots$ carries increasing information about the dominant eigenvectors, so keep the whole sequence: build an orthonormal basis $Q_m$ of $\mathcal K_m(C,q)=\operatorname{span}\lbrace q,Cq,\ldots,C^{m-1}q\rbrace$, project
+
+$$T_m=Q_m^\top CQ_m$$
+
+which is only $m\times m$ (and tridiagonal when $C$ is symmetric), solve the small problem $T_my=\theta y$, and lift back with $v\approx Q_my$. Those are the Ritz pairs.
+
+*Why only matrix-vector products.* Krylov methods never need $C$ itself, only its action:
+
+$$Cv=\tfrac1nX^\top Xv=\tfrac1nX^\top(Xv)$$
+
+so $v\to Xv\to X^\top(Xv)$, two passes over $X$ and no $d\times d$ matrix anywhere.
+
+*Two reasons to SVD $X$ directly.* **Memory and compute:** $C$ is $d\times d=10^8$ entries you never have to store, and forming it costs $O(nd^2)$ you never have to spend. **Accuracy:** $\kappa(X^\top X)=\kappa(X)^2$. Squaring the condition number costs you roughly half your significant digits, and it destroys exactly the small singular values — which matters whenever the design is near-collinear. A matrix $X$ that is perfectly workable can produce an $X^\top X$ that is numerically singular.
+
+*The bridge.* $X=UDV^\top\Rightarrow X^\top X=VD^2V^\top$, so the right singular vectors of $X$ *are* the eigenvectors of $C$, with $\lambda_j=d_j^2/n$. You get the same answer, computed on a better-conditioned object.
+
+**Rubric:**
+- (a) Both objections, kept separate: no closed form past degree 4, *and* root-finding is ill-conditioned — not just one of them
+- (a) Knows the dependency runs the other way: companion matrix, `numpy.roots` calls an eigensolver
+- (b) Expands $q_0$ in the eigenbasis and factors out $\lambda_1^t$ — the derivation, not just the name
+- (b) Both conditions ($\lambda_1>\lambda_2$ strictly; $c_1\neq0$) and what breaks under a repeated top eigenvalue
+- (b) Rate $\lambda_2/\lambda_1$; Rayleigh quotient for the eigenvalue; bonus for its second-order accuracy
+- (c) Identifies that independent starts all collapse to $v_1$, and that the fix is blocking + re-orthogonalization
+- (c) Says what QR is *for* (projecting out claimed directions), not merely that it appears; rate $\lambda_{k+1}/\lambda_k$
+- (d) $R_t=Q_t^\top A_t\Rightarrow A_{t+1}=Q_t^\top A_tQ_t$, plus the one-line similarity proof
+- (d) Eigenvectors come from the accumulated product $\bar Q_t$, not a second pass
+- (d) Householder $\to$ tridiagonal as a one-time $O(d^3)$; per-step drops to $O(d)$; total dominated by the reduction
+- (e) Names Lanczos/Krylov or randomized SVD and the project–solve–lift structure
+- (e) $Cv=\frac1nX^\top(Xv)$ — only the action of $C$ is ever needed
+- (e) Both reasons distinctly: memory/compute *and* $\kappa(X^\top X)=\kappa(X)^2$ losing half the digits
+- (e) Connects $X=UDV^\top$ to $C=VD^2V^\top/n$
 
 </details>
 
