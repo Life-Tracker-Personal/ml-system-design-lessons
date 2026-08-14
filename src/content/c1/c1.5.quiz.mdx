@@ -109,7 +109,7 @@ so $v\to Xv\to X^\top(Xv)$, two passes over $X$ and no $d\times d$ matrix anywhe
 
 ## Rapid-fire: PCA & dimensionality reduction
 
-These 12 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
+These 13 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
 
 1. **PCA in one minute** Explain PCA to a smart engineer who has never seen it. Say what it does geometrically, what the first principal component is, and why "the direction of maximum projected variance" and "the line the points sit closest to" describe the same thing.
 2. **Center always, scale sometimes** Why is centering mandatory before PCA, while standardizing each column is a judgment call? Give a concrete dataset where PCA on the covariance matrix and PCA on the correlation matrix return completely different first components.
@@ -123,3 +123,4 @@ These 12 questions do not depend on the numbered questions above, so you can stu
 10. **The loadings changed overnight** You retrain a production PCA every week, and the downstream coefficients keep flipping sign and jumping around. Give two mechanisms that cause this, and say how you would make the pipeline stable.
 11. **PCA on one-hot features** Does PCA make sense on a design matrix that is mostly one-hot encoded categoricals plus a few count columns? Explain what goes wrong, and name what you would use instead.
 12. **PC1 of a return matrix** You run PCA on the correlation matrix of daily returns for 500 stocks. The first component explains 40% of the variance and every loading has the same sign. What is that component, and what would you do with the components after it?
+13. **How you actually compute the eigenvalues** PCA is an eigendecomposition of $C=\frac1nX^\top X$. Say how that is actually computed, and why it is not by solving $\det(C-\lambda I)=0$. Walk the chain: power iteration and what it converges to, the Rayleigh quotient for the eigenvalue, why $k$ independent starts all collapse to $v_1$ and what fixes it, then the QR algorithm and why reversing the factors preserves eigenvalues. Finish on practice: $d=10{,}000$ and $k=50$, what do you run, and why SVD $X$ directly rather than form $X^\top X$?
