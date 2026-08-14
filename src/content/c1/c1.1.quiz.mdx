@@ -1,9 +1,9 @@
 ---
 lessonId: c1.1
 chapter: 1
-title: Quiz — Data foundations
-description: 12 conceptually difficult questions on storage, sampling, splits, and data leakage. Test your understanding, not your recall.
-estimatedMinutes: 45
+title: Quiz — Data, splits & validation
+description: Questions on leakage, splits, cross-validation and honest evaluation.
+estimatedMinutes: 80
 ---
 
 These 12 questions are conceptually difficult by design. Each tests understanding, derivation, or counter-example construction — not recall. Try to answer in your head (or on paper) before revealing the model answer. The rubric at the bottom of each answer lists the specific points the answer should contain.
@@ -515,44 +515,327 @@ Formally: let $f_e(\cdot)$ be the time-series of feature values for entity $e$, 
 
 </Quiz>
 
-## Rapid-fire: sampling & class imbalance
+<Quiz id="13">
 
-1. **Unbiased for what?** When you draw mini-batches uniformly from the training set, what objective are the gradients an unbiased estimate of? If you instead force 50/50 batches on a 95/5 dataset, what objective are you *now* implicitly optimizing — and how do importance weights restore the original one?
-2. **Oversampling vs. loss weighting.** In expectation, when is duplicating minority examples mathematically equivalent to up-weighting the minority term in the loss? Where do the two diverge — variance, compute, overfitting?
-3. **Why oversampling adds no information.** Explain why plain oversampling cannot create new information and tends to overfit. Define "effective sample size" / effective diversity, and say what actually increases it.
-4. **The 95%-accuracy trap.** A model on a 5%-positive task scores 95% accuracy and 0.9 ROC-AUC yet is useless in production. Explain precisely how *each* metric misleads here, and why PR-AUC is more informative for rare positives.
-5. **Should the test set be balanced?** Should your test set match the 95/5 deployment distribution or be balanced? When is a balanced diagnostic set useful, and why can it never replace a real-distribution test set?
-6. **Split vs. batch stratification.** Contrast stratified *splitting* with stratified *mini-batch sampling*: which buys evaluation honesty and which buys training signal, and why might you want both at once?
-7. **Recovering calibrated probabilities.** Training on rebalanced (say 50/50) data distorts predicted probabilities. Derive how to correct the output probabilities — or the decision threshold — back to the true 95/5 prior (i.e. prior correction / logit adjustment).
-8. **When the minority signal vanishes.** With rare positives and small batches, why does the minority-class gradient effectively disappear? Why can class weighting *still* fail when many batches contain zero positives, and how does combining it with stratified batching fix that?
-9. **Prediction-dependent weights and `detach`.** Suppose the per-example weight depends on the model's predicted probability, $w = w(p)$. Why is the gradient of $w(p)\,\ell(p)$ not simply $w \cdot \partial\ell/\partial z$? When and why would you `detach` / `stop_gradient` the weight, and how does that change what you're optimizing? (This is the focal-loss / hard-example-mining design question.)
-10. **What undersampling throws away.** What signal does random majority undersampling silently discard, and why is that especially dangerous for ranking and retrieval? How does hard-negative mining recover it?
-11. **Augmentation vs. oversampling (and label noise).** Why is augmentation usually preferable to plain minority oversampling? Give a case where a "label-preserving" augmentation (cropping a medical scan, flipping a digit) silently injects label noise.
-12. **Unbiased estimator $\ne$ good objective.** A uniform sampler is an unbiased estimator of the empirical loss, yet the trained model is biased toward the majority class. Reconcile this: why is "unbiased estimate of dataset loss" not the same as "the objective the business or clinical problem actually wants"?
-13. **Multi-label stratification.** Why is stratified splitting much harder for multi-label problems than for binary, and what practical approximations are used?
-14. **Extreme imbalance: oversample or undersample?** At 1:10,000 imbalance, compare the compute and statistical trade-offs of oversampling positives vs. undersampling negatives. Which scales better, and what do you lose either way?
-15. **Random vs. uniform sampling.** Distinguish "random" from "uniform" sampling. When is uniform sampling the right default, and when is it inefficient (rare events, heavy redundancy, long-tailed data)?
-16. **When biased sampling is the right call.** Give a principled case where deliberately biasing the sampling distribution improves the final model despite biasing the gradient — and state what you must do at inference to stay calibrated.
-17. **Tiny minority, non-stratified split.** If the positive class has only a handful of examples, what specifically goes wrong with a plain random split, and how does it inflate the variance of your reported metric?
-18. **Choosing class-weight magnitude.** How do fixed class weights rescale per-example gradient contributions, and why can very large minority weights destabilize training and hurt calibration? How would you pick the magnitude?
-19. **Importance weights and their variance.** When you change the sampling distribution (oversample, undersample, curriculum), how do importance weights recover an unbiased estimate of the original risk — and when is their variance so high that the correction is worse than the bias it removes?
-20. **Design a sampler end-to-end.** You're handed a 1,000:1 fraud dataset. Walk through how you'd combine split strategy, batch sampling, weighting/augmentation, metric choice, and threshold/calibration into one coherent training + evaluation plan — and justify each choice.
+**Q1.** Derive the bias-variance decomposition from $y=f(x)+\varepsilon$ over the randomness of both the training set $\mathcal D$ and the noise $\varepsilon$. State exactly which assumption kills each of the two cross terms, and why the identity fails for 0-1 loss.
 
-## Rapid-fire: leakage & feature redundancy
+<details>
+<summary>Model answer + rubric</summary>
 
-1. **The low-importance leaker.** A leaky feature shows surprisingly *low* permutation/tree importance, and dropping it barely moves AUC — yet it *is* leaking. Explain how feature redundancy (collinearity) produces both symptoms at once, and what detection approach surfaces it where drop-column and single-feature importance both fail.
-2. **VIF — detection vs. prediction.** Why is multicollinearity primarily a *leakage-detection* and *coefficient-inference* problem rather than a *prediction* problem for a tree model? Define the variance inflation factor $\text{VIF}_j = 1/(1 - R_j^2)$ and state precisely what $R_j^2$ is the result of regressing on what.
-3. **Purge, then embargo.** Your label at time $t$ is the 30-day-forward return, computed over $[t, t+30]$. Show why even a clean chronological split leaks when training rows sit within 30 days of the test boundary; derive what *purging* removes (train rows whose label interval overlaps the test window) and why an *embargo* after the test window is still needed on top of it. What extra assumption about the features justifies the embargo? (This is López de Prado's purged/embargoed CV — quant loops lead with it.)
-4. **A hundred backtests.** You try 100 signal variants and the best one backtests at Sharpe 3. Under the null that *all* are noise, approximate the expected *maximum* Sharpe across $N$ independent trials, and explain how the deflated Sharpe ratio (Bailey and López de Prado) corrects for the selection. Why is this leakage *through the researcher* rather than through the data — and why does purged CV alone not fix it?
-5. **The index that knew.** You backtest a strategy on today's S\&P 500 constituents over 2000–2024. Explain why index membership is itself a future-derived feature, which direction the bias pushes your returns, and reconcile survivorship bias with the single rule "no information unavailable at prediction time." What data artifact (point-in-time constituent lists) removes it?
-6. **Near-duplicate contamination.** About 3.3% of CIFAR-10 and 10% of CIFAR-100 *test* images have near-duplicates in their training sets, and models lose 9–14% relative accuracy on deduplicated test sets (Barz and Denzler). Why does a random split provide *zero* protection against duplicate contamination? Design a near-duplicate detection pass that works at dataset scale, and state precisely what the before-vs-after accuracy gap measures.
-7. **Decontaminating the benchmark.** Your pretraining corpus may contain your eval benchmark. Explain why $n$-gram-overlap decontamination systematically under-detects (paraphrases, translations, solution fragments, discussion threads about the benchmark), what canary strings buy you that string matching can't, and how you would *quantify* residual contamination's effect on a reported score rather than merely detect its presence.
-8. **Correct CV, still wrong.** You screen 10,000 features down to 50 by correlation with the label *on the full dataset*, then run scrupulously honest 10-fold CV on the survivors. Using the all-noise-features thought experiment (ESL §7.10's "wrong way to do cross-validation"), show why the CV estimate is badly optimistic even though every fold's model was fit train-only. State the rule for where *any* supervised selection step must live.
-9. **When the fix leaks.** Out-of-fold target encoding is the standard fix for encoder leakage — yet leave-one-out target encoding *still* leaks. Show the mechanism on a rare category: with $n$ rows in the category, the LOO mean $(\sum y - y_i)/(n-1)$ becomes a near-perfect *inverse* predictor of the row's own label. Then explain what CatBoost's ordered target statistics (encode each row using only "earlier" rows in a random permutation) do differently, and why the ordering kills the leak.
-10. **SMOTE before the split.** A colleague oversamples the minority class — or runs SMOTE — *then* splits into train/test (or folds). Construct what goes wrong in each variant: exact duplicates straddling the boundary, and synthetic points interpolated from what will become test-fold neighbors. Why is the resulting inflation worst at exactly the imbalance ratios that made you reach for SMOTE in the first place?
-11. **The embedding that time-traveled.** You train item and user embeddings on the *full* interaction log, then use them as features in a downstream model with a proper temporal split. Locate the leak, explain why the downstream temporal split cannot catch it, and state the general rule for any pretrained representation used as a feature. Extension: apply the same rule to a foundation model whose pretraining crawl postdates your test window.
-12. **Immature labels.** Fraud labels arrive via chargebacks 30–90 days late, and you train this week on last month's transactions with everything unflagged labeled "not fraud." Explain why this is a *censoring* problem adjacent to leakage (the label itself hasn't finished happening), work out which metrics it biases and in which direction, and design the label-maturity policy that fixes it. What does that policy cost you when fraud patterns are non-stationary?
-13. **Adversarial validation's blind spot.** Train a classifier to distinguish train rows from test rows. Interpret AUC $\approx 0.5$ versus AUC $\approx 0.9$, and explain how the classifier's top features point you straight at split bugs (IDs, timestamps, processing artifacts). Then construct a serious leak that adversarial validation is *structurally unable* to see, and say why.
-14. **The worn-out holdout.** Every week you evaluate tweaks on the same validation set and keep whatever improves it. Explain why the set stops being an unbiased estimate after $k$ adaptive decisions — the mechanism behind Kaggle public-leaderboard shakeups — and how the reusable-holdout / Ladder results (Dwork et al.; Blum and Hardt) formalize the information you extract per query. Give one protocol fix and its price.
-15. **Leakage, skew, or drift?** Offline AUC 0.92; first week in production, 0.78. Three rival hypotheses: a leak in the training pipeline, training-serving skew, or distribution drift. Design the observability that discriminates among them — what exactly do you log and compare (offline-join vs. online-store feature values for the same request, score distributions by cohort, metrics sliced by time-since-deploy) — and state which mismatch confirms which hypothesis.
-16. **The feature that scored itself.** You add the item's historical impression count (or the previous model's score) as a feature; offline AUC jumps, online conversions *fall*. Reconcile: no timestamp rule is violated — the feature is genuinely available at prediction time — yet the offline gain is fictitious. Which assumption of offline evaluation broke, and why do features derived from the serving policy's own decisions reward imitating the old policy instead of predicting the label?
+Let $\hat f=\hat f_{\mathcal D}$, $\bar f(x)=\mathbb{E}_{\mathcal D}[\hat f(x)]$, with $\mathbb{E}[\varepsilon]=0$, $\text{Var}(\varepsilon)=\sigma^2$, $\varepsilon\perp\mathcal D$.
+
+$$\mathbb{E}_{\mathcal D,\varepsilon}[(y-\hat f)^2]=\mathbb{E}[(\varepsilon+(f-\hat f))^2]=\mathbb{E}[\varepsilon^2]+2\mathbb{E}[\varepsilon]\,\mathbb{E}[f-\hat f]+\mathbb{E}_{\mathcal D}[(f-\hat f)^2]$$
+
+**First cross term** $2\mathbb{E}[\varepsilon]\mathbb{E}[f-\hat f]=0$ because $\mathbb{E}[\varepsilon]=0$ and $\varepsilon\perp\mathcal D$ (so the expectation factorizes). That leaves $\sigma^2+\mathbb{E}_{\mathcal D}[(f-\hat f)^2]$. Split the last term with $\pm\bar f$:
+
+$$\mathbb{E}_{\mathcal D}[(f-\hat f)^2]=\underbrace{(f-\bar f)^2}_{\text{Bias}^2}+\underbrace{\mathbb{E}_{\mathcal D}[(\hat f-\bar f)^2]}_{\text{Var}}+2(f-\bar f)\underbrace{\mathbb{E}_{\mathcal D}[\bar f-\hat f]}_{=0}$$
+
+**Second cross term** vanishes because $\mathbb{E}_{\mathcal D}[\hat f]=\bar f$ by definition. Result:
+
+$$\mathbb{E}[(y-\hat f)^2]=\sigma^2_{\text{noise}}+\text{Bias}^2+\text{Var}$$
+
+**0-1 loss.** The derivation relies on the algebra of squares (the cross terms). For 0-1 loss there's no such additive identity; the "variance" can be *good or bad* depending on whether it pushes you across the decision boundary (Domingos 2000 gives a unified but loss-dependent, non-additive version). So the clean $\sigma^2+\text{Bias}^2+\text{Var}$ split is a squared-loss fact.
+
+**Rubric:**
+- Expand $(\varepsilon+(f-\hat f))^2$; first cross term killed by $\mathbb{E}[\varepsilon]=0,\varepsilon\perp\mathcal D$
+- Split with $\pm\bar f$; second cross term killed by $\mathbb{E}_{\mathcal D}[\hat f]=\bar f$
+- Land on $\sigma^2+\text{Bias}^2+\text{Var}$
+- Squared-loss only; 0-1 loss non-additive (Domingos 2000)
+
+</details>
+
+</Quiz>
+
+<Quiz id="14">
+
+**Q2.** Sketch the learning curves (train and validation error vs training-set size) for a high-bias model and a high-variance model. From the shapes alone, decide for each whether (a) more data, (b) more capacity, (c) more regularization will help.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**High-bias (underfit).** Train and validation errors **converge to each other at a high floor** — both are high, the gap is small, and adding data flattens them quickly at that floor. The dominant term is $\text{Bias}^2$, a property of the model class. Fixes: **(b) more capacity** (a richer model / more features / less regularization). **(a) More data does NOT help** — the floor is fixed by the model, not the sample size. (c) More regularization would *hurt* (raises bias further).
+
+**High-variance (overfit).** Train error is **low**, validation error is **much higher** — a persistent **gap** that *narrows* as data grows. The dominant term is $\text{Var}$. Fixes: **(a) more data** (shrinks the gap), and **(c) more regularization** (reduces variance). (b) More capacity would *worsen* it.
+
+**Decision rule:** *converged-and-high* → bias → add capacity; *low-train, high-val gap* → variance → more data or regularization. (This is exactly the c1.1 §5 diagnosis.)
+
+**Rubric:**
+- High-bias: curves converge at a high floor (small gap)
+- High-variance: low train, high val, persistent narrowing gap
+- Bias → more capacity (not more data); variance → more data / regularization
+- Map each of (a)/(b)/(c) correctly to each regime
+
+</details>
+
+</Quiz>
+
+<Quiz id="15">
+
+**Q3.** Prove that choosing the hyperparameter minimizing CV error gives an optimistically biased estimate of that model's true risk. Quantify the optimism for $m$ independent candidates each with fold-noise $\tau$, and explain precisely what nested CV is unbiased *for*.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+Write $\widehat{\text{CV}}(\lambda)=R(\lambda)+Z_\lambda$ with $\mathbb{E}[Z_\lambda]\approx0$, $\text{Var}(Z_\lambda)=\tau^2$. For a *single fixed* $\lambda$, $\widehat{\text{CV}}$ is ~unbiased. But you report the minimum over candidates. By Jensen (the min of random variables is $\le$ the min of their means):
+
+$$\mathbb{E}\bigl[\min_\lambda\widehat{\text{CV}}(\lambda)\bigr]\le\min_\lambda\mathbb{E}[\widehat{\text{CV}}(\lambda)]=\min_\lambda R(\lambda)$$
+
+So the reported minimum **systematically under-estimates** the true risk of the selected model — the "winner's curse." With $m$ roughly-independent candidates whose noise is $\approx\mathcal{N}(0,\tau^2)$, the expected minimum sits about $\tau\sqrt{2\ln m}$ below the true best — so the optimism **grows with the number of configurations tried**. (This is the same statistical effect as tuning on the test set, c1.1 data-snooping; the more you search, the more you overfit the validation set.)
+
+**Nested CV.** The *inner* CV loop selects $\lambda$; the *outer* loop's folds are never seen during selection, so the outer estimate is unbiased — but **for the risk of the entire *procedure that includes tuning***, not for one fixed model. That's the right quantity to report: "how well does my model-plus-tuning pipeline generalize."
+
+**Rubric:**
+- Single fixed $\lambda$ ~unbiased; min-over-candidates biased by Jensen
+- $\mathbb{E}[\min\widehat{\text{CV}}]\le\min R$ → optimistic; optimism $\approx\tau\sqrt{2\ln m}$
+- Same phenomenon as data-snooping; grows with #configs
+- Nested CV unbiased for the *tuned procedure's* risk, not a fixed model
+
+</details>
+
+</Quiz>
+
+<Quiz id="16">
+
+**Q4.** Explain the bias-variance tradeoff *of the CV estimator itself*: why is LOO nearly unbiased yet high-variance? Reconcile with Kohavi's finding that 10-fold beats LOO for selection. For least-squares linear regression, show LOO is computable from a single fit.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Bias.** $\widehat{\text{CV}}_K$ trains each surrogate on $n(1-1/K)$ points — weaker than the final $n$-point model — so it **over-estimates** error (pessimistic bias), and the bias **grows as $K$ shrinks**. LOO trains on $n-1$ points ⇒ almost the full model ⇒ **nearly unbiased**.
+
+**Variance.** LOO's $n$ training sets pairwise overlap in $n-2$ points, so the $n$ fold-errors are **highly positively correlated**. The variance of an average of correlated terms doesn't shrink toward 0 (it's floored by the average covariance), so $\widehat{\text{CV}}_{\text{LOO}}$ has **high variance**. Smaller $K$ → less overlap → less-correlated, lower-variance estimate.
+
+**Reconciliation (Kohavi 1995).** For model *selection* you care about ranking candidates reliably, which favors a lower-variance estimator; LOO's near-zero bias doesn't compensate for its high variance (and its $n$ refits). 10-fold stratified CV hit the better bias-variance-of-the-estimator balance empirically — hence the $K=5$–$10$ default.
+
+**OLS shortcut (PRESS).** For least-squares, the $i$-th LOO residual equals $e_i/(1-h_{ii})$ where $e_i$ is the full-fit residual and $h_{ii}$ the hat-matrix diagonal (leverage). So $\text{LOO-MSE}=\frac1n\sum_i\bigl(\frac{e_i}{1-h_{ii}}\bigr)^2$ — **computable from one fit**, no $n$ refits. So "LOO is expensive" is false *specifically* for linear models.
+
+**Rubric:**
+- Smaller $K$ → more pessimistic bias (smaller surrogate training sets); LOO ~unbiased
+- LOO high variance because folds overlap $n-2$ → correlated errors → average doesn't concentrate
+- Kohavi: 10-fold better for selection (variance + compute beat LOO's low bias)
+- PRESS: LOO from one OLS fit via $e_i/(1-h_{ii})$
+
+</details>
+
+</Quiz>
+
+<Quiz id="17">
+
+**Q5.** Derive the "rule of 59": how many random hyperparameter configurations you need to land in the top-5% region with 95% probability. Explain why this bound is independent of the number of hyperparameters while grid coverage is not.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Derivation.** Suppose the top-$\beta$ fraction of configurations is "good enough." A single random draw misses the good region with probability $1-\beta$; $n$ i.i.d. draws all miss with probability $(1-\beta)^n$. To hit it with probability $\ge1-\gamma$:
+
+$$(1-\beta)^n\le\gamma\;\Longrightarrow\;n\ge\frac{\log\gamma}{\log(1-\beta)}$$
+
+For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{\log0.95}=\frac{-3.00}{-0.0513}\approx58.4\Rightarrow \boxed{n=59}$ (often quoted as "60 trials").
+
+**Dimension independence.** The bound only involves $\beta$ and $\gamma$ — **not $d$**. Random search samples *every* hyperparameter at $n$ distinct values, so its coverage of the "good region" (defined by whatever few hyperparameters matter) doesn't degrade as you add irrelevant dimensions. Grid search, by contrast, probes only $v$ distinct values *per axis* at cost $v^d$; adding a dimension multiplies the cost by $v$ while still resolving each important axis at only $v$ points. So grid's coverage of the important axes is fixed at $v$ regardless of budget spent on irrelevant ones — random search adapts to the *effective* dimensionality for free (Bergstra & Bengio 2012).
+
+**Rubric:**
+- $(1-\beta)^n\le\gamma\Rightarrow n\ge\log\gamma/\log(1-\beta)$
+- Plug in $\beta=\gamma=0.05\Rightarrow n\approx59$
+- Bound has no $d$ → dimension-free
+- Grid resolves only $v$ values/axis at cost $v^d$; random gives $n$ distinct values/axis → adapts to $d_{\text{eff}}$
+
+</details>
+
+</Quiz>
+
+<Quiz id="18">
+
+**Q6.** Construct a hyperparameter landscape where grid search with a generous $v^d$ budget systematically *misses* the optimum that random search finds. Quantify.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Construction.** Two hyperparameters, but only one matters: the response is $g(\theta_1,\theta_2)=h(\theta_1)$ with a sharp optimum at, say, $\theta_1^\star=0.37$, and $\theta_2$ irrelevant. Use a $5\times5$ grid ($v=5$, 25 trials) on $[0,1]^2$ with grid lines at $\{0.1,0.3,0.5,0.7,0.9\}$. The grid probes $\theta_1$ at only **5 distinct values**, none near 0.37 — so all 25 trials evaluate $h$ at the same 5 wrong $\theta_1$ values (each repeated 5× across the irrelevant $\theta_2$), and the optimum is missed regardless of budget.
+
+**Random search**, with the *same* 25 trials, draws 25 distinct $\theta_1$ values uniformly — the chance that none lands within $\pm0.05$ of $0.37$ (a 0.1-wide good region, $\beta=0.1$) is $(1-0.1)^{25}\approx0.072$, so random finds the good region with ~93% probability. The grid's 25 trials gave 5 distinct $\theta_1$ values; random's gave 25 — a 5× resolution gain on the axis that matters, *for the same budget*.
+
+**The general point:** grid wastes its budget resolving the irrelevant axis ($\theta_2$) at full resolution while under-resolving the important one. Whenever $d_{\text{eff}}<d$, this happens.
+
+**Rubric:**
+- Landscape with one relevant + one (or more) irrelevant hyperparameter, optimum off the grid lines
+- Grid probes only $v$ distinct values on the relevant axis (repeated across irrelevant) → misses
+- Random gives $n$ distinct values on every axis → finds it (quantify the hit probability)
+- Generalize: $d_{\text{eff}}<d$ ⇒ grid wastes budget on irrelevant axes
+
+</details>
+
+</Quiz>
+
+<Quiz id="19">
+
+**Q7.** State the double-descent curve precisely. Explain the mechanism in the over-parameterized regime — why does effective variance *fall* as capacity grows past the interpolation threshold? Why does this not contradict the bias-variance decomposition?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The curve** (Belkin et al. 2019). As model capacity increases: test risk follows the classical U **up to the interpolation threshold** (the capacity at which the model first fits the training data exactly, roughly #params $=n$), where it **spikes**; then, as capacity grows *beyond* the threshold, test risk **descends a second time**, often below the classical U's minimum.
+
+**Mechanism.** Past the threshold there are infinitely many parameter settings that interpolate (zero training error). The training procedure's **inductive bias selects the minimum-norm interpolant** (e.g. gradient descent / the pseudoinverse picks the smallest-norm solution). As capacity grows, the *norm* of that minimum-norm interpolant **keeps decreasing** (more directions to spread the fit over, less weight per direction), which is an **implicit ridge** — so the effective variance of the estimator *falls* even though training error is pinned at zero. At the threshold itself the variance spikes because $X^\top X$ is barely invertible (smallest singular value → 0).
+
+**No contradiction.** The bias-variance decomposition $\sigma^2+\text{Bias}^2+\text{Var}$ is an *exact identity* — always true. Double descent is a statement about how the **variance term** behaves as a function of capacity: it isn't monotone increasing (as the classical story assumes); it rises to the interpolation threshold and then comes *back down* under the min-norm inductive bias. The decomposition holds; the assumed *shape* of its variance term was incomplete.
+
+**Rubric:**
+- Define interpolation threshold; U up to it, spike at it, second descent beyond
+- Min-norm interpolant + its norm decreasing with capacity = implicit ridge → variance falls
+- Variance spike at threshold ($X^\top X$ ill-conditioned)
+- Decomposition still exact; it's the variance term's *shape* (non-monotone) that classical story got wrong
+
+</details>
+
+</Quiz>
+
+<Quiz id="20">
+
+**Q8.** Distinguish model-wise, epoch-wise, and sample-wise double descent (Nakkiran 2021). Define Effective Model Complexity (EMC), and construct a scenario where adding training data *increases* test error.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Effective Model Complexity (EMC).** The maximum number of training samples on which the training procedure achieves ≈ zero training error. It's a property of the *procedure* (architecture + optimizer + epochs), not just parameter count, so it unifies the three axes below.
+
+**Three flavors** — test error peaks when EMC ≈ $n$ (the interpolation threshold), and descends on either side:
+- **Model-wise:** hold data/epochs fixed, grow the model — error peaks at the size where it just interpolates, then descends.
+- **Epoch-wise:** hold model/data fixed, train longer — more epochs raise EMC, so test error can rise then fall as training proceeds (a model that's "too small to interpolate early, large enough late").
+- **Sample-wise:** hold model/epochs fixed, vary $n$ — error peaks when $n\approx$ EMC.
+
+**More data hurts (sample-wise).** Take a model whose EMC is, say, 5000. With $n=3000$ it's comfortably over-parameterized (second-descent side, low error). **Increase $n$ to 5000** — now $n\approx$ EMC, the interpolation threshold, where variance spikes → **test error increases** even though you added data. Pushing further to $n=8000$ moves it back into the under-parameterized regime and error falls again. So near the threshold, more data can transiently *raise* test error — a direct violation of "more data always helps."
+
+**Rubric:**
+- EMC = max #samples the procedure can fit to ~0 train error; property of the whole procedure
+- Model/epoch/sample-wise: all peak when EMC ≈ $n$
+- Construct: model with EMC ≈ N; raising $n$ to ≈ EMC spikes error (then falls again)
+- Conclude: more data can transiently hurt near the threshold
+
+</details>
+
+</Quiz>
+
+<Quiz id="21">
+
+**Q9.** For successive halving with budget $B$, $n$ initial configs, and elimination factor $\eta$, describe the rungs and the $n$-vs-$r$ tradeoff. Construct a case where successive halving eliminates the eventual winner early, and say what Hyperband does about it.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Successive halving.** Start $n$ configs at a small per-config budget $r$ (e.g. few epochs / small data). Evaluate, keep the top $1/\eta$, **multiply each survivor's budget by $\eta$**, repeat. After $\log_\eta(n)$ rungs you're left with one config that has run at the full budget. The total budget is spread so each rung costs roughly the same; $\eta\in\{3,4\}$ is typical.
+
+**The $n$-vs-$r$ tradeoff.** With a fixed total budget $B$, you choose between **many configs at a small starting budget** (explore widely, but early performance is a noisy proxy for final performance) and **few configs at a large starting budget** (reliable early signal, but you explore less). There's no universally right choice — it depends on how predictive low-budget performance is of high-budget performance.
+
+**SH eliminates the winner (construction).** Take a config whose learning curve is **non-monotone / slow-starting** — e.g. a high-capacity model with a low warm-up learning rate that looks worst at 1 epoch but is best at 50. At the first rung (1 epoch) it ranks in the bottom $1-1/\eta$ and is **cut**, even though it would have won at full budget. SH assumes low-budget rank ≈ high-budget rank, which this curve violates.
+
+**Hyperband's fix.** Hyperband runs SH as an inner loop over a **grid of brackets** with different $(n,r)$ starting points — some brackets start with few configs at large budgets (which would *not* prematurely cut the slow-starter), others with many configs at small budgets. By hedging across the $n$-vs-$r$ tradeoff, Hyperband bounds the worst-case from any single SH bracket's wrong bet.
+
+**Rubric:**
+- SH: $n$ configs at budget $r$, keep top $1/\eta$, multiply survivors' budget by $\eta$, ~$\log_\eta n$ rungs
+- $n$-vs-$r$ tradeoff: explore-many-cheap vs few-reliable; depends on low-budget predictiveness
+- Construct a slow-starting / non-monotone curve that SH cuts early
+- Hyperband runs SH over multiple $(n,r)$ brackets to hedge
+
+</details>
+
+</Quiz>
+
+<Quiz id="22">
+
+**Q10.** Write the AIC and BIC penalties. For which $n$ do they diverge? Explain the qualitative claim that AIC is asymptotically efficient but not consistent, while BIC is consistent. Which would you use to (a) pick a forecasting model, (b) recover the true sparse model?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Penalties.** $\text{AIC}=-2\hat\ell+2k$, $\text{BIC}=-2\hat\ell+k\ln n$ ($\hat\ell$ = maximized log-likelihood, $k$ = #parameters, $n$ = #observations). They penalize the *same* fit term differently: AIC's per-parameter penalty is the constant $2$; BIC's is $\ln n$. They **diverge once $\ln n>2$, i.e. $n>e^2\approx7.4$** — so for any realistic dataset BIC penalizes complexity harder, and increasingly so as $n$ grows.
+
+**Consistency vs efficiency.**
+- **BIC is consistent:** as $n\to\infty$, if the true model is among the candidates, BIC selects it with probability → 1. Its $k\ln n$ penalty grows fast enough to reject spurious extra parameters asymptotically.
+- **AIC is efficient but not consistent:** it's derived to minimize predictive risk (KL divergence to the truth) and asymptotically achieves the best prediction error *as if the true model were unknown/infinite-dimensional*, but its constant $2k$ penalty leaves a positive probability of **over-selecting** (keeping junk parameters) even as $n\to\infty$.
+
+**Which to use.** (a) **Forecasting / prediction → AIC** (it targets predictive risk; you don't care about identifying the "true" model, just predicting well). (b) **Recover the true sparse model → BIC** (consistency: it'll converge on the true parsimonious set). (In small samples, AICc — AIC with a finite-sample correction — is often preferred.)
+
+**Rubric:**
+- $\text{AIC}=-2\hat\ell+2k$, $\text{BIC}=-2\hat\ell+k\ln n$; diverge at $\ln n>2$ ($n>7.4$)
+- BIC consistent (selects true model as $n\to\infty$); AIC efficient (min prediction risk) but over-selects
+- (a) forecasting → AIC; (b) true sparse model → BIC
+
+</details>
+
+</Quiz>
+
+<Quiz id="23">
+
+**Q11.** Design a validation protocol for a model with leakage-prone, grouped, time-ordered data that *also* needs hyperparameter tuning. State what each loop does and what the final number estimates. What's the failure if you used plain shuffled k-fold?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Protocol — nested CV with group + temporal constraints.**
+- **Outer loop (temporal):** forward-chaining splits — train on $[\,\text{start},t)$, test on $[t,t+\Delta)$, advancing $t$; never train on data later than the test window. Each outer test fold gives one honest performance number.
+- **Inner loop (also temporal + grouped), on each outer training block:** forward-chaining CV to select hyperparameters, with **all rows of any entity (user/session) kept on one side** of every split (`GroupKFold`-style) so no entity straddles train/validation.
+- After the inner loop picks $\lambda$, refit on the full outer-train block and score the untouched outer-test fold. **Report the mean ± std over outer folds** — this estimates the generalization of *the entire tune-and-fit procedure* on future, unseen entities (honoring both leakage constraints).
+
+**Failure of plain shuffled k-fold.** Two leaks at once: (1) **look-ahead** — shuffling mixes future rows into training, so the model "sees the future" and the metric is optimistic (c1.1's churn-AUC example); (2) **group leakage** — the same entity's rows land in both train and validation, so the model memorizes entity identity and the metric reflects memorization, not generalization. Plus the tuning would be selection-biased without the outer loop. The reported number would be far above live performance.
+
+**Rubric:**
+- Nested CV: outer = honest estimate, inner = tuning
+- Outer & inner both forward-chaining (temporal, no look-ahead) AND grouped (entity on one side)
+- Final number = risk of the tuned procedure on future unseen entities
+- Shuffled k-fold → look-ahead + group leakage + selection bias → optimistic metric
+
+</details>
+
+</Quiz>
+
+<Quiz id="24">
+
+**Q12.** A candidate (scikit-learn 1.9) hits three problems: (a) `from sklearn.model_selection import HalvingRandomSearchCV` raises `ImportError`; (b) they tune with `scoring='neg_log_loss'` and are confused that `best_score_` is negative; (c) they run the search on the *whole* dataset and report `best_score_` as the generalization estimate. Identify and fix all three.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Halving import.** `HalvingGridSearchCV`/`HalvingRandomSearchCV` are **experimental**, so they aren't importable until you enable the feature flag:
+
+```python
+from sklearn.experimental import enable_halving_search_cv  # noqa: F401
+from sklearn.model_selection import HalvingRandomSearchCV
+```
+
+(The `enable_*` import must come first; this is the same pattern as other experimental sklearn estimators.)
+
+**(b) Negative score.** scikit-learn follows a **higher-is-better** convention for all scorers, so loss functions are *negated*: `neg_log_loss` returns $-\log\text{loss}$. A `best_score_` of $-0.31$ just means a log-loss of $0.31$; pick the model with the **least negative** (largest) value. Nothing is wrong.
+
+**(c) Generalization estimate.** `best_score_` is the **cross-validation score of the selected model on the data used to select it** — it's optimistically biased (selection bias / winner's curse, Q3). It is *not* an unbiased generalization estimate. Fix: hold out a separate test set that the search never touches and evaluate `best_estimator_` on it, **or** use **nested CV** (outer loop estimates the tuned procedure). Report *that* number, not `best_score_`.
+
+**Rubric:**
+- (a) `from sklearn.experimental import enable_halving_search_cv` before importing the halving estimator
+- (b) sklearn negates losses (higher-is-better); negative `neg_log_loss` is expected; pick the largest
+- (c) `best_score_` is selection-biased (not generalization); use a held-out test set or nested CV
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: Data, splits & validation
+
+These 17 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
+
+1. **Three splits, three jobs** What decision does each of train, validation, and test make? If you tune hyperparameters against the test set and then report that test number, what exactly is wrong with the number you reported?
+2. **Leakage in one sentence** Define data leakage in terms of what information actually exists at prediction time. Then say whether each of these counts: an `account_status = closed` column in a churn model, a `StandardScaler` fit before the split, and one user's rows appearing in both train and test.
+3. **The random split that lied** A churn model splits a year of history randomly 80/20 and reports test AUC 0.91. Live, it does 0.74. Explain the mechanism, and say what the split should have been.
+4. **Split on the patient, not the scan** You have 10,000 chest x-rays from 1,000 patients and you split randomly by image. Test AUC is 0.95, but at another hospital it is 0.71. What did the model actually learn, and what is the fix? Does the same reasoning apply to a recommender with many rows per user?
+5. **Where you fit the scaler** Which preprocessing steps have to be fit on training data only? Explain why fitting a `StandardScaler` on the full dataset barely moves your metric, while fitting a target encoder on the full dataset can inflate AUC by ten points.
+6. **Selection before CV** You screen 10,000 features down to 50 by correlation with the label on the full dataset, then run careful 10-fold CV on the survivors. Why is that CV estimate badly optimistic, even though every fold's model saw only training rows?
+7. **Overfit or underfit** Model A: train error 2%, validation error 18%. Model B: train error 17%, validation error 18%. Diagnose each one, and say what you would change first in each case.
+8. **The three terms** Expected squared test error splits into three pieces. Name them, say what each one means, and identify the one no model can reduce. What does that last term tell you about when to stop tuning?
+9. **Will more data help** Your train and validation curves have converged and both sit at a high error. Will collecting 10x more data help? Answer the same question for a wide train-validation gap that is not closing.
+10. **Why five or ten folds** Why is $k=5$ or $k=10$ the usual default rather than leave-one-out? Talk about the bias and the variance of the CV estimate itself, not of the model.
+11. **Cross-validating a time series** How would you cross-validate a model that predicts next-month equity returns? Now suppose the label is a 30-day forward return, so a training row at time $t$ has a label built from data up to $t+30$. What extra rows do you have to drop near the test boundary?
+12. **best_score_ is not the answer** Someone runs `GridSearchCV` over 200 configurations and reports `best_score_` as the generalization estimate. What is wrong with that number, which direction is it biased, and what should they report instead?
+13. **Grid or random** You have 8 hyperparameters and budget for about 60 trials. Grid search or random search, and why? Roughly how many random trials do you need to land somewhere in the top 5% of the space?
+14. **The worn-out holdout** For three months your team has evaluated every change against the same validation set and kept whatever improved it. What has that set become, statistically speaking, and what is the cheapest protocol fix?
+15. **Offline 0.92, live 0.78** Your model scores 0.92 AUC offline and 0.78 in its first week live. Rank leakage, training-serving skew, and distribution drift as explanations, and give one concrete check that isolates each.
+16. **The suspiciously important feature** One feature carries most of your model's gain. How do you decide whether that is leakage or genuinely strong signal? Then the reverse case: how can a leaking feature show low importance and still pass a drop-column test?
+17. **Splitting 1% positives** For a fraud dataset with 1% positives, what changes about how you build the split? Explain why a plain random 1,000-row validation set makes your reported metric unreliable.

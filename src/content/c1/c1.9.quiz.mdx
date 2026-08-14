@@ -1,39 +1,39 @@
 ---
 lessonId: c1.9
 chapter: 1
-title: Quiz — Model selection & validation
-description: 12 conceptually difficult questions on bias-variance, cross-validation as an estimator, hyperparameter search, and double descent.
-estimatedMinutes: 45
+title: Quiz — Evaluation & class imbalance
+description: Questions on metrics, thresholds, calibration and imbalanced data.
+estimatedMinutes: 80
 ---
 
-These 12 questions test whether you treat model selection as estimating an estimator — its bias, variance, and the selection bias you induce — not as calling `GridSearchCV`. Try to answer before revealing.
+These 12 questions test whether you understand AUC as a *ranking statistic* and can reason about class balance, calibration, and operating points — not whether you can call `roc_auc_score`. Try to answer before revealing.
 
 <Quiz id="1">
 
-**Q1.** Derive the bias-variance decomposition from $y=f(x)+\varepsilon$ over the randomness of both the training set $\mathcal D$ and the noise $\varepsilon$. State exactly which assumption kills each of the two cross terms, and why the identity fails for 0-1 loss.
+**Q1.** Derive that AUC equals the probability a random positive outscores a random negative, then identify the empirical estimator as the normalized Mann–Whitney $U$.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-Let $\hat f=\hat f_{\mathcal D}$, $\bar f(x)=\mathbb{E}_{\mathcal D}[\hat f(x)]$, with $\mathbb{E}[\varepsilon]=0$, $\text{Var}(\varepsilon)=\sigma^2$, $\varepsilon\perp\mathcal D$.
+Positives score $X\sim F_+$, negatives $Y\sim F_-$. The ROC plots $\text{TPR}=1-F_+(t)$ vs $\text{FPR}=1-F_-(t)$; parameterize by $u=\text{FPR}=1-F_-(t)$:
 
-$$\mathbb{E}_{\mathcal D,\varepsilon}[(y-\hat f)^2]=\mathbb{E}[(\varepsilon+(f-\hat f))^2]=\mathbb{E}[\varepsilon^2]+2\mathbb{E}[\varepsilon]\,\mathbb{E}[f-\hat f]+\mathbb{E}_{\mathcal D}[(f-\hat f)^2]$$
+$$\text{AUC}=\int_0^1\text{ROC}(u)\,du=\int_0^1\bigl[1-F_+(F_-^{-1}(1-u))\bigr]\,du$$
 
-**First cross term** $2\mathbb{E}[\varepsilon]\mathbb{E}[f-\hat f]=0$ because $\mathbb{E}[\varepsilon]=0$ and $\varepsilon\perp\mathcal D$ (so the expectation factorizes). That leaves $\sigma^2+\mathbb{E}_{\mathcal D}[(f-\hat f)^2]$. Split the last term with $\pm\bar f$:
+Substitute $t=F_-^{-1}(1-u)$, $du=-f_-(t)\,dt$ (limits flip):
 
-$$\mathbb{E}_{\mathcal D}[(f-\hat f)^2]=\underbrace{(f-\bar f)^2}_{\text{Bias}^2}+\underbrace{\mathbb{E}_{\mathcal D}[(\hat f-\bar f)^2]}_{\text{Var}}+2(f-\bar f)\underbrace{\mathbb{E}_{\mathcal D}[\bar f-\hat f]}_{=0}$$
+$$\text{AUC}=\int_{-\infty}^{\infty}\bigl[1-F_+(t)\bigr]f_-(t)\,dt=\int\Pr(X>t)f_-(t)\,dt=\mathbb{E}_Y[\Pr(X>Y\mid Y)]=\Pr(X>Y)$$
 
-**Second cross term** vanishes because $\mathbb{E}_{\mathcal D}[\hat f]=\bar f$ by definition. Result:
+— the **concordance probability**. Empirically, replace the probability with the fraction of concordant pairs:
 
-$$\mathbb{E}[(y-\hat f)^2]=\sigma^2_{\text{noise}}+\text{Bias}^2+\text{Var}$$
+$$\widehat{\text{AUC}}=\frac{1}{n_+n_-}\sum_{i=1}^{n_+}\sum_{j=1}^{n_-}\Bigl[\mathbb{1}(x_i>y_j)+\tfrac12\mathbb{1}(x_i=y_j)\Bigr]=\frac{U}{n_+n_-}$$
 
-**0-1 loss.** The derivation relies on the algebra of squares (the cross terms). For 0-1 loss there's no such additive identity; the "variance" can be *good or bad* depending on whether it pushes you across the decision boundary (Domingos 2000 gives a unified but loss-dependent, non-additive version). So the clean $\sigma^2+\text{Bias}^2+\text{Var}$ split is a squared-loss fact.
+where $U$ is the **Mann–Whitney $U$** statistic (= Wilcoxon rank-sum, $U=R_+-\frac{n_+(n_++1)}{2}$ with $R_+$ the positives' rank sum). So AUC is a **rank statistic**: distribution-free, and invariant to any strictly increasing transform of the scores.
 
 **Rubric:**
-- Expand $(\varepsilon+(f-\hat f))^2$; first cross term killed by $\mathbb{E}[\varepsilon]=0,\varepsilon\perp\mathcal D$
-- Split with $\pm\bar f$; second cross term killed by $\mathbb{E}_{\mathcal D}[\hat f]=\bar f$
-- Land on $\sigma^2+\text{Bias}^2+\text{Var}$
-- Squared-loss only; 0-1 loss non-additive (Domingos 2000)
+- Set up $\text{AUC}=\int\text{ROC}(u)\,du$ and substitute to get $\int[1-F_+(t)]f_-(t)\,dt$
+- Recognize it as $\Pr(X>Y)$ (concordance)
+- Empirical estimator = fraction of concordant pairs = $U/(n_+n_-)$ (Mann–Whitney/Wilcoxon)
+- Note: rank statistic → distribution-free, monotone-invariant
 
 </details>
 
@@ -41,22 +41,24 @@ $$\mathbb{E}[(y-\hat f)^2]=\sigma^2_{\text{noise}}+\text{Bias}^2+\text{Var}$$
 
 <Quiz id="2">
 
-**Q2.** Sketch the learning curves (train and validation error vs training-set size) for a high-bias model and a high-variance model. From the shapes alone, decide for each whether (a) more data, (b) more capacity, (c) more regularization will help.
+**Q2.** Prove the ROC curve is unchanged when you multiply the number of negatives by 10, but precision is not. Use both the column-normalization argument and the Bayes form of precision.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**High-bias (underfit).** Train and validation errors **converge to each other at a high floor** — both are high, the gap is small, and adding data flattens them quickly at that floor. The dominant term is $\text{Bias}^2$, a property of the model class. Fixes: **(b) more capacity** (a richer model / more features / less regularization). **(a) More data does NOT help** — the floor is fixed by the model, not the sample size. (c) More regularization would *hurt* (raises bias further).
+**Column-normalization.** $\text{TPR}=\text{TP}/(\text{TP+FN})$ depends only on the positive column; $\text{FPR}=\text{FP}/(\text{FP+TN})$ only on the negative column. Multiply the negatives by 10: at any fixed threshold $\text{FP}\to10\,\text{FP}$ and $\text{TN}\to10\,\text{TN}$ (the score distribution of negatives is unchanged, just 10× as many), so $\text{FPR}=\frac{10\text{FP}}{10\text{FP}+10\text{TN}}=\frac{\text{FP}}{\text{FP}+\text{TN}}$ — **unchanged**. TPR doesn't reference negatives at all. So every ROC point, hence the whole curve and AUC, is invariant. (ROC depends only on the two *class-conditional* score distributions $F_+,F_-$, which resampling class sizes doesn't change.)
 
-**High-variance (overfit).** Train error is **low**, validation error is **much higher** — a persistent **gap** that *narrows* as data grows. The dominant term is $\text{Var}$. Fixes: **(a) more data** (shrinks the gap), and **(c) more regularization** (reduces variance). (b) More capacity would *worsen* it.
+**Precision moves.** $\text{Precision}=\text{TP}/(\text{TP+FP})$ mixes a positive count and a negative count. With 10× negatives, $\text{FP}\to10\,\text{FP}$ while $\text{TP}$ is unchanged, so precision *drops*. Via Bayes, precision is the posterior:
 
-**Decision rule:** *converged-and-high* → bias → add capacity; *low-train, high-val gap* → variance → more data or regularization. (This is exactly the c1.9 §5 diagnosis.)
+$$P=\frac{\text{TPR}\cdot\pi}{\text{TPR}\cdot\pi+\text{FPR}\cdot(1-\pi)}$$
+
+Holding the scorer (TPR, FPR) fixed and lowering the positive prevalence $\pi$ → $P$ falls. So precision/PR-AUC are prevalence-dependent; ROC-AUC is not.
 
 **Rubric:**
-- High-bias: curves converge at a high floor (small gap)
-- High-variance: low train, high val, persistent narrowing gap
-- Bias → more capacity (not more data); variance → more data / regularization
-- Map each of (a)/(b)/(c) correctly to each regime
+- TPR/FPR each normalized within one class → 10× negatives cancels in FPR
+- TPR independent of negatives → ROC curve invariant
+- Precision mixes classes; $\text{FP}\to10\text{FP}$ with TP fixed → precision drops
+- Bayes form $P=\frac{\text{TPR}\,\pi}{\text{TPR}\,\pi+\text{FPR}(1-\pi)}$ → prevalence-dependent
 
 </details>
 
@@ -64,24 +66,25 @@ $$\mathbb{E}[(y-\hat f)^2]=\sigma^2_{\text{noise}}+\text{Bias}^2+\text{Var}$$
 
 <Quiz id="3">
 
-**Q3.** Prove that choosing the hyperparameter minimizing CV error gives an optimistically biased estimate of that model's true risk. Quantify the optimism for $m$ independent candidates each with fold-noise $\tau$, and explain precisely what nested CV is unbiased *for*.
+**Q3.** A scorer has TPR = 0.9, FPR = 0.1. Compute precision at $\pi=0.5$ and at $\pi=0.01$. State what happens to ROC-AUC, PR-AUC, and the no-skill PR baseline. Connect to the c1.1 "95%-accuracy trap."
 
 <details>
 <summary>Model answer + rubric</summary>
 
-Write $\widehat{\text{CV}}(\lambda)=R(\lambda)+Z_\lambda$ with $\mathbb{E}[Z_\lambda]\approx0$, $\text{Var}(Z_\lambda)=\tau^2$. For a *single fixed* $\lambda$, $\widehat{\text{CV}}$ is ~unbiased. But you report the minimum over candidates. By Jensen (the min of random variables is $\le$ the min of their means):
+Using $P=\frac{\text{TPR}\,\pi}{\text{TPR}\,\pi+\text{FPR}(1-\pi)}$:
 
-$$\mathbb{E}\bigl[\min_\lambda\widehat{\text{CV}}(\lambda)\bigr]\le\min_\lambda\mathbb{E}[\widehat{\text{CV}}(\lambda)]=\min_\lambda R(\lambda)$$
+- **$\pi=0.5$:** $P=\frac{0.9(0.5)}{0.9(0.5)+0.1(0.5)}=\frac{0.45}{0.50}=0.90$.
+- **$\pi=0.01$:** $P=\frac{0.9(0.01)}{0.9(0.01)+0.1(0.99)}=\frac{0.009}{0.009+0.099}=\frac{0.009}{0.108}\approx0.083$.
 
-So the reported minimum **systematically under-estimates** the true risk of the selected model — the "winner's curse." With $m$ roughly-independent candidates whose noise is $\approx\mathcal{N}(0,\tau^2)$, the expected minimum sits about $\tau\sqrt{2\ln m}$ below the true best — so the optimism **grows with the number of configurations tried**. (This is the same statistical effect as tuning on the test set, c1.1 data-snooping; the more you search, the more you overfit the validation set.)
+**What changes:** **ROC-AUC is unchanged** (same TPR/FPR — Q2). **PR-AUC drops sharply** (precision collapsed from 0.90 to 0.083). The **no-skill PR baseline** is the prevalence: $0.5\to0.01$.
 
-**Nested CV.** The *inner* CV loop selects $\lambda$; the *outer* loop's folds are never seen during selection, so the outer estimate is unbiased — but **for the risk of the entire *procedure that includes tuning***, not for one fixed model. That's the right quantity to report: "how well does my model-plus-tuning pipeline generalize."
+**The trap (c1.1).** At 1% positives over 100k cases, flagging at this operating point catches 900 true positives but also $0.1\times99000=9900$ false ones — 10,800 flagged, 8.3% real. The small FPR over the 99× larger negative pool floods the alert queue, so a 0.9-ROC-AUC model is operationally useless. That's the precise resolution of the "95%-accuracy / 0.9-AUC but useless" trap: ROC-AUC integrates over all thresholds and never exposes that negatives dominate at the operating point.
 
 **Rubric:**
-- Single fixed $\lambda$ ~unbiased; min-over-candidates biased by Jensen
-- $\mathbb{E}[\min\widehat{\text{CV}}]\le\min R$ → optimistic; optimism $\approx\tau\sqrt{2\ln m}$
-- Same phenomenon as data-snooping; grows with #configs
-- Nested CV unbiased for the *tuned procedure's* risk, not a fixed model
+- Precision 0.90 at $\pi=0.5$, ≈0.083 at $\pi=0.01$ (correct arithmetic)
+- ROC-AUC unchanged; PR-AUC drops; no-skill PR baseline = $\pi$ (0.5→0.01)
+- Imbalance trap: small FPR × huge negative pool floods flagged set
+- Tie to c1.1: why a high-AUC model is useless in production
 
 </details>
 
@@ -89,24 +92,26 @@ So the reported minimum **systematically under-estimates** the true risk of the 
 
 <Quiz id="4">
 
-**Q4.** Explain the bias-variance tradeoff *of the CV estimator itself*: why is LOO nearly unbiased yet high-variance? Reconcile with Kohavi's finding that 10-fold beats LOO for selection. For least-squares linear regression, show LOO is computable from a single fit.
+**Q4.** Why is `average_precision_score` not the same as `auc(recall, precision)`? Which should you report, and what does Davis–Goadrich (2006) say about the difference?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Bias.** $\widehat{\text{CV}}_K$ trains each surrogate on $n(1-1/K)$ points — weaker than the final $n$-point model — so it **over-estimates** error (pessimistic bias), and the bias **grows as $K$ shrinks**. LOO trains on $n-1$ points ⇒ almost the full model ⇒ **nearly unbiased**.
+**They compute different things.** `average_precision_score` (AP) is a **non-interpolated step sum**:
 
-**Variance.** LOO's $n$ training sets pairwise overlap in $n-2$ points, so the $n$ fold-errors are **highly positively correlated**. The variance of an average of correlated terms doesn't shrink toward 0 (it's floored by the average covariance), so $\widehat{\text{CV}}_{\text{LOO}}$ has **high variance**. Smaller $K$ → less overlap → less-correlated, lower-variance estimate.
+$$\text{AP}=\sum_n (R_n-R_{n-1})\,P_n$$
 
-**Reconciliation (Kohavi 1995).** For model *selection* you care about ranking candidates reliably, which favors a lower-variance estimator; LOO's near-zero bias doesn't compensate for its high variance (and its $n$ refits). 10-fold stratified CV hit the better bias-variance-of-the-estimator balance empirically — hence the $K=5$–$10$ default.
+— the precision at each threshold weighted by the increase in recall. `auc(recall, precision)` runs the generic **trapezoidal** integrator, which **linearly interpolates** between consecutive (recall, precision) operating points.
 
-**OLS shortcut (PRESS).** For least-squares, the $i$-th LOO residual equals $e_i/(1-h_{ii})$ where $e_i$ is the full-fit residual and $h_{ii}$ the hat-matrix diagonal (leverage). So $\text{LOO-MSE}=\frac1n\sum_i\bigl(\frac{e_i}{1-h_{ii}}\bigr)^2$ — **computable from one fit**, no $n$ refits. So "LOO is expensive" is false *specifically* for linear models.
+**Why interpolation is wrong in PR space (Davis–Goadrich 2006).** Unlike ROC space, linear interpolation between two PR points is *not* achievable — the true precision between two operating points follows a nonlinear curve (precision depends on the TP:FP ratio gained, which isn't linear in recall). Trapezoidal PR area therefore connects points with straight lines that lie *above* the true achievable curve, so it **over-estimates** PR-AUC — badly on skewed data (e.g. ~0.53 trapezoidal vs ~0.41 AP on the same model).
+
+**Report AP** (`average_precision_score`); never `auc(recall, precision)`. (Conversely `auc` *is* correct composed with `roc_curve`, since linear interpolation *is* valid in ROC space.)
 
 **Rubric:**
-- Smaller $K$ → more pessimistic bias (smaller surrogate training sets); LOO ~unbiased
-- LOO high variance because folds overlap $n-2$ → correlated errors → average doesn't concentrate
-- Kohavi: 10-fold better for selection (variance + compute beat LOO's low bias)
-- PRESS: LOO from one OLS fit via $e_i/(1-h_{ii})$
+- AP = non-interpolated step sum $\sum(R_n-R_{n-1})P_n$; `auc(recall,precision)` = trapezoidal (interpolates)
+- PR interpolation is nonlinear/non-achievable → trapezoidal over-estimates (Davis–Goadrich)
+- Report `average_precision_score`
+- `auc` is fine for ROC (linear interpolation valid there)
 
 </details>
 
@@ -114,24 +119,22 @@ So the reported minimum **systematically under-estimates** the true risk of the 
 
 <Quiz id="5">
 
-**Q5.** Derive the "rule of 59": how many random hyperparameter configurations you need to land in the top-5% region with 95% probability. Explain why this bound is independent of the number of hyperparameters while grid coverage is not.
+**Q5.** Show that applying $p\mapsto p^3$ to all predicted scores leaves AUC unchanged but wrecks log-loss/Brier. Then: which recalibration methods are monotone, and what does that imply about AUC after calibration?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Derivation.** Suppose the top-$\beta$ fraction of configurations is "good enough." A single random draw misses the good region with probability $1-\beta$; $n$ i.i.d. draws all miss with probability $(1-\beta)^n$. To hit it with probability $\ge1-\gamma$:
+**AUC is invariant.** $p\mapsto p^3$ is strictly increasing on $[0,1]$, so it preserves the *order* of every score: $x_i>y_j \iff x_i^3>y_j^3$. AUC depends only on this pairwise ordering (Q1, concordance), so $\widehat{\text{AUC}}$ is **exactly unchanged**.
 
-$$(1-\beta)^n\le\gamma\;\Longrightarrow\;n\ge\frac{\log\gamma}{\log(1-\beta)}$$
+**Calibration is wrecked.** Log-loss and Brier depend on the *values*, not just the order. Cubing pushes every score toward 0 (e.g. $0.5\mapsto0.125$, $0.9\mapsto0.729$), so a model that was calibrated now systematically under-predicts — log-loss and Brier rise sharply. They're *proper scoring rules*: minimized only by the true probabilities, which $p^3$ no longer are.
 
-For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{\log0.95}=\frac{-3.00}{-0.0513}\approx58.4\Rightarrow \boxed{n=59}$ (often quoted as "60 trials").
-
-**Dimension independence.** The bound only involves $\beta$ and $\gamma$ — **not $d$**. Random search samples *every* hyperparameter at $n$ distinct values, so its coverage of the "good region" (defined by whatever few hyperparameters matter) doesn't degrade as you add irrelevant dimensions. Grid search, by contrast, probes only $v$ distinct values *per axis* at cost $v^d$; adding a dimension multiplies the cost by $v$ while still resolving each important axis at only $v$ points. So grid's coverage of the important axes is fixed at $v$ regardless of budget spent on irrelevant ones — random search adapts to the *effective* dimensionality for free (Bergstra & Bengio 2012).
+**Recalibration is monotone.** **Platt scaling** (fit a sigmoid $\sigma(as+b)$) and **isotonic regression** (fit a monotone step function) are both **monotone** maps of the scores. Therefore they **leave AUC unchanged** while improving log-loss/Brier/ECE. This is the clean orthogonality result: **ranking (AUC) and calibration are independent** — you can fix calibration without touching discrimination, and a perfect AUC tells you nothing about calibration.
 
 **Rubric:**
-- $(1-\beta)^n\le\gamma\Rightarrow n\ge\log\gamma/\log(1-\beta)$
-- Plug in $\beta=\gamma=0.05\Rightarrow n\approx59$
-- Bound has no $d$ → dimension-free
-- Grid resolves only $v$ values/axis at cost $v^d$; random gives $n$ distinct values/axis → adapts to $d_{\text{eff}}$
+- $p\mapsto p^3$ strictly increasing → preserves order → AUC unchanged
+- Log-loss/Brier depend on values → degrade (proper scoring rules, minimized at true $p$)
+- Platt/isotonic are monotone → improve calibration, leave AUC unchanged
+- Conclude: ranking ⊥ calibration
 
 </details>
 
@@ -139,22 +142,22 @@ For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{
 
 <Quiz id="6">
 
-**Q6.** Construct a hyperparameter landscape where grid search with a generous $v^d$ budget systematically *misses* the optimum that random search finds. Quantify.
+**Q6.** Construct a score distribution with AUC ≈ 0.5 that is nonetheless highly predictive. How would you detect and exploit it? Separately, what does AUC = 0.3 tell you to do?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Construction.** Two hyperparameters, but only one matters: the response is $g(\theta_1,\theta_2)=h(\theta_1)$ with a sharp optimum at, say, $\theta_1^\star=0.37$, and $\theta_2$ irrelevant. Use a $5\times5$ grid ($v=5$, 25 trials) on $[0,1]^2$ with grid lines at $\{0.1,0.3,0.5,0.7,0.9\}$. The grid probes $\theta_1$ at only **5 distinct values**, none near 0.37 — so all 25 trials evaluate $h$ at the same 5 wrong $\theta_1$ values (each repeated 5× across the irrelevant $\theta_2$), and the optimum is missed regardless of budget.
+**Construction (non-monotone signal).** Let the positive class concentrate at *both* extremes of the score and negatives in the middle — e.g. positives' scores $\sim$ a mixture of $\mathcal{N}(0.1,\,\text{small})$ and $\mathcal{N}(0.9,\,\text{small})$, negatives $\sim\mathcal{N}(0.5,\,\text{small})$. For a random positive/negative pair, the positive is above the negative about half the time (the high-extreme positives) and below about half (the low-extreme positives) → $P(X>Y)\approx0.5$ → **AUC ≈ 0.5**. Yet the score is *strongly* predictive: "extreme (high *or* low) ⇒ positive, middle ⇒ negative" separates the classes almost perfectly.
 
-**Random search**, with the *same* 25 trials, draws 25 distinct $\theta_1$ values uniformly — the chance that none lands within $\pm0.05$ of $0.37$ (a 0.1-wide good region, $\beta=0.1$) is $(1-0.1)^{25}\approx0.072$, so random finds the good region with ~93% probability. The grid's 25 trials gave 5 distinct $\theta_1$ values; random's gave 25 — a 5× resolution gain on the axis that matters, *for the same budget*.
+**Detect/exploit.** AUC assumes a *monotone* score-to-label relationship; here it's non-monotone (U-shaped). Detect it via a **non-monotone ROC curve** or a **U-shaped reliability/score-vs-rate plot**. Exploit it by transforming the score to restore monotonicity — e.g. use $|s-0.5|$ (distance from the middle) as the new score, on which AUC will be high.
 
-**The general point:** grid wastes its budget resolving the irrelevant axis ($\theta_2$) at full resolution while under-resolving the important one. Whenever $d_{\text{eff}}<d$, this happens.
+**AUC = 0.3.** The score is *anti-correlated* with the label (negatives outscore positives). **Flip the sign** (use $-s$, or equivalently report $1-\text{AUC}=0.7$). AUC below 0.5 is a labeling/sign bug, not a useless model.
 
 **Rubric:**
-- Landscape with one relevant + one (or more) irrelevant hyperparameter, optimum off the grid lines
-- Grid probes only $v$ distinct values on the relevant axis (repeated across irrelevant) → misses
-- Random gives $n$ distinct values on every axis → finds it (quantify the hit probability)
-- Generalize: $d_{\text{eff}}<d$ ⇒ grid wastes budget on irrelevant axes
+- Construct positives-at-both-extremes / negatives-in-middle → $P(X>Y)\approx0.5$ but separable
+- AUC assumes monotone score↔label; this is non-monotone
+- Detect via non-monotone ROC / U-shaped plot; exploit via $|s-0.5|$
+- AUC=0.3 → anti-correlated → flip sign ($1-\text{AUC}=0.7$)
 
 </details>
 
@@ -162,22 +165,26 @@ For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{
 
 <Quiz id="7">
 
-**Q7.** State the double-descent curve precisely. Explain the mechanism in the over-parameterized regime — why does effective variance *fall* as capacity grows past the interpolation threshold? Why does this not contradict the bias-variance decomposition?
+**Q7.** With $c_{\text{FN}}=10\,c_{\text{FP}}$ and a *calibrated* model, derive the cost-optimal decision threshold $t^\star$. Where is it on the ROC curve? How does the answer change if the model is uncalibrated?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**The curve** (Belkin et al. 2019). As model capacity increases: test risk follows the classical U **up to the interpolation threshold** (the capacity at which the model first fits the training data exactly, roughly #params $=n$), where it **spikes**; then, as capacity grows *beyond* the threshold, test risk **descends a second time**, often below the classical U's minimum.
+**Derivation.** Let $p=P(y{=}1\mid x)$ (calibrated). Expected cost of each action (correct predictions cost 0):
+- predict **positive**: pay $c_{\text{FP}}$ iff actually negative → $(1-p)\,c_{\text{FP}}$.
+- predict **negative**: pay $c_{\text{FN}}$ iff actually positive → $p\,c_{\text{FN}}$.
 
-**Mechanism.** Past the threshold there are infinitely many parameter settings that interpolate (zero training error). The training procedure's **inductive bias selects the minimum-norm interpolant** (e.g. gradient descent / the pseudoinverse picks the smallest-norm solution). As capacity grows, the *norm* of that minimum-norm interpolant **keeps decreasing** (more directions to spread the fit over, less weight per direction), which is an **implicit ridge** — so the effective variance of the estimator *falls* even though training error is pinned at zero. At the threshold itself the variance spikes because $X^\top X$ is barely invertible (smallest singular value → 0).
+Predict positive iff its expected cost is lower: $(1-p)c_{\text{FP}}<p\,c_{\text{FN}} \iff p>\dfrac{c_{\text{FP}}}{c_{\text{FP}}+c_{\text{FN}}}=t^\star$. With $c_{\text{FN}}=10\,c_{\text{FP}}$: $t^\star=\frac{1}{1+10}=\frac{1}{11}\approx0.091$. (Missing a positive is 10× costlier, so you flag aggressively — a low threshold.)
 
-**No contradiction.** The bias-variance decomposition $\sigma^2+\text{Bias}^2+\text{Var}$ is an *exact identity* — always true. Double descent is a statement about how the **variance term** behaves as a function of capacity: it isn't monotone increasing (as the classical story assumes); it rises to the interpolation threshold and then comes *back down* under the min-norm inductive bias. The decomposition holds; the assumed *shape* of its variance term was incomplete.
+**On the ROC curve.** The optimal operating point is where an **iso-cost line of slope** $\frac{(1-\pi)\,c_{\text{FP}}}{\pi\,c_{\text{FN}}}$ is tangent to the ROC curve (the point maximizing TPR-benefit minus FPR-cost).
+
+**If uncalibrated.** $t^\star=c_{\text{FP}}/(c_{\text{FP}}+c_{\text{FN}})$ is only valid on a *calibrated* posterior. If the scores aren't calibrated, thresholding them at $1/11$ doesn't correspond to the cost-optimal decision — you must either **calibrate first** (Platt/isotonic) and then apply $t^\star$, or **tune the threshold empirically** on a validation set against the actual cost (the threshold then absorbs both the miscalibration and the prevalence).
 
 **Rubric:**
-- Define interpolation threshold; U up to it, spike at it, second descent beyond
-- Min-norm interpolant + its norm decreasing with capacity = implicit ridge → variance falls
-- Variance spike at threshold ($X^\top X$ ill-conditioned)
-- Decomposition still exact; it's the variance term's *shape* (non-monotone) that classical story got wrong
+- Compare expected costs of the two actions → predict + iff $p>c_{\text{FP}}/(c_{\text{FP}}+c_{\text{FN}})$
+- Plug in: $t^\star=1/11\approx0.091$ (aggressive, since FN 10× costlier)
+- ROC: iso-cost tangent, slope $\frac{(1-\pi)c_{\text{FP}}}{\pi c_{\text{FN}}}$
+- Uncalibrated → formula invalid; calibrate first or tune threshold empirically
 
 </details>
 
@@ -185,25 +192,22 @@ For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{
 
 <Quiz id="8">
 
-**Q8.** Distinguish model-wise, epoch-wise, and sample-wise double descent (Nakkiran 2021). Define Effective Model Complexity (EMC), and construct a scenario where adding training data *increases* test error.
+**Q8.** Show that Youden's J equals both $\text{Sensitivity}+\text{Specificity}-1$ and $\text{TPR}-\text{FPR}$, and that maximizing it is the ROC point farthest above the diagonal. Under what (often unstated) assumption is J the *right* threshold, and when is it wrong?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Effective Model Complexity (EMC).** The maximum number of training samples on which the training procedure achieves ≈ zero training error. It's a property of the *procedure* (architecture + optimizer + epochs), not just parameter count, so it unifies the three axes below.
+**Identity.** $J=\text{Sens}+\text{Spec}-1=\text{TPR}+(1-\text{FPR})-1=\text{TPR}-\text{FPR}$. So Youden's J is literally the **vertical gap between the ROC point and the diagonal** (the diagonal is $\text{TPR}=\text{FPR}$, i.e. $J=0$). Maximizing J picks the threshold whose ROC point is **farthest above the chance diagonal**.
 
-**Three flavors** — test error peaks when EMC ≈ $n$ (the interpolation threshold), and descends on either side:
-- **Model-wise:** hold data/epochs fixed, grow the model — error peaks at the size where it just interpolates, then descends.
-- **Epoch-wise:** hold model/data fixed, train longer — more epochs raise EMC, so test error can rise then fall as training proceeds (a model that's "too small to interpolate early, large enough late").
-- **Sample-wise:** hold model/epochs fixed, vary $n$ — error peaks when $n\approx$ EMC.
+**When it's right.** Maximizing $\text{TPR}-\text{FPR}$ weights a unit of TPR exactly as much as a unit of FPR — i.e. it implicitly assumes **equal misclassification costs** ($c_{\text{FP}}=c_{\text{FN}}$) and is **prevalence-agnostic** (the slope-1 iso-utility line). It's the natural default when you have no cost matrix and the classes are balanced (or you don't care about the base rate).
 
-**More data hurts (sample-wise).** Take a model whose EMC is, say, 5000. With $n=3000$ it's comfortably over-parameterized (second-descent side, low error). **Increase $n$ to 5000** — now $n\approx$ EMC, the interpolation threshold, where variance spikes → **test error increases** even though you added data. Pushing further to $n=8000$ moves it back into the under-parameterized regime and error falls again. So near the threshold, more data can transiently *raise* test error — a direct violation of "more data always helps."
+**When it's wrong.** If costs are asymmetric ($c_{\text{FN}}\neq c_{\text{FP}}$) or the prevalence is skewed, the cost-optimal operating point is where the iso-cost line of slope $\frac{(1-\pi)c_{\text{FP}}}{\pi c_{\text{FN}}}$ (≠ 1) is tangent — *not* the max-vertical-distance point. Using Youden's J there over- or under-flags relative to the true cost minimum (Q7). So J is a special case of the cost-optimal threshold at equal costs.
 
 **Rubric:**
-- EMC = max #samples the procedure can fit to ~0 train error; property of the whole procedure
-- Model/epoch/sample-wise: all peak when EMC ≈ $n$
-- Construct: model with EMC ≈ N; raising $n$ to ≈ EMC spikes error (then falls again)
-- Conclude: more data can transiently hurt near the threshold
+- Algebra: $\text{Sens}+\text{Spec}-1=\text{TPR}-\text{FPR}$
+- = vertical distance above the ROC diagonal; argmax = farthest point
+- Implicit assumption: equal costs (slope-1 iso-utility), prevalence-agnostic
+- Wrong under asymmetric costs / skew → use the cost-optimal tangent instead
 
 </details>
 
@@ -211,24 +215,22 @@ For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{
 
 <Quiz id="9">
 
-**Q9.** For successive halving with budget $B$, $n$ initial configs, and elimination factor $\eta$, describe the rungs and the $n$-vs-$r$ tradeoff. Construct a case where successive halving eliminates the eventual winner early, and say what Hyperband does about it.
+**Q9.** State the Davis–Goadrich dominance theorem precisely. Then give two curves that *cross* in ROC space and explain why "higher ROC-AUC ⇒ higher PR-AUC" fails.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Successive halving.** Start $n$ configs at a small per-config budget $r$ (e.g. few epochs / small data). Evaluate, keep the top $1/\eta$, **multiply each survivor's budget by $\eta$**, repeat. After $\log_\eta(n)$ rungs you're left with one config that has run at the full budget. The total budget is spread so each rung costs roughly the same; $\eta\in\{3,4\}$ is typical.
+**Theorem (Davis & Goadrich 2006).** For a fixed dataset (fixed prevalence), curve A **dominates** curve B in ROC space (A's ROC lies on or above B's *everywhere*) **if and only if** A dominates B in PR space. Dominance is a *pointwise* relation.
 
-**The $n$-vs-$r$ tradeoff.** With a fixed total budget $B$, you choose between **many configs at a small starting budget** (explore widely, but early performance is a noisy proxy for final performance) and **few configs at a large starting budget** (reliable early signal, but you explore less). There's no universally right choice — it depends on how predictive low-budget performance is of high-budget performance.
+**What does NOT transfer.** The theorem is about *pointwise dominance*, not *areas*. So a **larger ROC-AUC does not imply a larger PR-AUC** when the curves **cross** (neither dominates).
 
-**SH eliminates the winner (construction).** Take a config whose learning curve is **non-monotone / slow-starting** — e.g. a high-capacity model with a low warm-up learning rate that looks worst at 1 epoch but is best at 50. At the first rung (1 epoch) it ranks in the bottom $1-1/\eta$ and is **cut**, even though it would have won at full budget. SH assumes low-budget rank ≈ high-budget rank, which this curve violates.
-
-**Hyperband's fix.** Hyperband runs SH as an inner loop over a **grid of brackets** with different $(n,r)$ starting points — some brackets start with few configs at large budgets (which would *not* prematurely cut the slow-starter), others with many configs at small budgets. By hedging across the $n$-vs-$r$ tradeoff, Hyperband bounds the worst-case from any single SH bracket's wrong bet.
+**Crossing example.** Classifier A is excellent in the high-recall / high-FPR region but poor near the origin; classifier B is the reverse (great at low FPR, mediocre at high recall). Their ROC curves cross, so neither dominates. A might have the larger *total* ROC area, yet B — by being stronger in the low-FPR / high-precision region that PR-AUC weights heavily under imbalance — can have the larger PR-AUC. So ranking models by ROC-AUC can disagree with ranking them by PR-AUC. The right move under imbalance is to compare on **PR-AUC** (and at the operating region you care about).
 
 **Rubric:**
-- SH: $n$ configs at budget $r$, keep top $1/\eta$, multiply survivors' budget by $\eta$, ~$\log_\eta n$ rungs
-- $n$-vs-$r$ tradeoff: explore-many-cheap vs few-reliable; depends on low-budget predictiveness
-- Construct a slow-starting / non-monotone curve that SH cuts early
-- Hyperband runs SH over multiple $(n,r)$ brackets to hedge
+- Dominance iff theorem: A ≥ B everywhere in ROC ⇔ everywhere in PR (pointwise)
+- Area relationship and converse do NOT transfer
+- Construct crossing curves (one strong at high recall, one at low FPR) → no dominance
+- Larger ROC-AUC can have smaller PR-AUC → rankings disagree
 
 </details>
 
@@ -236,23 +238,26 @@ For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{
 
 <Quiz id="10">
 
-**Q10.** Write the AIC and BIC penalties. For which $n$ do they diverge? Explain the qualitative claim that AIC is asymptotically efficient but not consistent, while BIC is consistent. Which would you use to (a) pick a forecasting model, (b) recover the true sparse model?
+**Q10.** Derive Fβ as a weighted harmonic mean of precision and recall, and map a stated cost preference ("missing a fraud is 4× worse than a false alarm") to a β. Why does F1 implicitly assume something about prevalence/costs?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Penalties.** $\text{AIC}=-2\hat\ell+2k$, $\text{BIC}=-2\hat\ell+k\ln n$ ($\hat\ell$ = maximized log-likelihood, $k$ = #parameters, $n$ = #observations). They penalize the *same* fit term differently: AIC's per-parameter penalty is the constant $2$; BIC's is $\ln n$. They **diverge once $\ln n>2$, i.e. $n>e^2\approx7.4$** — so for any realistic dataset BIC penalizes complexity harder, and increasingly so as $n$ grows.
+**Fβ as a weighted harmonic mean.**
 
-**Consistency vs efficiency.**
-- **BIC is consistent:** as $n\to\infty$, if the true model is among the candidates, BIC selects it with probability → 1. Its $k\ln n$ penalty grows fast enough to reject spurious extra parameters asymptotically.
-- **AIC is efficient but not consistent:** it's derived to minimize predictive risk (KL divergence to the truth) and asymptotically achieves the best prediction error *as if the true model were unknown/infinite-dimensional*, but its constant $2k$ penalty leaves a positive probability of **over-selecting** (keeping junk parameters) even as $n\to\infty$.
+$$F_\beta=(1+\beta^2)\frac{PR}{\beta^2P+R}=\left(\frac{1}{1+\beta^2}\cdot\frac1P+\frac{\beta^2}{1+\beta^2}\cdot\frac1R\right)^{-1}$$
 
-**Which to use.** (a) **Forecasting / prediction → AIC** (it targets predictive risk; you don't care about identifying the "true" model, just predicting well). (b) **Recover the true sparse model → BIC** (consistency: it'll converge on the true parsimonious set). (In small samples, AICc — AIC with a finite-sample correction — is often preferred.)
+— a harmonic mean of $P$ and $R$ with weight $\frac{1}{1+\beta^2}$ on precision and $\frac{\beta^2}{1+\beta^2}$ on recall. So $\beta^2$ is the ratio of how much you weight recall vs precision; $\beta>1$ favors recall, $\beta<1$ favors precision, $\beta=1$ is the symmetric F1.
+
+**Mapping the preference.** "Missing a fraud (a false negative → hurts recall) is 4× worse than a false alarm (a false positive → hurts precision)" → weight recall 4× precision → $\beta^2=4 \Rightarrow \boxed{\beta=2}$. (F2 is the standard "recall matters more" choice.)
+
+**F1's implicit assumption.** F1 ($\beta=1$) weights precision and recall *equally*, and its optimum is **prevalence-dependent**: maximizing F1 corresponds to a particular cost trade that depends on the base rate, and it ignores true negatives entirely. So choosing F1 silently assumes (a) you value FP and FN symmetrically *in the harmonic-mean sense*, and (b) you don't have an explicit cost matrix — when you do, set β from the costs (or threshold on calibrated $p$ at $t^\star=c_{\text{FP}}/(c_{\text{FP}}+c_{\text{FN}})$) instead of defaulting to F1.
 
 **Rubric:**
-- $\text{AIC}=-2\hat\ell+2k$, $\text{BIC}=-2\hat\ell+k\ln n$; diverge at $\ln n>2$ ($n>7.4$)
-- BIC consistent (selects true model as $n\to\infty$); AIC efficient (min prediction risk) but over-selects
-- (a) forecasting → AIC; (b) true sparse model → BIC
+- Fβ = weighted harmonic mean; $\beta^2$ = recall-vs-precision weight
+- "FN 4× worse" → $\beta^2=4$ → $\beta=2$ (F2)
+- F1 weights P/R equally; ignores TN; its optimum is prevalence-dependent
+- With a cost matrix, set β from costs / use $t^\star$ instead of F1
 
 </details>
 
@@ -260,23 +265,24 @@ For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{
 
 <Quiz id="11">
 
-**Q11.** Design a validation protocol for a model with leakage-prone, grouped, time-ordered data that *also* needs hyperparameter tuning. State what each loop does and what the final number estimates. What's the failure if you used plain shuffled k-fold?
+**Q11.** For multiclass AUC in scikit-learn, contrast `multi_class='ovr'` vs `'ovo'`: which is insensitive to class imbalance under `average='macro'`, and why? Separately, when does micro-averaged F1 equal accuracy?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Protocol — nested CV with group + temporal constraints.**
-- **Outer loop (temporal):** forward-chaining splits — train on $[\,\text{start},t)$, test on $[t,t+\Delta)$, advancing $t$; never train on data later than the test window. Each outer test fold gives one honest performance number.
-- **Inner loop (also temporal + grouped), on each outer training block:** forward-chaining CV to select hyperparameters, with **all rows of any entity (user/session) kept on one side** of every split (`GroupKFold`-style) so no entity straddles train/validation.
-- After the inner loop picks $\lambda$, refit on the full outer-train block and score the untouched outer-test fold. **Report the mean ± std over outer folds** — this estimates the generalization of *the entire tune-and-fit procedure* on future, unseen entities (honoring both leakage constraints).
+**OvR vs OvO.**
+- **`'ovr'`** (one-vs-rest): for each class, AUC of that class vs *all others lumped together*. The composition of the "rest" group changes with class proportions, so even with `average='macro'` (unweighted mean over classes) **OvR is sensitive to class imbalance** — a rare class's "rest" is dominated by the majority.
+- **`'ovo'`** (one-vs-one, Hand & Till 2001): average AUC over all *pairs* of classes; each pairwise AUC only involves two classes' conditional score distributions and is itself prevalence-invariant (Q2), so the macro average over pairs is **insensitive to class imbalance**.
 
-**Failure of plain shuffled k-fold.** Two leaks at once: (1) **look-ahead** — shuffling mixes future rows into training, so the model "sees the future" and the metric is optimistic (c1.1's churn-AUC example); (2) **group leakage** — the same entity's rows land in both train and validation, so the model memorizes entity identity and the metric reflects memorization, not generalization. Plus the tuning would be selection-biased without the outer loop. The reported number would be far above live performance.
+So for imbalanced multiclass, prefer `multi_class='ovo'` with `average='macro'`.
+
+**Micro-F1 = accuracy.** In *single-label* multiclass, micro-averaging pools all classes' TP/FP/FN: $\text{micro-}P=\text{micro-}R=\frac{\sum_c \text{TP}_c}{\sum_c \text{TP}_c+\text{FP}_c}$. Every prediction is exactly one TP for some class or one FP (and simultaneously an FN for the true class), so $\sum\text{FP}=\sum\text{FN}=$ (number wrong) and $\sum\text{TP}=$ (number right). Then micro-P = micro-R = micro-F1 = $\frac{\text{\# correct}}{N}$ = **accuracy**. (This breaks in multi-label, where a sample can contribute multiple TP/FP.)
 
 **Rubric:**
-- Nested CV: outer = honest estimate, inner = tuning
-- Outer & inner both forward-chaining (temporal, no look-ahead) AND grouped (entity on one side)
-- Final number = risk of the tuned procedure on future unseen entities
-- Shuffled k-fold → look-ahead + group leakage + selection bias → optimistic metric
+- OvR: class-vs-rest; "rest" composition shifts with imbalance → sensitive even under macro
+- OvO: pairwise; each pair prevalence-invariant → macro-OvO imbalance-insensitive (Hand–Till)
+- Micro-F1 pools TP/FP/FN; in single-label multiclass micro-P=micro-R=accuracy
+- (breaks in multi-label)
 
 </details>
 
@@ -284,75 +290,357 @@ For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{
 
 <Quiz id="12">
 
-**Q12.** A candidate (scikit-learn 1.9) hits three problems: (a) `from sklearn.model_selection import HalvingRandomSearchCV` raises `ImportError`; (b) they tune with `scoring='neg_log_loss'` and are confused that `best_score_` is negative; (c) they run the search on the *whole* dataset and report `best_score_` as the generalization estimate. Identify and fix all three.
+**Q12.** (a) You can only review the top 1% of cases by score — which single metric, and what does sklearn's `max_fpr` return for a random model? (b) With heavy score ties, why do the strict-concordance and trapezoidal AUC disagree, and what's the correct tie handling?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a) Halving import.** `HalvingGridSearchCV`/`HalvingRandomSearchCV` are **experimental**, so they aren't importable until you enable the feature flag:
+**(a) Partial AUC.** When you only act on the lowest-FPR region (top-scored 1%), the rest of the ROC curve is irrelevant — use **partial AUC** over $[0,\text{max\_fpr}]$ (`roc_auc_score(..., max_fpr=0.01)`). sklearn returns it **McClish-standardized**: it rescales the partial area so that a **random (non-discriminant) model scores 0.5** in the restricted region (and a perfect one scores 1), using `0.5*(1 + (pAUC − min)/(max − min))`. So the number stays comparable to a full AUC.
 
-```python
-from sklearn.experimental import enable_halving_search_cv  # noqa: F401
-from sklearn.model_selection import HalvingRandomSearchCV
-```
-
-(The `enable_*` import must come first; this is the same pattern as other experimental sklearn estimators.)
-
-**(b) Negative score.** scikit-learn follows a **higher-is-better** convention for all scorers, so loss functions are *negated*: `neg_log_loss` returns $-\log\text{loss}$. A `best_score_` of $-0.31$ just means a log-loss of $0.31$; pick the model with the **least negative** (largest) value. Nothing is wrong.
-
-**(c) Generalization estimate.** `best_score_` is the **cross-validation score of the selected model on the data used to select it** — it's optimistically biased (selection bias / winner's curse, Q3). It is *not* an unbiased generalization estimate. Fix: hold out a separate test set that the search never touches and evaluate `best_estimator_` on it, **or** use **nested CV** (outer loop estimates the tuned procedure). Report *that* number, not `best_score_`.
+**(b) Ties.** The concordance derivation (Q1) counts a tied pair ($x_i=y_j$) as **half** ($+\tfrac12$): $\widehat{\text{AUC}}=\frac{1}{n_+n_-}\sum[\mathbb{1}(x_i>y_j)+\tfrac12\mathbb{1}(x_i=y_j)]$. A naive strict-inequality count ($\mathbb{1}(x_i>y_j)$ only) *undercounts* tied pairs, giving a lower value; the trapezoidal ROC integration, by drawing a diagonal segment through the tied region, effectively assigns ties the $\tfrac12$ weight — which is why the trapezoidal AUC and the strict-inequality concordance disagree exactly by the tie contribution. The **correct** handling is the $+\tfrac12$ (mid-rank) convention — equivalent to using average ranks in the Wilcoxon statistic. (Many tied scores, e.g. a tree giving few distinct probabilities, make this non-negligible.)
 
 **Rubric:**
-- (a) `from sklearn.experimental import enable_halving_search_cv` before importing the halving estimator
-- (b) sklearn negates losses (higher-is-better); negative `neg_log_loss` is expected; pick the largest
-- (c) `best_score_` is selection-biased (not generalization); use a held-out test set or nested CV
+- (a) partial AUC via `max_fpr`; McClish-standardized so random → 0.5 in the region
+- (b) ties counted as $+\tfrac12$ in concordance; strict inequality undercounts
+- Trapezoidal AUC effectively gives ties the $\tfrac12$ weight (diagonal segment) → matches mid-rank
+- Correct handling = $+\tfrac12$ / average ranks; matters with many tied scores
 
 </details>
 
 </Quiz>
 
-## Rapid-fire: bias, variance & evaluation statistics
+<Quiz id="13">
 
-1. **"Tradeoff" is not a theorem.** The bias-variance *decomposition* is an identity; the bias-variance *tradeoff* is folklore. Construct a concrete change to a model or training procedure that lowers bias and variance *simultaneously* — and say precisely what extra ingredient (more data? a better inductive bias?) made the "trade" avoidable. What, then, does the tradeoff actually claim, and over what is it a statement?
-2. **$k$ as the dial.** For $k$-NN regression at a fixed test point, start from $\hat f(x)=\frac1k\sum_{i\in N_k(x)} y_i$ and derive the bias and variance as explicit functions of $k$ (show $\text{Var}=\sigma^2/k$). Which regime is $k=1$ and which is $k=n$, where does the noise floor $\sigma^2$ enter the risk — and when is the *interpolating* $k=1$ rule nonetheless a reasonable choice?
-3. **Bagging vs. boosting, by term.** Both are ensembles, but they attack different terms of the decomposition. Using the variance of an average of $n$ equicorrelated predictors, $\rho\sigma^2+\frac{1-\rho}{n}\sigma^2$, derive what bagging can and cannot reduce — and explain why boosting's base learners are deliberately high-bias (shallow trees) while a random forest's are grown deep.
-4. **Bessel, then betrayal.** The $n-1$ sample variance is unbiased; show that the MLE version with denominator $n$ has strictly lower MSE for Gaussian data (and denominator $n+1$ lower still). Reconcile: why does everyone still use $n-1$, and what does this say about "unbiased" as a model-selection criterion?
-5. **When biased beats BLUE.** Under the Gauss–Markov assumptions OLS is the best linear *unbiased* estimator, yet ridge — biased — can dominate it in MSE. In the orthonormal-design case where $\hat\beta_j^{\text{ridge}}=\hat\beta_j^{\text{OLS}}/(1+\lambda)$, derive the ridge estimator's bias and variance and prove there always exists $\lambda>0$ with strictly lower MSE than OLS; give the data condition (collinear features, $p$ comparable to $n$, ill-conditioned $X^\top X$) under which you'd bet on the biased estimator — and connect to James–Stein: in dimension $\ge 3$, jointly shrinking all coordinates toward a common target beats estimating each alone (the same bias-for-variance trade as ridge, scaled up; for the formal admissibility statement, ask an AI — an interviewer won't).
-6. **In-sample $R^2$ lies.** Prove that adding any regressor — even pure noise — can never decrease in-sample $R^2$. Now you have 1,000 candidate features and 60 observations: what does unregularized OLS do in this regime, and what selection protocol survives it?
-7. **Early stopping is ridge — and selection.** For a quadratic loss, analyze gradient descent in the eigenbasis of the Hessian and show that stopping at step $t$ acts as a spectral filter roughly equivalent to ridge with $\lambda\approx1/(\eta t)$ — which eigendirections get fit first, and what kind of error does stopping early protect you from? Then argue that early stopping is *also* hyperparameter search with the epoch count as the hyperparameter: what does reporting the validation curve's minimum overstate?
-8. **Benign overfitting vs memorization.** An interpolating model fits every noisy label exactly — training error is zero *on the wrong labels* — yet can still generalize well. Reconcile this: what structural property of the estimator lets it absorb label noise locally without corrupting the global fit, and when does interpolation stop being benign (noise level, dimensionality, eigenvalue decay)?
-9. **Train above validation.** Your training error comes out *higher* than your validation error — the gap runs the "wrong" way. Construct three distinct mechanisms that produce this (regularization like dropout active only at train time, training loss averaged over an epoch while validation is scored at the epoch's end, an unluckily easy validation split), and say which one you can confirm from the training logs alone, without retraining.
-10. **Loss up, accuracy up.** Late in training, validation cross-entropy *worsens* while validation accuracy still improves. Construct the prediction pattern that produces this (growing overconfidence concentrated on a shrinking set of errors), and defend which curve you should early-stop and select on — for a ranker vs. for a calibrated risk model.
-11. **Too good to be true.** Train *and* validation error are both near zero on a task you know is hard. Argue why this is more alarming than a large train-val gap, and rank the leakage mechanisms you'd hunt for first (duplicate rows across the split, target-derived features, one entity straddling both sides).
-12. **Offline great, online flat.** Validation AUC is 0.87 but the A/B test shows nothing. Rank the explanations — training-serving skew, distribution shift between validation and live traffic, leakage into the validation set, offline-metric/business-metric mismatch — and give one test that isolates each.
-13. **Sizing the microscope.** You want to claim model A beats model B by 0.3 accuracy points. Derive the test-set size at which the binomial standard error can resolve that gap — then explain why evaluating both models on the *same* test set (paired errors, McNemar-style) shrinks the required $n$.
-14. **Fold scores aren't i.i.d.** You paired-t-test the ten fold scores of two models. Derive the variance of a mean of $K$ correlated fold errors and show it's floored by the average covariance — indeed no unbiased estimator of $\text{Var}(\widehat{\text{CV}}_K)$ exists (Bengio & Grandvalet 2004). What do overlapping training sets make the folds share, in which direction does the naive $\hat\sigma/\sqrt{K}$ error bar bias the p-value, and what do the Nadeau–Bengio corrected resampled t-test and Dietterich's 5×2cv each change?
-15. **Threshold on which split?** You choose the decision threshold maximizing validation F1, then report test F1 at that threshold. Is the reported number honest? Contrast with tuning the threshold on the test set itself, and state exactly which reported quantities remain unbiased under each protocol.
-16. **Shuffle the labels.** Defend target permutation as a validation tool: what should your CV score collapse to when labels are shuffled, and what failure class does a score that *doesn't* collapse reveal that ordinary CV can never catch?
-17. **A hundred signals.** You test 100 candidate signals at $p<0.05$ and 7 pass. How many passes do you expect under the global null, what do Bonferroni and Benjamini–Hochberg each control (FWER vs. FDR), and which is the right frame when you'll deploy a *portfolio* of the survivors?
-18. **The 63.2% freebie.** Derive the large-$n$ probability that a given point is absent from a bootstrap sample. Why does that make a random forest's out-of-bag error nearly-free cross-validation, and relative to which $K$-fold estimate is OOB pessimistically biased?
-19. **The .632 story.** Why is leave-one-out *bootstrap* error pessimistic (each surrogate trains on only ~63.2% of the distinct points), what two quantities does Efron's .632 estimator interpolate between, and what overfitting pathology forced the .632+ correction?
-20. **Seeds are hyperparameters.** A paper reports its best run over five random seeds; you report the mean. Explain why max-over-seeds is optimism of exactly the winner's-curse kind, and derive how many seeds you'd need before the standard error of the mean supports a claimed 0.4-point improvement.
+**Q1.** You train on a balanced sample ($\bar y=0.5$) but deploy at true prevalence $\tau=0.01$. Derive the additive log-odds correction, and show the corrected model is the *same ranking* as the original — i.e. resampling changed nothing a recalibration couldn't.
 
-## Rapid-fire: honest validation, holdout reuse & backtest overfitting
+<details>
+<summary>Model answer + rubric</summary>
 
-1. **The deployed model was never validated.** Standard practice: pick $\lambda$ by CV, retrain on 100% of the data, ship. The artifact you deployed has *never been evaluated*. State the assumption that connects the fold surrogates' performance to the final model's, and construct a situation — an unstable procedure, or non-monotone sample-size behavior near an interpolation threshold — where that assumption fails.
-2. **One set, three jobs.** A single validation set drives early stopping, hyperparameter choice, and the final model comparison. Explain which of the three estimates degrades first and why, and design the cheapest split scheme that makes the final comparison honest again.
-3. **One SE of what?** The one-standard-error rule picks the simplest model within one SE of the best CV score — but there is provably no unbiased estimator of K-fold CV's variance (Bengio & Grandvalet 2004). Reconcile: what SE do libraries actually compute, what correlation does it ignore, what is the rule *implicitly* assuming about the loss surface near the minimum and the cost of complexity — and construct a case where it selects a substantially worse model than the CV-minimizer.
-4. **When random search loses.** Bergstra–Bengio makes random search the default. Construct the conditions under which grid search is genuinely preferable, and the conditions under which Bayesian optimization decisively beats both — then explain why BO's edge erodes under a noisy objective, high parallelism, or a nearly-flat response surface. What property of the problem is each method's bet?
-5. **Fifty peeks.** During development you evaluated on the validation set about 50 times, keeping whatever looked better. What has that set become, statistically? Explain how the reusable holdout / Thresholdout (Dwork et al. 2015) restores guarantees under *adaptive* reuse, and why the static $\tau\sqrt{2\ln m}$ picture understates adaptive damage.
-6. **Leaderboard shakeup.** Explain the Kaggle public-to-private reshuffle as an estimator phenomenon: once thousands of teams adaptively submit against the public split, what is the public score actually estimating, and why should you trust your own CV over the leaderboard when the two disagree? What does the Ladder algorithm's limited-precision score reporting bound that a raw public leaderboard doesn't?
-7. **Labels that arrive late.** Fraud chargebacks land 30–90 days after the transaction, so last month's "validation labels" are censored. Design a validation scheme that doesn't wait a quarter, and state the direction of the bias that partially-matured labels induce in measured precision and PR-AUC.
-8. **Stale by serving time.** In a feed where trends die within hours, any frozen holdout is stale before you deploy. What does prequential ("test-then-train") evaluation estimate, how does it interact with retraining cadence, and when does it beat a frozen holdout as a model-selection signal?
-9. **Contaminated benchmark.** A base LLM scores suspiciously well on a public benchmark. Give three detection approaches (n-gram overlap against the pretraining corpus; a performance drop on paraphrased or freshly-written items; canary strings) and argue that contamination is exactly this chapter's leakage — at corpus scale, with a "test set" that has been public for years.
-10. **Judge the judge.** You select checkpoints by LLM-as-judge score. The judge is a model too: design the validation-of-the-validator — how do you estimate judge-human agreement and on what sample, and what Goodhart failure appears once you *optimize* against the judge?
-11. **Tune small, transfer up.** You can't afford hyperparameter search at full scale, so you tune at 1/100th scale. When does the argmin fail to transfer under standard parametrization, and what does µP/µTransfer (Yang et al. 2021) change so that the optimal learning rate becomes approximately stable across model width?
-12. **Buy tokens or buy parameters?** Fixed training compute for an LLM: bigger model on fewer tokens, or smaller model on more? State what quantity the Chinchilla analysis (Hoffmann et al. 2022) fits its compute-optimal frontier on, why the earlier Kaplan-scaling recipe systematically over-sized models, and what changes once inference cost enters the objective.
-13. **Purge and embargo.** Forward-chaining CV can *still* leak when the label is a horizon return: show how a label computed over $[t,\,t+h]$ contaminates a training fold that ends at $t$, and explain what López de Prado's *purging* (dropping training points whose label window overlaps the test window) and *embargo* (a buffer after each test window) each remove.
-14. **One path isn't a distribution.** Walk-forward backtesting gives you a single path through history. What does combinatorial purged CV construct instead, and what does the resulting *distribution* of path-level Sharpe ratios let you estimate that one walk-forward number cannot (probability of backtest overfitting)?
-15. **Deflate the Sharpe.** Your best variant backtests at Sharpe 1.8 — after 200 variants. The deflated Sharpe ratio (Bailey & López de Prado) treats that as the maximum of $m$ trials: name the inputs the correction needs beyond the Sharpe itself (effective number of trials, variance of Sharpes across trials, return skew and kurtosis, track length), and explain how you estimate the *effective* trial count when your 200 variants are highly correlated.
-16. **Retrain more, earn less.** Annual retraining backtests at Sharpe 1.8; monthly retraining of the same signal backtests at 0.6. Diagnose: why can *more frequent* refitting hurt, and how would you distinguish "each refit chases noise" from "the signal itself decayed mid-sample"?
-17. **The index that ate itself.** You backtest on today's S&P 500 constituents over 2010–2024. Name the bias and its direction, construct the fix — what property must the universe data have (point-in-time membership) — and explain where the same bug reappears in churn and credit-risk modeling.
-18. **Bull-trained, bear-tested.** A model trained on a 7-year bull market collapses on a 3-year bear test. Argue both hypotheses — overfitting vs. regime shift — and design the evaluation that distinguishes them (does the model also fail on held-out *bull* data?).
-19. **Ship the boring one.** Two models tie within CV noise; one is a small neural net, the other logistic regression. Make the staff-level case for the simpler model — variance of its risk estimate, monitoring and retraining cost, experimentation surface — and explain why "decline the fancy model" is itself a model-selection decision that interviewers explicitly reward.
-20. **Design the honest benchmark.** Your team will run ~500 experiments over six months, all judged against one internal test set, with architecture decisions adapting to the results. Design the evaluation protocol end-to-end — holdout tiers, query budget, aggregation and reporting rules, criteria for minting a fresh test set — so the final reported number survives a skeptical reviewer, and state plainly what your protocol still *cannot* guarantee.
+**The shift.** By Bayes, the posterior odds factor into prior odds × likelihood ratio. Training at $\bar y$ instead of $\tau$ changes only the *prior* term, multiplying the predicted odds by the ratio of prior-odds:
+
+$$\frac{p_{\text{bal}}}{1-p_{\text{bal}}}=\frac{p_{\text{true}}}{1-p_{\text{true}}}\cdot\frac{\bar y/(1-\bar y)}{\tau/(1-\tau)}$$
+
+Taking logs, the balanced model's log-odds is the true log-odds **plus a constant**:
+
+$$\text{logit}(p_{\text{bal}})=\text{logit}(p_{\text{true}})+\ln\!\Bigl[\frac{\bar y/(1-\bar y)}{\tau/(1-\tau)}\Bigr]$$
+
+So to recover true-prevalence probabilities, **subtract** that constant (King & Zeng's intercept correction): $\text{logit}(p_{\text{corr}})=\text{logit}(p_{\text{bal}})-\ln\bigl[\frac{1-\tau}{\tau}\frac{\bar y}{1-\bar y}\bigr]$. With $\bar y=0.5$, $\tau=0.01$: the shift is $\ln\frac{0.99}{0.01}\approx4.6$ — the balanced model's log-odds are inflated by ~4.6 everywhere.
+
+**Same ranking.** The correction is a *constant added to every score's log-odds*, i.e. a strictly monotone transform of the scores. So it preserves their **order** — the AUC and any ranking are identical to the uncorrected balanced model (c1.9: AUC is monotone-invariant), and the corrected probabilities are just a recalibration. Conclusion: **balancing only shifted the probabilities (and hence the implicit threshold); it didn't change what the model knows.** A recalibration step recovers everything.
+
+**Rubric:**
+- Bayes: balancing scales odds by the prior-odds ratio → log-odds shifted by a constant
+- King–Zeng correction; compute $\ln(0.99/0.01)\approx4.6$ for $\bar y=0.5,\tau=0.01$
+- Constant log-odds shift = monotone → ranking/AUC unchanged
+- Conclude: resampling = a probability shift recalibration could undo
+
+</details>
+
+</Quiz>
+
+<Quiz id="14">
+
+**Q2.** Derive the cost-optimal threshold $t^\star=C_{\text{FP}}/(C_{\text{FP}}+C_{\text{FN}})$ from expected-cost minimization. Then show that oversampling the minority to a ratio $\rho$ is equivalent to a *specific* threshold on the un-resampled model.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Threshold derivation.** With calibrated $p=P(y{=}1\mid x)$ and correct predictions costing 0:
+- predict **positive** → pay $C_{\text{FP}}$ iff negative → expected $(1-p)C_{\text{FP}}$;
+- predict **negative** → pay $C_{\text{FN}}$ iff positive → expected $p\,C_{\text{FN}}$.
+
+Predict positive iff $(1-p)C_{\text{FP}}<p\,C_{\text{FN}} \iff p>\dfrac{C_{\text{FP}}}{C_{\text{FP}}+C_{\text{FN}}}=t^\star$.
+
+**Oversampling ≡ a threshold.** Oversampling the minority by a factor $k$ (until the training odds are $k\times$ the true odds) makes the model learn shifted log-odds: $\text{logit}(p_{\text{re}})=\text{logit}(p_{\text{true}})+\ln k$ (Q1, with $\ln k$ the log of the prior-odds change). The resampled model then uses the *naive* threshold $p_{\text{re}}\ge0.5$, i.e. $\text{logit}(p_{\text{re}})\ge0$, which in terms of the true probability is $\text{logit}(p_{\text{true}})\ge-\ln k$, i.e.
+
+$$p_{\text{true}}\ge\sigma(-\ln k)=\frac{1}{1+k}$$
+
+So oversampling by $k$ and thresholding at 0.5 is **identical** to leaving the model un-resampled and thresholding the true probability at $t=\frac{1}{1+k}$. (Balancing to 50/50 from prevalence $\tau$ corresponds to $k=(1-\tau)/\tau$, giving $t=\tau$ — you've implicitly set the threshold to the prevalence.) The resampling bought you a threshold move you could have made directly — with the bonus downside of degraded calibration (Q7).
+
+**Rubric:**
+- Compare expected action costs → $t^\star=C_{\text{FP}}/(C_{\text{FP}}+C_{\text{FN}})$
+- Oversampling by $k$ → log-odds $+\ln k$ (prior shift)
+- Naive 0.5 threshold on resampled = threshold $1/(1+k)$ on true $p$
+- Conclude: resampling ≡ an implicit (uncalibrated) threshold move
+
+</details>
+
+</Quiz>
+
+<Quiz id="15">
+
+**Q3.** Construct a dataset where SMOTE *strictly hurts*, and explain the mechanism in terms of SMOTE's interpolation assumption.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Construction.** Put the minority class in **two separated sub-clusters** with the majority class occupying the region *between* them (an XOR-like / multi-modal layout): minority blobs at $(0,0)$ and $(10,10)$, majority filling the band around $(5,5)$. SMOTE picks a minority point and one of its $k$ minority nearest neighbors and interpolates on the segment between them. When a point in the $(0,0)$ blob has a neighbor in the $(10,10)$ blob (which happens once the blobs are each other's nearest minority neighbors), the synthetic point $x_{\text{new}}=x_i+u(x_i^{(\text{nn})}-x_i)$ lands **in the majority band** around $(5,5)$ — a synthetic "positive" sitting squarely in negative territory.
+
+**Mechanism.** SMOTE assumes the minority class is **locally convex/linear** — that the segment between two minority points stays inside the minority region. When the minority is concave or multi-modal, segments cross into the majority, **injecting synthetic label noise** right on the decision boundary, which drags the boundary into the majority region and *raises* false positives. So SMOTE strictly hurts here versus doing nothing.
+
+(Other valid constructions: high-dimensional data — Blagus & Lusa 2013 show SMOTE leaves class means unchanged and just shrinks variance, so it doesn't help; or categorical features, where interpolating one-hots is meaningless.) The fixes that target this: Borderline-SMOTE/ADASYN (synthesize only near genuine boundaries) or, better, don't SMOTE — threshold + calibrate.
+
+**Rubric:**
+- Multi-modal/XOR minority with majority in between
+- Interpolation between distant minority blobs → synthetic positive in majority region
+- Mechanism: SMOTE's local-convexity assumption violated → injected label noise → boundary dragged
+- Note high-dim (Blagus–Lusa) / categorical failure modes as alternatives
+
+</details>
+
+</Quiz>
+
+<Quiz id="16">
+
+**Q4.** An engineer SMOTEs the full dataset, then runs 5-fold CV and reports 0.97 PR-AUC; an honest pipeline gives 0.78. Explain the exact leakage mechanism, write the correct ordering, and say why `sklearn.pipeline.Pipeline` can't express it.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The leak.** SMOTE-before-split synthesizes minority points as **interpolations of real minority points**. After the global SMOTE, the CV splitter divides *all* points (real + synthetic) into folds — so a synthetic point in the *validation* fold is a convex combination of real points that are in the *training* fold (and conversely, a validation real point's near-duplicates/neighbors are in training). The model is therefore scored on points it effectively saw in training → train/test leakage (c1.1's information-availability rule). It's the same structural bug as c1.6's non-OOF stacking: information from the held-out set bled into training. Hence the wildly optimistic 0.97; the honest 0.78 is the truth.
+
+**Correct ordering.** Resample **inside each fold, on the training partition only**, after the split:
+
+```python
+from imblearn.pipeline import Pipeline
+from imblearn.over_sampling import SMOTE
+pipe = Pipeline([("smote", SMOTE()), ("clf", model)])
+cross_val_score(pipe, X, y, cv=5, scoring="average_precision")
+```
+
+`imblearn`'s `Pipeline` runs the sampler **only on `fit`/`fit_resample`** and **bypasses it on `transform`/`predict`** — so each fold SMOTEs its own training split and the held-out fold is scored at the true prevalence.
+
+**Why `sklearn.pipeline.Pipeline` can't.** sklearn's pipeline only knows `fit`/`transform`/`predict` steps — it has **no notion of a resampling step** that changes the *number of rows* and must act on `fit` but not on `predict`. So you literally cannot place a resampler in it; imbalanced-learn ships its own `Pipeline` precisely to add that `fit_resample` semantics.
+
+**Rubric:**
+- Synthetic validation points are interpolations of training points (and vice versa) → leakage
+- Same as c1.1 information-availability / c1.6 OOF
+- Fix: SMOTE inside `imblearn.pipeline.Pipeline` (sampler on fit only, bypassed on predict)
+- sklearn Pipeline has no resample step (can't change row count on fit-only) → imblearn's exists for this
+
+</details>
+
+</Quiz>
+
+<Quiz id="17">
+
+**Q5.** Prove that reweighting and oversampling share the same expected full-batch gradient, then construct the minibatch-SGD regime where they diverge. When does each need learning-rate retuning?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Same expected gradient.** Let the minority have per-example loss gradient $g_+$ and there be $n_+$ minority, $n_-$ majority examples. **Oversampling** the minority $k\times$ makes the (summed) training gradient $\sum_{\text{maj}}g + k\sum_{\text{min}}g_+$. **Reweighting** the minority loss by $k$ gives the same summed gradient $\sum_{\text{maj}}g + k\sum_{\text{min}}g_+$. So over a full pass they produce identical (expected) parameter updates — they're equivalent in expectation.
+
+**Divergence under minibatch SGD.** They differ in *variance and dynamics*:
+- **Oversampling** changes the *empirical distribution*: the duplicated minority rows appear in many minibatches, so the model takes *many gradient steps on the exact same points* → it can **memorize/overfit** those duplicates (especially with exact ROS). The per-step gradient has normal magnitude but the *data* is repeated.
+- **Reweighting** keeps each row once but multiplies its gradient by $k$: a minibatch that happens to contain minority examples produces a **much larger, higher-variance** update (a $k\times$ spike), which can destabilize training.
+
+**LR retuning.** Reweighting inflates effective gradient magnitudes by up to $k\times$, so it typically needs a **smaller / retuned learning rate** (and the `'mean'`-reduction gotcha from c1.2 changes the effective scale). Oversampling keeps gradient magnitudes normal but changes the effective epoch size and overfitting dynamics, so it interacts with **early stopping / regularization** more than with the LR.
+
+**Rubric:**
+- Both give summed gradient $\sum_{\text{maj}}g+k\sum_{\text{min}}g_+$ → equal in expectation
+- Oversampling: repeated rows → memorization/overfit (data repeated)
+- Reweighting: $k\times$ per-example gradient → high-variance/spiky updates
+- Reweighting needs LR retuning (magnitude); oversampling interacts with early-stop/regularization
+
+</details>
+
+</Quiz>
+
+<Quiz id="18">
+
+**Q6.** Prove ROC-AUC is invariant to prevalence but PR-AUC is not. For a fixed scorer, compute how precision changes going from 50% to 1% positive while ROC-AUC stays fixed.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**ROC invariance.** TPR $=\text{TP}/(\text{TP+FN})$ and FPR $=\text{FP}/(\text{FP+TN})$ are each computed *within a single true class* (column-normalized). Changing prevalence multiplies the count of one class but cancels in its own rate: 10× the negatives sends $\text{FP}\to10\text{FP}$, $\text{TN}\to10\text{TN}$, so $\text{FPR}=\frac{10\text{FP}}{10\text{FP}+10\text{TN}}$ is unchanged; TPR doesn't involve negatives. So every ROC point — and AUC — depends only on the class-conditional score distributions, **not** the prior. ROC-AUC is prevalence-invariant.
+
+**PR moves.** Precision $=\frac{\text{TP}}{\text{TP+FP}}$ mixes both classes; via Bayes $P=\frac{\text{TPR}\,\pi}{\text{TPR}\,\pi+\text{FPR}(1-\pi)}$, which depends on the prior $\pi$. So PR-AUC (and the no-skill PR baseline = $\pi$) moves with prevalence.
+
+**Compute** (scorer fixed at TPR $=0.9$, FPR $=0.1$):
+- $\pi=0.5$: $P=\frac{0.9(0.5)}{0.9(0.5)+0.1(0.5)}=0.90$.
+- $\pi=0.01$: $P=\frac{0.9(0.01)}{0.9(0.01)+0.1(0.99)}=\frac{0.009}{0.108}\approx0.083$.
+
+So precision falls from **0.90 to ~0.083** (and the PR baseline from 0.5 to 0.01) while **ROC-AUC is identical**. That's why imbalanced evaluation must use PR-AUC (c1.9), not ROC-AUC.
+
+**Rubric:**
+- TPR/FPR column-normalized → prevalence cancels → ROC invariant
+- Precision via Bayes depends on $\pi$
+- Compute 0.90 → 0.083 for fixed TPR/FPR
+- Conclude: use PR-AUC for imbalanced evaluation
+
+</details>
+
+</Quiz>
+
+<Quiz id="19">
+
+**Q7.** A model is perfectly calibrated at $\tau=0.02$. After balancing to 50/50, what happens to its reliability diagram, and what single step undoes the distortion?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The distortion.** Balancing from $\tau=0.02$ to $\bar y=0.5$ multiplies the predicted odds by $\frac{\bar y/(1-\bar y)}{\tau/(1-\tau)}=\frac{1}{0.02/0.98}=49$ (Q1). So the balanced model's predicted probabilities are **systematically inflated** for the positive class — a case it truly thinks is $p_{\text{true}}=0.1$ now reports $\sigma(\text{logit}(0.1)+\ln 49)\approx\sigma(-2.197+3.892)=\sigma(1.695)\approx0.845$. On a reliability diagram (predicted prob on x, empirical rate on y), the curve falls **well below the diagonal**: at a predicted 0.845 the empirical positive rate is only ~0.1. The model is now badly over-confident in the positive direction — exactly the van den Goorbergh et al. (2022) finding that resampling preserves ROC-AUC (monotone, c1.9) but wrecks calibration.
+
+**The fix (one step).** **Prior correction:** subtract the constant log-odds shift, $\text{logit}(p_{\text{corr}})=\text{logit}(p_{\text{bal}})-\ln\frac{\bar y/(1-\bar y)}{\tau/(1-\tau)}=\text{logit}(p_{\text{bal}})-\ln 49$. This maps the inflated probabilities back onto the diagonal and recovers the original calibrated model (equivalently, refit the intercept, or run `CalibratedClassifierCV` on a held-out set at the true prevalence). Since it's a monotone transform, AUC is unchanged — only the probabilities are repaired.
+
+**Rubric:**
+- Balancing inflates odds by $\frac{1}{\tau/(1-\tau)}=49$ → probabilities over-estimated
+- Reliability curve sits below the diagonal (over-confident positive); cite van den Goorbergh 2022
+- Fix: subtract the $\ln 49$ log-odds shift (prior correction) / recalibrate
+- Monotone → AUC unchanged, calibration restored
+
+</details>
+
+</Quiz>
+
+<Quiz id="20">
+
+**Q8.** Compute `class_weight='balanced'` for 30 positives / 970 negatives. Then explain the interaction with a loss that uses `'mean'` reduction over weighted examples.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Weights.** sklearn's formula is $w_c=\frac{N}{K\,n_c}$ (n_samples / (n_classes × class count)). With $N=1000$, $K=2$:
+- $w_{\text{pos}}=\frac{1000}{2\cdot30}=\frac{1000}{60}\approx16.67$.
+- $w_{\text{neg}}=\frac{1000}{2\cdot970}=\frac{1000}{1940}\approx0.515$.
+
+(Ratio $\approx 32.3$, i.e. the minority's IR — each positive counts ~32× a negative, equalizing the two classes' total weight: $30\times16.67\approx970\times0.515\approx500$ each.)
+
+**`'mean'`-reduction interaction.** A weighted loss reduced by `'mean'` typically divides the weighted sum by the **sum of weights present in the batch**, not by the batch size $N$ (the c1.2 `pos_weight` gotcha). So the *effective* per-batch normalizer changes batch-to-batch depending on how many minority examples it contains — a minority-heavy batch has a larger weight sum, shrinking each example's contribution. The practical consequence: the **effective learning rate fluctuates** with batch composition, and a batch with *zero* positives still contributes a full majority gradient with no minority counterweight. Mitigations: use stratified/`WeightedRandomSampler` batches so each minibatch contains minority examples, and retune the LR after adding class weights (or use sum-reduction with an explicit normalizer you control).
+
+**Rubric:**
+- $w_{\text{pos}}=1000/60\approx16.7$, $w_{\text{neg}}=1000/1940\approx0.515$ (ratio ≈ IR)
+- Equalizes total class weight (~500 each)
+- `'mean'` divides by sum-of-weights-present → effective LR varies with batch composition (c1.2 gotcha)
+- Fix: stratified batches + LR retune; zero-positive batches are a hazard
+
+</details>
+
+</Quiz>
+
+<Quiz id="21">
+
+**Q9.** Given a labeled neighborhood, classify a minority point as safe / danger / noise (Borderline-SMOTE), and compute ADASYN's synthesis allocation. Construct a configuration where ADASYN over-concentrates synthesis on a mislabeled outlier.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Borderline-SMOTE labels.** For a minority point, look at its $m$ nearest neighbors (any class) and let $m'$ = number that are *majority*:
+- **safe:** $0\le m'<m/2$ (mostly minority neighbors);
+- **danger (borderline):** $m/2\le m'<m$ (mostly majority — near the boundary);
+- **noise:** $m'=m$ (all majority — an isolated minority point).
+
+Borderline-SMOTE synthesizes only from the **danger** set (concentrate effort on the boundary). E.g. with $m=10$: $m'=2$ → safe, $m'=7$ → danger, $m'=10$ → noise.
+
+**ADASYN allocation.** For each minority point $i$, $r_i=(\text{\# majority among its }k\text{-NN})/k$; normalize $\hat r_i=r_i/\sum_j r_j$; generate $g_i=\hat r_i\cdot G$ synthetic points (G = total to create). So *harder* minority points (more majority neighbors) get *more* synthesis — a continuous version of Borderline's hard threshold.
+
+**The failure (mislabeled outlier).** Consider a single minority point mislabeled deep inside majority territory: all $k$ of its neighbors are majority, so $r_i=1$ (the maximum), and if other minority points are "safe" ($r_j$ small), this outlier's normalized $\hat r_i$ dominates → ADASYN pours a large share of $G$ synthetic positives **around a mislabeled point in the majority region**, manufacturing a cluster of bogus positives that wrecks the boundary. (Borderline-SMOTE would tag it *noise* ($m'=m$) and skip it — which is exactly why the noise category exists.) Lesson: density-adaptive synthesis is sensitive to label noise; clean labels or prefer threshold+calibrate.
+
+**Rubric:**
+- safe/danger/noise via $m'$ relative to $m/2$ and $m$; Borderline uses danger only
+- ADASYN: $r_i$ = majority fraction in $k$-NN, $g_i=\hat r_i G$ (more for harder points)
+- Construct mislabeled outlier with $r_i=1$ dominating $\hat r_i$ → synthesis concentrates on it
+- Borderline tags it noise and skips; ADASYN's adaptivity is noise-sensitive
+
+</details>
+
+</Quiz>
+
+<Quiz id="22">
+
+**Q10.** At 1:10,000 imbalance, argue from estimation variance why an anomaly-detection framing can beat balanced binary classification. Which method for a *contaminated* training set, and how do you set $\nu$ / `contamination`?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Why reframe.** At 1:10,000 with, say, 100k rows, you have ~10 positives. You cannot estimate a decision boundary or per-class densities from 10 points — the variance of any minority-class parameter estimate is enormous, and any resampling just duplicates/interpolates those 10 points (manufacturing fake confidence, not information). **Anomaly detection** instead models the *majority/normal* distribution (which you have abundant data for) and flags points that don't fit — turning "learn a boundary from 10 positives" into "learn normality from 100k negatives," a far lower-variance problem.
+
+**Clean vs contaminated.**
+- **One-Class SVM** (Schölkopf 2001) learns a boundary around a $\nu$-fraction of the training data — it assumes the training set is essentially **clean** (pure normal); it's a *novelty* detector. Use it when your "normal" training data has (almost) no anomalies.
+- **Isolation Forest** (Liu 2008) isolates points via random splits (anomalies need fewer splits → shorter path length); it's robust to **contaminated, multimodal** data — use it when the training set itself contains some anomalies (outlier detection).
+
+So for a **contaminated** training set → **Isolation Forest**.
+
+**Setting the knob.** Both expose a fraction parameter tied to the expected anomaly rate: One-Class SVM's $\nu$ is an upper bound on the fraction of outliers (and a lower bound on the support-vector fraction); Isolation Forest's `contamination` is the expected proportion of anomalies (sets the score threshold). Set it to your **prior anomaly rate** ($\approx10^{-4}$ here), or tune it on a labeled validation subset against the cost-weighted metric.
+
+**Rubric:**
+- ~10 positives → huge estimation variance; resampling adds no information
+- Reframe: model normal (abundant) + flag outliers → lower-variance problem
+- One-Class SVM = clean/novelty; Isolation Forest = contaminated/outlier → pick IForest for contaminated
+- $\nu$ / `contamination` ≈ prior anomaly rate (or tune on labeled validation)
+
+</details>
+
+</Quiz>
+
+<Quiz id="23">
+
+**Q11.** At 1000:1, compare the compute and statistical costs of oversampling-to-balance vs undersampling-to-balance. Show undersampling discards mostly *easy* negatives, and design an ensemble that recovers the hard ones without the memory blowup.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Compute.** Oversampling to balance multiplies the *minority* up to match the majority — at 1000:1 that's ~1000× the minority, roughly **doubling** the dataset to ~2× the majority count (huge if the majority is already large), and training on mostly synthetic/duplicated rows. Undersampling to balance **drops ~99.9% of the majority**, leaving a tiny dataset (2× the minority) that trains in a fraction of the time and memory. So at extreme IR, **undersampling is the only thing that scales**.
+
+**Statistical cost of undersampling.** A *random* undersample keeps a uniform sample of negatives — but the decision-relevant negatives are the **hard ones near the boundary** (easy negatives far from the boundary carry little gradient signal, c1.1's hard-negative point). Random undersampling discards them in proportion, so you throw away most of the *informative* negatives along with the easy ones, raising variance and hurting the boundary.
+
+**Ensemble fix (EasyEnsemble / BalancedRandomForest).** Instead of one undersample, draw **many** independent balanced subsets (each = all minority + a fresh random undersample of the majority), train a classifier on each, and **aggregate** (vote/average). Across the ensemble, *most* of the majority — including the hard negatives — gets seen by *some* member, so collectively you use the full negative set, while each member stays small (memory ≈ one balanced subset at a time). This recovers the hard negatives undersampling would otherwise discard, without the oversampling memory blowup. (Informed undersampling — Tomek links / NearMiss — is the alternative: drop *easy* negatives preferentially.)
+
+**Rubric:**
+- Oversample → ~2× majority (compute/memory blowup); undersample → tiny (scales) at extreme IR
+- Random undersampling discards informative hard negatives (c1.1)
+- EasyEnsemble/BalancedRF: many balanced subsets + aggregate → covers all negatives, small per-member memory
+- (or informed undersampling: Tomek/NearMiss drop easy negatives)
+
+</details>
+
+</Quiz>
+
+<Quiz id="24">
+
+**Q12.** You're handed a 1000:1 fraud dataset. Specify the full protocol — split, whether/where to resample, metric, and final operating point — and defend *not* using SMOTE.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Split.** **Stratified** (preserve the 1000:1 ratio in each fold so the rare class appears — c1.1), and if the data is time-ordered and entity-grouped, **temporal forward-chaining + grouped** (no future leakage, no entity straddling — c1.1). At 1000:1, ensure each validation fold has enough positives to estimate recall (or use repeated stratified CV).
+
+**Resample? Where?** Default: **don't resample.** Train a strong probabilistic model (e.g. gradient-boosted trees) with optionally `class_weight`/`scale_pos_weight` for gradient signal. If you do resample (validated to help), put it **strictly inside the CV pipeline** (`imblearn.pipeline.Pipeline`) so only training folds are resampled — never SMOTE-then-split (Q4).
+
+**Metric.** **PR-AUC / average precision** (ROC-AUC hides the precision collapse at 1000:1 — c1.9), plus precision/recall at the chosen operating point; pick the threshold from the **cost matrix**.
+
+**Operating point.** **Calibrate** the model (Platt/isotonic, or prior-correct), then set the threshold $t^\star=C_{\text{FP}}/(C_{\text{FP}}+C_{\text{FN}})$ on the calibrated probability. (At 1000:1 you may also reframe as **anomaly detection** — Q10.)
+
+**Why not SMOTE.** (1) **Elor & Averbuch-Elor 2022:** for strong probabilistic learners with a *tuned threshold*, SMOTE gives **no benefit** — its apparent gains are an artifact of leaving the threshold at 0.5. (2) **Resampling = an implicit threshold shift** (Q1–Q2) that also **breaks calibration** (van den Goorbergh 2022) — so it does nothing a calibrated threshold can't, with worse probabilities. (3) At 1000:1 in any real feature dimension, SMOTE's interpolation assumption is shaky (Blagus–Lusa). So: calibrate + threshold (+ maybe anomaly framing), and reach for SMOTE only if it provably beats that on PR-AUC inside a leakage-safe pipeline.
+
+**Rubric:**
+- Stratified (+ temporal/grouped if applicable) split; enough positives per fold
+- Default no resample; if any, inside `imblearn.pipeline.Pipeline` (never SMOTE-then-split)
+- PR-AUC / AP + cost-based threshold (not ROC-AUC)
+- Calibrate + $t^\star=C_{\text{FP}}/(C_{\text{FP}}+C_{\text{FN}})$; consider anomaly framing
+- Defend no-SMOTE: Elor 2022 (no benefit with tuned threshold) + resampling=threshold-shift+miscalibration (van den Goorbergh) + Blagus–Lusa
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: Evaluation & class imbalance
+
+These 14 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
+
+1. **The 99% accuracy trap** A teammate reports 99.1% accuracy on a fraud model where 1% of transactions are fraud. What does that number actually tell you, and what trivial model already beats it? Say what you would ask to see instead.
+2. **Precision and recall from the matrix** Write down the $2\times2$ confusion matrix, then write precision and recall straight from its cells. Explain each in one plain sentence about a spam filter, and say which cell precision uses that recall does not.
+3. **Which error hurts more** For each of these, say which error you would rather make and why: a cancer screening test, a spam filter, a fraud block at checkout, and an ad CTR model. Then say how that answer changes what you optimize.
+4. **AUC in one sentence** Your VP asks whether an AUC of $0.75$ means the model is right 75% of the time. Give the correct one-sentence probabilistic reading of AUC, and name one deployment decision AUC alone cannot support.
+5. **ROC-AUC or PR-AUC** A scorer has TPR $= 0.9$ and FPR $= 0.1$. Compute its precision at 50% positives and at 1% positives, and say what happens to ROC-AUC across those two settings. Which curve would you report for a fraud model, and what is the no-skill baseline on it?
+6. **High AUC, useless model** Your model has AUC $0.94$ offline and the analysts who work its alerts say it is worthless. Give two mechanically different reasons that can both be true at once, and say how you would tell which one you are hitting.
+7. **What calibration means** Define a calibrated classifier in one sentence, then explain how a model with near-perfect AUC can be badly miscalibrated. Name the two standard fixes and say what each one does to AUC.
+8. **Where does the threshold come from** Missing a fraud costs you 10 times what a false alarm does. Given a calibrated probability, what threshold do you use and where does that number come from? Then say what breaks if the model is not calibrated.
+9. **F1 and when to move beta** Define F1 and say which part of the confusion matrix it deliberately ignores. Then someone tells you a missed fraud is four times worse than a false alarm, so what $\beta$ do you use in $F_\beta$, and would you rather use $F_\beta$ or a cost-based threshold here?
+10. **How do you handle imbalance** Your dataset is 1:1000 positive to negative, so how do you handle the imbalance? Give your ordered answer, say what you would check before touching the data at all, and say which of your levers change the predicted probabilities.
+11. **SMOTE before the split** An engineer runs SMOTE on the full dataset, then does 5-fold CV and reports PR-AUC of $0.97$. A clean pipeline gives $0.78$. Explain exactly what leaked, and describe the correct ordering.
+12. **Fixed review budget** Your fraud ops team reviews exactly 500 cases a day. Argue why precision at $k$ and recall at that $k$ are the numbers you would report, and what PR-AUC averages over that your system will never do. How can two models with the same PR-AUC differ badly at your $k$?
+13. **Offline up, A/B flat** Offline AUC improved two points but the A/B test is flat. Give three mechanically distinct causes, and say which one you would check first and why.
+14. **CTR up, product worse** A ranker change lifts CTR by 3% in the A/B test. Give a concrete way that change could be making the product worse, name the guardrail metrics that would catch it, and say how long you would run the test before believing the lift.

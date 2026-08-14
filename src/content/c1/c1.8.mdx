@@ -1,29 +1,156 @@
 ---
 id: c1.8
 chapter: 1
-title: Naive Bayes & probabilistic classifiers
-subtitle: Generative vs. discriminative — the same line, fit two ways
+title: SVM, kNN & Naive Bayes
+subtitle: Margins, kernels, neighbours and the naive independence assumption
 refs: [7]
-estimatedMinutes: 60
+estimatedMinutes: 90
 ---
 
 ## TL;DR
 
-Naive Bayes is the **generative** member of a generative–discriminative *pair* whose discriminative twin is logistic regression (c1.4). Both produce the **same log-linear decision rule** $\log\frac{p(y{=}1\mid x)}{p(y{=}0\mid x)} = w^\top x + b$ — but NB estimates it by **counting** (maximum likelihood on the joint $p(x,y)$), while logistic regression estimates it by **conditional optimization** of $p(y\mid x)$. That single difference explains everything: why NB is a linear classifier, why it trains in one pass, why it **wins on tiny data but loses asymptotically** (Ng–Jordan), and why it **classifies well yet outputs garbage probabilities** (Domingos–Pazzani) — the calibration thread from c1.3/c1.5, in its purest form.
+Support vector machines and k-nearest-neighbors are the two purest **geometry-as-the-model** algorithms: an SVM classifies by the *widest separating margin*, kNN by the *majority vote of the closest points*. Two ideas decide whether that geometry works. The **kernel trick** lets an SVM draw nonlinear boundaries by computing inner products in an implicit — sometimes infinite-dimensional — feature space *without ever materializing it*. The **curse of dimensionality** is the flip side: in high dimensions distances concentrate, so "nearest" stops being meaningful and kNN (and any distance method) degrades. Master the **margin** and the **neighborhood**, and you understand why these methods shine on small/medium data and why modern retrieval had to invent approximate nearest-neighbor search.
+
+Naive Bayes is the **generative** member of a generative–discriminative *pair* whose discriminative twin is logistic regression (c1.3). Both produce the **same log-linear decision rule** $\log\frac{p(y{=}1\mid x)}{p(y{=}0\mid x)} = w^\top x + b$ — but NB estimates it by **counting** (maximum likelihood on the joint $p(x,y)$), while logistic regression estimates it by **conditional optimization** of $p(y\mid x)$. That single difference explains everything: why NB is a linear classifier, why it trains in one pass, why it **wins on tiny data but loses asymptotically** (Ng–Jordan), and why it **classifies well yet outputs garbage probabilities** (Domingos–Pazzani) — the calibration thread from c1.2/c1.6, in its purest form.
 
 ## What you'll be able to do after this lesson
+
+- Derive that the SVM margin width is $2/\|w\|$, and why maximizing it equals minimizing $\tfrac12\|w\|^2$.
+- Write the soft-margin SVM and show it equals **hinge loss + L2 regularization** (tying back to c1.2 losses).
+- Explain the primal→dual move, why only **support vectors** survive, and why the dual is what makes kernels possible.
+- State Mercer's condition and decide whether a given function is a valid kernel (polynomial yes, $\tanh$ no).
+- Prove the RBF kernel corresponds to an infinite-dimensional feature map.
+- Reason about the $C$ and $\gamma$ knobs in bias-variance terms.
+- Explain why kNN demands feature scaling, choose $k$ as a bias-variance trade, and state the Cover–Hart bound.
+- Explain the curse of dimensionality as a *probability fact* (distance concentration), and why it forces approximate-NN (HNSW/FAISS) for embedding retrieval.
 
 - Derive the Naive Bayes rule from Bayes' theorem + the conditional-independence assumption (the $O(2^d)\to O(d)$ parameter collapse), and prove its decision boundary is linear.
 - Prove that NB's decision boundary is **linear** (a hyperplane in log-space).
 - Show that equal-variance Gaussian NB *is* logistic regression in functional form — and say exactly how the two differ in *fitting*.
 - State the Ng–Jordan result: NB's $O(\log n)$ vs logistic's $O(n)$ sample complexity, and the two-regime consequence.
 - Explain why NB classifies well but its probabilities are overconfident (Domingos–Pazzani) — and fix it with calibration.
-- Derive that Laplace smoothing is MAP estimation under a Dirichlet prior (the c1.4 prior thread).
+- Derive that Laplace smoothing is MAP estimation under a Dirichlet prior (the c1.3 prior thread).
 - Pick the right NB variant (Gaussian / Multinomial / Bernoulli / Complement) and avoid the zero-count and `force_alpha` traps.
+
+## Why these two, together
+
+> **Goal — learn the two canonical geometry-based methods and the two ideas (kernels, the curse of dimensionality) that govern all distance-based learning.** SVMs teach the margin, duality, and kernels — the backbone of classical statistical learning theory. kNN teaches nonparametric estimation and the curse of dimensionality — which quietly underpins every modern vector database and RAG system. Both are interview staples precisely because they force you to reason geometrically rather than reach for `model.fit`.
+
+These are the methods that dominated before deep learning, and they're not gone: linear SVMs are still strong baselines on high-dimensional sparse data (text), and kNN — in its approximate form — *is* how large-scale embedding retrieval works.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **Margin** — the distance from the decision boundary to the nearest training point. SVMs maximize it.
+> - **Support vector** — a training point that touches or violates the margin; only these determine the SVM.
+> - **Kernel** $K(x,x')$ — a function that computes an inner product $\langle\phi(x),\phi(x')\rangle$ in some feature space, *without* computing $\phi$.
+> - **Gram matrix** — the $n\times n$ matrix $G_{ij}=K(x_i,x_j)$; $K$ is valid iff $G$ is positive semidefinite.
+> - **Lazy / instance-based learning** — no model is fit; "training" just stores the data, and all work happens at query time (kNN).
+
+## Part 1 — Support vector machines
+
+> **Goal — find the boundary that separates the classes with the widest possible margin, then bend it with kernels.**
+
+### The maximum-margin hyperplane
+
+Labels $y_i\in\{-1,+1\}$, decision function $f(x)=w^\top x + b$. Fix the scale so the closest points satisfy $y_i(w^\top x_i+b)=1$ (the "canonical" hyperplane). The two margin hyperplanes are $w^\top x+b=\pm 1$.
+
+**Margin width $=2/\|w\|$.** Take points $x_+,x_-$ on opposite margin planes: $w^\top x_+ + b = +1$ and $w^\top x_- + b = -1$. Subtract: $w^\top(x_+-x_-)=2$. The width is the projection of $x_+-x_-$ onto the unit normal $w/\|w\|$:
+
+$$\text{margin} = \frac{w^\top(x_+-x_-)}{\|w\|} = \frac{2}{\|w\|}$$
+
+Maximizing $2/\|w\|$ is minimizing $\tfrac12\|w\|^2$, giving the **hard-margin primal**:
+
+$$\min_{w,b}\ \tfrac12\|w\|^2 \quad\text{s.t.}\quad y_i(w^\top x_i+b)\ge 1\ \ \forall i$$
+
+We maximize the *geometric* margin (the functional margin $y_i f(x_i)$ can be inflated for free by rescaling $w$ — only $/\|w\|$ makes it scale-invariant).
+
+<SVMMarginDiagram caption="The canonical SVM picture. Solid line: the decision hyperplane. Dashed lines: the two margin planes at wᵀx + b = ±1, separated by width 2/‖w‖. Amber circles: the support vectors — the only points that sit on the margin planes and the only points whose removal would change the boundary. Maximizing 2/‖w‖ (equivalently minimizing ½‖w‖²) is just the algebraic version of 'push the two dashed lines as far apart as you can while every point stays on the correct side.'" />
+
+### Soft margin = hinge loss + L2 regularization
+
+Real data isn't separable. Introduce slack $\xi_i\ge0$ and penalize it (Cortes & Vapnik 1995):
+
+$$\min_{w,b,\xi}\ \tfrac12\|w\|^2 + C\sum_i \xi_i \quad\text{s.t.}\quad y_i(w^\top x_i+b)\ge 1-\xi_i,\ \ \xi_i\ge 0$$
+
+At the optimum $\xi_i=\max(0,\,1-y_i f(x_i))$ — exactly the **hinge loss**. Substituting gives the unconstrained form:
+
+$$\min_{w,b}\ \tfrac12\|w\|^2 + C\sum_i \max\bigl(0,\,1-y_i f(x_i)\bigr)$$
+
+**This is the bridge to c1.2:** an SVM is hinge loss plus L2 (ridge) regularization on $w$. Compare the surrogate losses as functions of the margin $m=y f(x)$: 0-1 loss is discontinuous and non-convex; **hinge** $\max(0,1-m)$ is convex and **exactly zero for $m\ge1$** (correctly classified beyond the margin → no gradient → that point drops out); **logistic** $\log(1+e^{-m})$ is smooth and *never* zero (every point contributes, which is why logistic regression has no support vectors but does give probabilities). The flat region of hinge is precisely *why SVMs are sparse in support vectors*.
+
+### The dual, support vectors, and why kernels need it
+
+Form the Lagrangian and set derivatives to zero: $w=\sum_i\alpha_i y_i x_i$ and $\sum_i\alpha_i y_i=0$. Substituting yields the **dual**:
+
+$$\max_{\alpha}\ \sum_i\alpha_i - \tfrac12\sum_{i,j}\alpha_i\alpha_j\,y_iy_j\,\langle x_i,x_j\rangle \quad\text{s.t.}\quad 0\le\alpha_i\le C,\ \ \sum_i\alpha_i y_i=0$$
+
+The soft margin only adds the box upper bound $\alpha_i\le C$. By complementary slackness (KKT):
+
+- $\alpha_i=0$: point is outside the margin, correctly classified — **not** a support vector, zero influence.
+- $0<\alpha_i<C$: point lies *exactly on* the margin ($y_i f(x_i)=1$) — a **free support vector** (used to solve for $b$).
+- $\alpha_i=C$: point is inside the margin or misclassified — a **bounded support vector**.
+
+So the solution depends only on the support vectors — usually a small fraction of the data. **Why the dual matters:** both the objective and the recovered $f(x)=\sum_i\alpha_i y_i\langle x_i,x\rangle + b$ touch the data *only through inner products* $\langle x_i,x_j\rangle$. That's what lets us swap in a kernel.
+
+### The kernel trick
+
+Replace every inner product with a kernel $K(x,x')=\langle\phi(x),\phi(x')\rangle$:
+
+$$f(x)=\sum_i\alpha_i y_i\,K(x_i,x)+b$$
+
+**Mercer's condition:** $K$ is a valid kernel iff it is symmetric and its Gram matrix is positive semidefinite for every finite sample — then it *is* an inner product in some (possibly infinite-dimensional) space. Common kernels: linear $x^\top x'$; polynomial $(\gamma x^\top x'+r)^d$; **RBF/Gaussian** $\exp(-\gamma\|x-x'\|^2)$.
+
+**The RBF kernel is infinite-dimensional.** Factor $K(x,x') = e^{-\gamma\|x\|^2}e^{-\gamma\|x'\|^2}\exp(2\gamma x^\top x')$ and expand the cross term $\exp(2\gamma x^\top x')=\sum_{k\ge0}\frac{(2\gamma)^k(x^\top x')^k}{k!}$ — every polynomial degree $0,1,2,\dots$ appears, so the feature map $\phi$ has infinitely many coordinates. You *cannot* materialize $\phi(x)$; you only ever evaluate the scalar $K$. **This is the whole point of the trick** — it buys an infinite-dimensional boundary at the cost of an $n\times n$ Gram matrix, not an infinite feature vector.
+
+*Concretely:* RBF's implicit feature vector has one coordinate for every polynomial degree — and every mixed monomial within each degree — a countably infinite total. You couldn't write it down if you wanted to; the dual formulation lets you avoid ever having to.
+
+<KernelLift1Dto2D caption="The kernel trick in one glance. Left: 1D data with red points inside [-1, 1] and blue points outside. No linear boundary (a single threshold) separates them — you'd need two thresholds, and linear classifiers can't do 'both'. Right: the same points lifted to (x, x²) via ϕ(x) = (x, x²). Blue points sit above y = 1; red below. Now one linear boundary (the horizontal line y = 1) does the job. Kernels let you do this without ever computing ϕ — inner products in the lifted space are the kernel." />
+
+**The two knobs, in bias-variance terms.** Large $C$ penalizes slack harder → harder margin, fits training data closely → *less* regularization, higher variance (overfit). Large RBF $\gamma$ → each point's influence is very local → a wiggly boundary, high variance. Tune them jointly by cross-validation.
+
+> **Stop and think.** Someone proposes "just compute $\phi(x)$ for the RBF kernel and run a linear SVM on it — same thing, simpler." Why is this impossible, and what's the practical cost you pay *instead* by staying in the dual? *Hint: $\phi$ has infinitely many coordinates, so it can't be stored; the price is the $n\times n$ Gram matrix and $O(n^2)$–$O(n^3)$ training — which is exactly why kernel SVMs don't scale to big data.*
+
+## Part 2 — k-nearest-neighbors
+
+> **Goal — make no model at all: predict from the labels of the closest stored points, and understand exactly when "closest" is trustworthy.**
+
+kNN predicts the majority vote (classification) or average (regression) of the $k$ training points nearest the query. "Training" is just storing the data — it's **lazy**; all the cost is at query time.
+
+### Distance, and why scaling is mandatory
+
+Common metrics: Euclidean ($L_2$), Manhattan ($L_1$), Minkowski (general $p$), **Mahalanobis** $\sqrt{(x-x')^\top\Sigma^{-1}(x-x')}$ (accounts for feature covariance and scale), and cosine (direction only, for text/embeddings). Euclidean distance is dominated by large-range features: a feature on $[0,500{,}000]$ swamps one on $[0,1]$, so the second is effectively ignored. **You must standardize features before kNN** (z-score or min-max), or use Mahalanobis (which bakes scaling in) or cosine (magnitude-invariant).
+
+### Choosing $k$ is bias-variance
+
+Small $k$ → flexible, low bias, **high variance** ($k=1$ memorizes the training set: zero training error, a jagged boundary). Large $k$ → smoother, **high bias, low variance** ($k=n$ predicts the global majority/mean — maximal underfit). The optimal $k$ is intermediate, chosen by cross-validation, and grows with $n$. A useful framing: kNN regression is **local averaging with an adaptive bandwidth** (the radius to the $k$-th neighbor) — the variable-bandwidth cousin of Nadaraya–Watson kernel regression. Its variance scales like $\sigma^2/k$, its bias grows with $k$.
+
+<kNNBoundaries caption="k=1 vs k=15 decision boundaries on the same noisy 2D scatter. Left (k=1): the boundary follows every noise point exactly — zero training error, a jagged and unstable partition — high variance. Right (k=15): the boundary is smooth and ignores small pockets — some training points end up on the 'wrong' side but the classifier generalizes better — high bias. This is the whole bias-variance dial, made picture-shaped." />
+
+### How good can it be? Cover–Hart
+
+A classic result (Cover & Hart 1967): as $n\to\infty$, the 1-nearest-neighbor error $R$ is bounded in terms of the Bayes error $R^\star$:
+
+$$R^\star \le R \le R^\star\Bigl(2 - \tfrac{M}{M-1}R^\star\Bigr)$$
+
+for $M$ classes; in the **binary** case this is $R \le 2R^\star(1-R^\star) \le 2R^\star$.
+
+So **1-NN's asymptotic error is at most twice the optimal** — half the achievable information is in the single nearest neighbor. With $k\to\infty$ and $k/n\to0$, kNN becomes Bayes-*consistent* ($R\to R^\star$). For a method with no training, that's remarkable.
+
+### The curse of dimensionality — a probability fact
+
+Here's the catch. In high dimensions, distances **concentrate**: for a query against $n$ points, the ratio of the farthest to the nearest distance tends to 1. Beyer et al. (1999) make this precise — under mild conditions the ratio of farthest to nearest distance converges to 1 (for the formal variance-ratio statement, ask an AI assistant; an interviewer won't ask you to reproduce it).
+
+Intuition: $\|x-x'\|^2=\sum_{j=1}^d(x_j-x_j')^2$ is a sum of $d$ i.i.d. terms, so its mean grows like $d$ but its standard deviation like $\sqrt{d}$ — the coefficient of variation shrinks like $1/\sqrt{d}$, and all pairwise distances bunch together. "Nearest" stops being meaningfully nearest. This is *why* high-dimensional kNN needs either low **intrinsic** dimension (cluster structure) or learned low-dimensional embeddings.
+
+<DistanceConcentration caption="Pairwise distances for 100 uniform points in the unit cube of dimension d, normalized so the mean distance is 1. Each bar is [min, max]/mean. At d=2 the bar spans a wide range — nearest is clearly nearer than farthest. As d grows, the bar collapses: at d=1000 every pair sits within a few percent of the mean, so 'nearest neighbor' loses information — that's Beyer's concentration theorem, made a visual." />
+
+### kNN at scale: approximate nearest neighbors
+
+Exact kNN query is $O(nd)$; KD-trees give $O(\log n)$ in low dimensions but **collapse back to $O(n)$ past ~20 dimensions** (ball-trees do a bit better). Modern embedding retrieval (semantic search, RAG) has millions of high-dimensional vectors, so it uses **approximate nearest neighbor (ANN)**: **HNSW** (hierarchical navigable small-world graphs — the dominant index in Pinecone, Weaviate, Qdrant, pgvector), **FAISS** (IVF + product quantization, GPU, billion-scale), and **ScaNN**. They trade exactness for sub-linear query at high recall — kNN is far from obsolete; it just went approximate.
 
 ## Why a "weak baseline" deserves a full lesson
 
-> **Goal — use the simplest generative classifier to nail two ideas that recur everywhere: the generative-vs-discriminative tradeoff, and the gap between classifying and estimating probabilities.** Naive Bayes is dismissed as a toy, but it's the cleanest case study in the course: it's MLE of a joint model (c1.2's "loss = −log p"), it's the generative twin of logistic regression (c1.4), and it's the canonical example of "great AUC, terrible calibration" (c1.3/c1.5). Interviewers love it precisely because the obvious criticism — "the independence assumption is false" — is a *trap*.
+> **Goal — use the simplest generative classifier to nail two ideas that recur everywhere: the generative-vs-discriminative tradeoff, and the gap between classifying and estimating probabilities.** Naive Bayes is dismissed as a toy, but it's the cleanest case study in the course: it's MLE of a joint model (c1.2's "loss = −log p"), it's the generative twin of logistic regression (c1.3), and it's the canonical example of "great AUC, terrible calibration" (c1.2/c1.6). Interviewers love it precisely because the obvious criticism — "the independence assumption is false" — is a *trap*.
 
 > **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
 >
@@ -31,7 +158,7 @@ Naive Bayes is the **generative** member of a generative–discriminative *pair*
 > - **Generative model** — models the full joint $p(x,y)$ (can score how likely $x$ itself is). **Discriminative model** — models only $p(y\mid x)$ (the boundary).
 > - **Conditional independence** — features are independent *given the class*: $p(x\mid y)=\prod_j p(x_j\mid y)$. (Not marginal independence.)
 > - **MLE / MAP** — maximum likelihood (counts) vs maximum a posteriori (counts + a prior = smoothing).
-> - **Calibration** — whether a predicted "0.9" actually happens 90% of the time (c1.3).
+> - **Calibration** — whether a predicted "0.9" actually happens 90% of the time (c1.2).
 
 ## Part 1 — Bayes' rule and the "naive" assumption
 
@@ -43,7 +170,7 @@ The catch: $p(x\mid y)$ over $d$ features is a joint distribution with $O(2^d)$ 
 
 $$p(x\mid y)=\prod_{j=1}^d p(x_j\mid y)\quad\Longrightarrow\quad \hat y=\arg\max_y\;p(y)\prod_{j=1}^d p(x_j\mid y)$$
 
-This collapses the parameter count to $O(d)$ per class — each $p(x_j\mid y)$ is a one-dimensional estimate. Work in **log-space** (a product of thousands of small probabilities underflows to 0; the log-sum is a manageable negative number), recovering normalized posteriors via log-sum-exp (c1.3's numerical-stability point, again):
+This collapses the parameter count to $O(d)$ per class — each $p(x_j\mid y)$ is a one-dimensional estimate. Work in **log-space** (a product of thousands of small probabilities underflows to 0; the log-sum is a manageable negative number), recovering normalized posteriors via log-sum-exp (c1.2's numerical-stability point, again):
 
 $$\log p(y\mid x)=\log p(y)+\sum_{j=1}^d \log p(x_j\mid y)-\log p(x)$$
 
@@ -74,7 +201,7 @@ The variants differ only in the per-feature likelihood $p(x_j\mid y)$:
 
 If a word never appears in class $c$ in training, the MLE $\hat\theta_{cj}=0$, so the whole product $\prod_j p(x_j\mid c)=0$ — one unseen feature sets the class probability to **zero regardless of overwhelming evidence elsewhere** ($\log 0=-\infty$, an absorbing state). **Additive smoothing** adds a pseudo-count: Multinomial NB uses $\hat\theta_{cj}=\frac{N_{cj}+\alpha}{N_c+\alpha d}$ ($\alpha=1$ = Laplace, $0<\alpha<1$ = Lidstone).
 
-This isn't arbitrary. For a multinomial with a symmetric **Dirichlet$(\beta)$** prior, the posterior is Dirichlet$(N_j+\beta)$, whose mode is $\frac{N_j+\beta-1}{N+d(\beta-1)}$ — set $\alpha=\beta-1$ and you recover Laplace smoothing exactly. So **MLE = raw counts; MAP under a Dirichlet prior = smoothed counts** — the identical move to c1.4 (ridge/lasso = Gaussian/Laplace priors *on coefficients*; here a Dirichlet prior *on probabilities*). The penalty is always a negative-log-prior, and smoothing shrinks rare-event frequencies toward uniform — the same **James–Stein** logic from c1.4.
+This isn't arbitrary. For a multinomial with a symmetric **Dirichlet$(\beta)$** prior, the posterior is Dirichlet$(N_j+\beta)$, whose mode is $\frac{N_j+\beta-1}{N+d(\beta-1)}$ — set $\alpha=\beta-1$ and you recover Laplace smoothing exactly. So **MLE = raw counts; MAP under a Dirichlet prior = smoothed counts** — the identical move to c1.3 (ridge/lasso = Gaussian/Laplace priors *on coefficients*; here a Dirichlet prior *on probabilities*). The penalty is always a negative-log-prior, and smoothing shrinks rare-event frequencies toward uniform — the same **James–Stein** logic from c1.3.
 
 ## Part 4 — Generative vs. discriminative: the Ng–Jordan pair
 
@@ -100,17 +227,19 @@ Why does a model built on a *false* assumption work at all? **Domingos & Pazzani
 
 <NbReliability caption="Reliability diagram: predicted confidence (x) vs empirical accuracy (y). The dashed diagonal is perfect calibration. Uncalibrated Naive Bayes (red) is S-shaped — pinned near 0 or 1 for most of its predictions because double-counted evidence squares the log-odds. Platt-recalibrated NB (blue) tracks the diagonal. AUC (a rank statistic) is unchanged across both curves — the rankings didn't move, only the scores they were mapped to did." />
 
-So NB's `predict_proba` outputs are **systematically overconfident** — the canonical "high AUC, bad ECE/Brier" case (c1.3, c1.5), and unlike the deep-net overconfidence of Guo 2017 this comes from the model structure itself. **Treat NB scores as rankings, not probabilities**; if you threshold on a probability or feed it into expected-value math, **calibrate first** (Platt/sigmoid or isotonic via `CalibratedClassifierCV`).
+So NB's `predict_proba` outputs are **systematically overconfident** — the canonical "high AUC, bad ECE/Brier" case (c1.2, c1.6), and unlike the deep-net overconfidence of Guo 2017 this comes from the model structure itself. **Treat NB scores as rankings, not probabilities**; if you threshold on a probability or feed it into expected-value math, **calibrate first** (Platt/sigmoid or isotonic via `CalibratedClassifierCV`).
 
 > **Stop and think.** You duplicate a feature ($x_2 := x_1$). What happens to NB's log-odds, the true evidence, and the predicted probability — and does the classification change? *Hint: the feature's $w_j x_j$ contribution is counted twice, doubling its log-odds while the true information is unchanged → the posterior is pushed toward 0/1 (overconfident). The argmax usually survives (still on the same side of ½), so accuracy/AUC are fine while calibration degrades — exactly Domingos–Pazzani.*
 
-## The stats / quant-research lens
-
-- **Generative vs discriminative, precisely:** NB models the full joint $p(x,y)$ — so it can sample $x$, flag novelty via $p(x)$, and **handle missing features by marginalizing them out** (a real advantage); logistic spends no capacity on $p(x)$ (which you don't need to classify). Same hypothesis class, different objective.
-- **Ng–Jordan is bias-variance at the estimator-class level:** the generative model imposes strong structure → higher bias (worse asymptote) but lower variance (fast convergence); discriminative imposes less → lower bias, higher variance. The quant framing: with a *short backtest / few labeled events*, the high-bias generative estimator can dominate.
-- **Smoothing = shrinkage = MAP** (the c1.4 shrinkage thread): smoothed counts dominate raw frequencies when many parameters are estimated from sparse data.
-
 ## Tradeoff matrix
+
+| Method | Decision rule | Training cost | Inference cost | Scales to large $n$? | Best for |
+|---|---|---|---|---|---|
+| Linear SVM | Max-margin hyperplane | $O(n)$–$O(np)$ (liblinear) | $O(p)$ | Yes | High-dim sparse (text), $n$ large |
+| Kernel (RBF) SVM | Margin in implicit space | $O(n^2)$–$O(n^3)$ | $O(\#\text{SV}\cdot p)$ | No (≲ tens of thousands) | Low/medium $n$, nonlinear |
+| kNN (exact) | Vote of $k$ nearest | $O(1)$ (store) | $O(nd)$ per query | No (high $d$) | Low-dim, simple baselines |
+| kNN (approximate) | ANN vote | Build index | $\sim O(\log n)$ | Yes | Embedding retrieval / RAG |
+| Logistic (c1.3) | Linear, probabilistic | $O(np)$ | $O(p)$ | Yes | When you need calibrated probabilities |
 
 | Variant | Feature model | Use for | Note |
 |---|---|---|---|
@@ -118,40 +247,80 @@ So NB's `predict_proba` outputs are **systematically overconfident** — the can
 | Multinomial NB | counts | text (bag-of-words) | the text default; needs $\ge 0$ features |
 | Bernoulli NB | binary presence | short text / presence features | penalizes word *absence* |
 | Complement NB | counts | **imbalanced** text | fixes majority-class weight bias |
-| Logistic (c1.4) | — (discriminative) | lots of data; want calibration | the discriminative twin |
+| Logistic (c1.3) | — (discriminative) | lots of data; want calibration | the discriminative twin |
+
+## The stats / quant-research lens
+
+- **Generative vs discriminative, precisely:** NB models the full joint $p(x,y)$ — so it can sample $x$, flag novelty via $p(x)$, and **handle missing features by marginalizing them out** (a real advantage); logistic spends no capacity on $p(x)$ (which you don't need to classify). Same hypothesis class, different objective.
+- **Ng–Jordan is bias-variance at the estimator-class level:** the generative model imposes strong structure → higher bias (worse asymptote) but lower variance (fast convergence); discriminative imposes less → lower bias, higher variance. The quant framing: with a *short backtest / few labeled events*, the high-bias generative estimator can dominate.
+- **Smoothing = shrinkage = MAP** (the c1.3 shrinkage thread): smoothed counts dominate raw frequencies when many parameters are estimated from sparse data.
+
 
 ## Worked decision walk-throughs
+
+**Scenario A: text classification, 50k sparse TF-IDF features, 100k docs.** **Linear SVM** (`LinearSVC`). High-dimensional sparse data is where margin maximization shines, and linear SVMs scale; an RBF kernel would be both unnecessary and too slow.
+
+**Scenario B: 5M rows, RBF boundary suspected.** *Not* `SVC(kernel='rbf')` — its $O(n^2)$–$O(n^3)$ training is impractical past tens of thousands of rows. Use `LinearSVC`/`SGDClassifier`, optionally with a **kernel approximation** (`Nystroem` or random Fourier features) to recover RBF-like nonlinearity at scale.
+
+**Scenario C: semantic search over 50M embeddings.** **Approximate kNN** with an HNSW index (FAISS/hnswlib/a vector DB). Exact kNN is infeasible; ANN gives high recall at millisecond latency.
+
+**Scenario D: low-dimensional, clearly nonlinear, few thousand points.** **RBF SVM** — tune $C$ and $\gamma$ by grid-search CV. This is its sweet spot.
 
 **Scenario A: spam filter, a few hundred labeled emails.** **Multinomial NB.** Tiny data, high-dimensional bag-of-words — exactly the regime where NB's fast convergence beats logistic (Ng–Jordan), and it trains in one pass.
 
 **Scenario B: same task, 10M labeled emails.** **Logistic regression** (or a linear model) — with abundant data its lower asymptotic error wins; NB's independence bias now costs you.
 
-**Scenario C: you need the fraud probability for an expected-loss threshold ($p \times \$$).** Don't trust NB's `predict_proba`. **Calibrate** (`CalibratedClassifierCV`, isotonic if you have data, sigmoid if not), then threshold — or use a discriminative model. Verify with a reliability diagram (c1.3).
+**Scenario C: you need the fraud probability for an expected-loss threshold ($p \times \$$).** Don't trust NB's `predict_proba`. **Calibrate** (`CalibratedClassifierCV`, isotonic if you have data, sigmoid if not), then threshold — or use a discriminative model. Verify with a reliability diagram (c1.2).
 
 **Scenario D: imbalanced topic classification.** **Complement NB** — it corrects the majority-class weight bias that skews standard Multinomial NB.
 
+
 ## Production failure modes
 
-1. **Zero counts with no smoothing.** One unseen feature → class probability 0. Keep $\alpha>0$.
-2. **Trusting NB probabilities.** Overconfident by construction; calibrate before any probability-thresholded or EV decision.
-3. **Correlated features.** Duplicated/collinear features double-count evidence → worse calibration (and can eventually flip the argmax). De-duplicate or use a discriminative model.
-4. **Negative features into Multinomial/Complement NB.** They require non-negative inputs (counts/TF-IDF) and raise otherwise.
-5. **The `force_alpha` trap.** In scikit-learn ≥1.4 `force_alpha=True` is the default; to get *unsmoothed* MLE you must set `alpha=0` **and** `force_alpha=True` — and you'll then hit the zero-count problem. (Older versions silently floored tiny `alpha` to `1e-10`.)
+1. **Unscaled kNN.** One large-range feature dominates the distance; the model silently ignores everything else. Always standardize.
+2. **Kernel SVM on big data.** `SVC(kernel='rbf')` on millions of rows OOMs or runs for days (Gram matrix is $n\times n$). Switch to linear/approximate.
+3. **High-dimensional kNN that "works" offline but not live.** Distance concentration makes neighbors arbitrary; reduce dimension (embeddings, PCA) first.
+4. **Untuned $C$/$\gamma$.** Defaults rarely fit; the model under- or over-fits dramatically. Joint CV is mandatory.
+5. **Needing probabilities from SVC.** SVMs output signed distances, not probabilities; `probability=True` fits Platt scaling via expensive internal CV and can be inconsistent with `decision_function`. If you need calibrated probabilities, prefer logistic regression or calibrate explicitly.
+
+6. **Zero counts with no smoothing.** One unseen feature → class probability 0. Keep $\alpha>0$.
+7. **Trusting NB probabilities.** Overconfident by construction; calibrate before any probability-thresholded or EV decision.
+8. **Correlated features.** Duplicated/collinear features double-count evidence → worse calibration (and can eventually flip the argmax). De-duplicate or use a discriminative model.
+9. **Negative features into Multinomial/Complement NB.** They require non-negative inputs (counts/TF-IDF) and raise otherwise.
+10. **The `force_alpha` trap.** In scikit-learn ≥1.4 `force_alpha=True` is the default; to get *unsmoothed* MLE you must set `alpha=0` **and** `force_alpha=True` — and you'll then hit the zero-count problem. (Older versions silently floored tiny `alpha` to `1e-10`.)
+
 
 ## Interview gotchas
+
+- **"Derive the SVM margin."** $2/\|w\|$ from $w^\top x_\pm + b=\pm1$; maximize ⇔ minimize $\tfrac12\|w\|^2$; geometric not functional margin.
+- **"Why kernelize the dual, not the primal?"** The dual depends on data only through inner products, and $w=\sum\alpha_i y_i x_i$ is infinite-dimensional for RBF — the dual never materializes $\phi$.
+- **"Hinge vs logistic — why is SVM sparse?"** Hinge is exactly zero for margin $\ge1$, so correctly-classified-beyond-margin points have no gradient and drop out; logistic never reaches zero.
+- **"Is the RBF feature map finite?"** No — infinite-dimensional (expand the exponential). That's why you can't just precompute $\phi$.
+- **"What breaks kNN in high dimensions?"** Distance concentration (Beyer 1999) — nearest ≈ farthest; cite the $1/\sqrt d$ coefficient-of-variation argument.
+- **"How good is 1-NN?"** Cover–Hart: asymptotic error $\le 2\times$ Bayes; $k\to\infty,k/n\to0$ gives consistency.
+- **"Direction of $C$ and $\gamma$?"** Large $C$ = less regularization (overfit); large $\gamma$ = more local/wiggly (overfit).
 
 - **"The independence assumption is false, so NB is bad."** Misaimed — Domingos–Pazzani: it hurts *probabilities*, not the *argmax*. NB is a strong classifier and a bad probability estimator.
 - **"Discriminative always beats generative."** No — Ng–Jordan: NB wins in the low-data regime ($O(\log d)$ vs $O(d)$); logistic wins asymptotically.
 - **"NB gives probabilities."** Technically yes, practically overconfident — calibrate.
 - **"Derive NB's decision boundary."** Linear in log-space; be ready to show the Bernoulli $w_j, b$.
 - **"Why does Gaussian NB relate to logistic regression?"** Equal-variance GNB *is* logistic in form; they differ in objective (joint vs conditional likelihood). Unequal variance → QDA.
-- **"What is Laplace smoothing, really?"** MAP under a Dirichlet prior — shrinkage, the c1.4 prior thread.
+- **"What is Laplace smoothing, really?"** MAP under a Dirichlet prior — shrinkage, the c1.3 prior thread.
 
-## Take the quiz
-
-Twelve conceptually difficult questions — the linearity proof, the GNB↔logistic derivation, Ng–Jordan sample complexity, the double-counting calibration mechanism, and smoothing-as-MAP. **[Take the quiz →](/c/c1/c1.8/quiz)**
 
 ## Cited references
+
+- Ref 7 — *A Tour of Machine Learning Algorithms* (Machine Learning Mastery) — `c1/references/07_traditional_ml_algos.html` (taxonomy only; not a math source)
+
+External works (the real sources for the math):
+- Boser, B., Guyon, I., Vapnik, V. 1992. "A Training Algorithm for Optimal Margin Classifiers." *COLT.* Max-margin classifier + the kernel trick.
+- Cortes, C., Vapnik, V. 1995. "Support-Vector Networks." *Machine Learning* 20(3). The soft margin ($\xi$, $C$).
+- Cover, T., Hart, P. 1967. "Nearest Neighbor Pattern Classification." *IEEE Trans. Information Theory* 13(1). The $\le 2\times$ Bayes bound.
+- Schölkopf, B., Herbrich, R., Smola, A. 2001. "A Generalized Representer Theorem." *COLT.* Why the solution is a sum over the data.
+- Beyer, K. et al. 1999. "When Is 'Nearest Neighbor' Meaningful?" *ICDT.* Distance concentration.
+- Bartlett, P., Jordan, M., McAuliffe, J. 2006. "Convexity, Classification, and Risk Bounds." *JASA.* Hinge and logistic are calibrated surrogates.
+- Malkov, Y., Yashunin, D. 2020. "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs." *IEEE TPAMI* 42(4) (arXiv 2016, early access 2018). The dominant ANN index.
+- Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., Ch. 12–13.
 
 - Ref 7 — *A Tour of Machine Learning Algorithms* (Machine Learning Mastery) — `c1/references/07_traditional_ml_algos.html` (taxonomy only)
 
@@ -161,3 +330,12 @@ External works (the real sources for the math):
 - Rennie, J. et al. 2003. "Tackling the Poor Assumptions of Naive Bayes Text Classifiers." *ICML.* Complement NB.
 - Mitchell, T. *Generative and Discriminative Classifiers: Naive Bayes and Logistic Regression* — the cleanest GNB→logistic derivation.
 - Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., §6.6 and §4.4.
+
+
+## Take the quiz
+
+Twelve conceptually difficult questions — the margin derivation, the dual and support vectors, RBF infinite-dimensionality, Cover–Hart, and distance concentration. 
+
+Twelve conceptually difficult questions — the linearity proof, the GNB↔logistic derivation, Ng–Jordan sample complexity, the double-counting calibration mechanism, and smoothing-as-MAP.
+
+**[Take the quiz →](/c/c1/c1.8/quiz)**

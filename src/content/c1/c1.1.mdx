@@ -1,15 +1,17 @@
 ---
 id: c1.1
 chapter: 1
-title: Data foundations
-subtitle: Sources, sampling, splits, leakage — derived from first principles
-refs: [1, 2, 8, 9]
-estimatedMinutes: 60
+title: Data, splits & validation
+subtitle: Leakage, splits, cross-validation and honest evaluation
+refs: [1, 2, 8, 9, 21]
+estimatedMinutes: 110
 ---
 
 ## TL;DR
 
 Most ML systems fail in production not because the model is wrong but because the **data pipeline silently violated an assumption the model was trained under**. This lesson teaches the data architecture, sampling math, splitting strategies, and leakage detection that make production ML *work* — derived, with worked examples, not just stated.
+
+Model selection is **an estimation problem about an estimator.** Test error is a quantity you *estimate*; cross-validation is the *estimator*; and its own bias, its variance, and — crucially — the **selection bias you induce by optimizing on it** govern every choice in this lesson. The **bias-variance decomposition** tells you *what you're trading*; **cross-validation** tells you *how well you can measure the trade*; **double descent** tells you *where the classical trade stops being the whole story*. (CV *mechanics* — k-fold, stratified, group, temporal, nested — are in c1.1; here we treat CV as a statistical estimator and derive bias-variance from scratch.)
 
 ## What you'll be able to do after this lesson
 
@@ -20,6 +22,14 @@ Most ML systems fail in production not because the model is wrong but because th
 - Define data leakage formally in terms of *what information was available at prediction time* — and use that definition to classify any concrete leak as target, train–test, look-ahead, or group leakage.
 - Detect target leakage with a drop-column protocol, without trusting any single ML metric.
 - Decide between random / stratified / grouped / temporal splits by checking whether the IID assumption actually holds.
+
+- Derive the bias-variance decomposition from $y=f(x)+\varepsilon$ over the randomness of the training set, and say which assumption kills each cross term.
+- Explain double descent and why it doesn't contradict the decomposition.
+- Reason about CV's *own* bias (pessimistic, grows as $K$ shrinks) and variance (LOO high, via correlated folds), and why $K=5$–$10$ wins.
+- Prove that selecting the hyperparameter that minimizes CV gives an optimistic estimate — and that nested CV fixes it.
+- Explain why random search beats grid search in high dimensions (the "rule of 59" / effective dimensionality).
+- Read a learning curve to decide whether more data, more capacity, or more regularization will help.
+- Contrast AIC vs BIC (efficiency vs consistency) and pick one for forecasting vs recovering the true model.
 
 ## Why this lesson comes first
 
@@ -392,7 +402,7 @@ Cost: $k_\text{outer} \cdot k_\text{inner} \cdot (\text{hyperparam grid size})$ 
 
 ## Refresher: classification evaluation vocabulary
 
-You'll see these terms used in the leakage failure-mode discussions next, so let's ground them. Full treatment is in **c1.10** (Evaluation metrics).
+You'll see these terms used in the leakage failure-mode discussions next, so let's ground them. Full treatment is in **c1.9** (Evaluation metrics).
 
 For binary classification: positive vs negative class. The model outputs a score; you threshold the score to get a predicted class. Compare predicted vs true:
 
@@ -417,7 +427,7 @@ When to use which:
 - **ROC-AUC** when class balance is reasonable.
 - **PR-AUC** when classes are heavily imbalanced (1% positive, fraud, etc.) — ROC-AUC stays misleadingly high when most of your "negatives" never get a high score anyway, and you actually care about precision when you flag something.
 
-That's enough metric vocabulary to follow the rest of this lesson. Full derivations and edge cases are in c1.10.
+That's enough metric vocabulary to follow the rest of this lesson. Full derivations and edge cases are in c1.9.
 
 ## Data leakage
 
@@ -452,7 +462,7 @@ A feature contains information about the label that wouldn't be available at pre
 
 This is computationally expensive — $n$ retrains for $n$ features. Cheaper proxies: feature-importance scores from a tree model (rough, but quick), or domain-expert review of feature *definitions* line-by-line before training begins.
 
-**A blind spot worth naming: collinearity.** Both cheap proxies above are defeated by *redundant* (collinear) features. If two features encode the same leaking signal, the drop-column test clears both — drop either one and the other still carries the leak, so $\Delta_i \approx 0$. Worse, collinearity *splits* importance across the correlated features, so a leaky feature can show deceptively **low** individual importance and slip past the "hunt the suspiciously-important feature" heuristic. The statistical tool for surfacing this redundancy is the **variance inflation factor (VIF)**, covered in [c1.4](/c/c1/c1.4); for leakage triage, cluster features by correlation and treat each cluster as a single unit. (Note that collinearity is *not itself* leakage — honest features can be collinear — it's a property that defeats leakage *detection*.)
+**A blind spot worth naming: collinearity.** Both cheap proxies above are defeated by *redundant* (collinear) features. If two features encode the same leaking signal, the drop-column test clears both — drop either one and the other still carries the leak, so $\Delta_i \approx 0$. Worse, collinearity *splits* importance across the correlated features, so a leaky feature can show deceptively **low** individual importance and slip past the "hunt the suspiciously-important feature" heuristic. The statistical tool for surfacing this redundancy is the **variance inflation factor (VIF)**, covered in [c1.3](/c/c1/c1.3); for leakage triage, cluster features by correlation and treat each cluster as a single unit. (Note that collinearity is *not itself* leakage — honest features can be collinear — it's a property that defeats leakage *detection*.)
 
 > **Stop and think.** Construct a case where a feature passes the drop-column test (dropping it barely hurts $M_0$) but is *still* leaking. *Hint: redundancy. If two features encode the same leaking information, dropping either one leaves the other in place.*
 
@@ -575,9 +585,135 @@ Quick scenarios you should recognize on sight.
 4. **The patient-level split disaster.** Medical image classifier: 0.95 sensitivity in-sample, 0.71 external validation. The original split was a **random (image-level) split**, so the same patients landed in both train and test, and the model scored well by recognizing patients rather than disease.
 5. **The stale-feature skew ("we joined yesterday's features to today's events").** *Concrete setup:* you predict click-through, and one feature is `purchases_last_7d` (the user's purchase count over the trailing 7 days). *Offline*, you build the training table from the warehouse and attach to each past impression the value the feature had **at the moment of that impression** — written above as $\text{feature\_value\_at}(\text{label\_time})$. That value is accurate and fresh, because the warehouse keeps full history. *Online*, the serving store only holds the **latest nightly snapshot**, so at prediction time the model reads whatever the count was at last night's 2 a.m. batch — written as $\text{feature\_value\_now}()$, which really means "value as of the last refresh," and can be up to ~22 hours stale. The feature *name* is identical in both worlds; the *numbers* are not. The model's weights were fit against fresh-at-event values and then fed stale ones in production, so live AUC lands below offline — even though there's no leakage and no schema change. This is **training/serving skew**. *Fix:* serve from the same point-in-time logic you trained on (a feature store with consistent offline/online materialization), or — if you can't — train on the *same* staleness you'll actually serve, so the two distributions match.
 
-## Take the quiz
+## Why "how do I validate?" is the deepest question in the chapter
 
-When you're done reading, the conceptually-difficult quiz is at **[/c/c1/c1.1/quiz](/c/c1/c1.1/quiz)** — 12 questions, derivations and counter-examples, not recall. The point is to expose where your understanding is shallow before an interviewer does.
+> **Goal — see every "which model / which hyperparameter" decision as one question: how well can I estimate generalization, and what bias do I create by choosing on my estimate?** This is where data-snooping (c1.1) becomes a *statistical* phenomenon you can quantify, where regularization (c1.3) gets its bias-variance justification, and where the "more data / bigger model" instincts get stress-tested by double descent.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **Risk / generalization error** — $R(\hat f)=\mathbb{E}_{x,y}[\ell(y,\hat f(x))]$; the test error you compute is a Monte-Carlo *estimate* of it.
+> - **Bias / variance** — error of the *average* model across training sets vs. its sensitivity to *which* training set you drew.
+> - **CV estimator** — $\widehat{\text{CV}}_K$, the average held-fold loss; itself a random quantity with bias and variance.
+> - **Selection bias** — the optimism from reporting the *minimum* over many noisy candidate scores ("winner's curse").
+> - **Interpolation threshold** — the capacity at which a model first fits the training data exactly.
+
+## Part 1 — The bias-variance decomposition
+
+> **Goal — derive, from scratch, the identity that names the entire trade.**
+
+Data model: $y=f(x)+\varepsilon$, $\mathbb{E}[\varepsilon]=0$, $\text{Var}(\varepsilon)=\sigma^2$, $\varepsilon\perp x$. The estimator $\hat f=\hat f_{\mathcal D}$ depends on a random training set $\mathcal D$; write $\bar f(x)=\mathbb{E}_{\mathcal D}[\hat f(x)]$. At a fixed test point $x$:
+
+$$\mathbb{E}_{\mathcal D,\varepsilon}\bigl[(y-\hat f(x))^2\bigr]=\mathbb{E}\bigl[(\varepsilon+(f(x)-\hat f(x)))^2\bigr]=\underbrace{\mathbb{E}[\varepsilon^2]}_{\sigma^2}+2\underbrace{\mathbb{E}[\varepsilon]}_{0}\,\mathbb{E}[f(x)-\hat f(x)]+\mathbb{E}_{\mathcal D}[(f(x)-\hat f(x))^2]$$
+
+The cross term dies because $\varepsilon\perp\mathcal D$ and $\mathbb{E}[\varepsilon]=0$ — *that's* where zero-mean independent noise earns its keep. Now split the last term with $\pm\bar f(x)$:
+
+$$\mathbb{E}_{\mathcal D}[(f-\hat f)^2]=\underbrace{(f(x)-\bar f(x))^2}_{\text{Bias}^2}+\underbrace{\mathbb{E}_{\mathcal D}[(\hat f(x)-\bar f(x))^2]}_{\text{Var}}$$
+
+(the second cross term vanishes because $\mathbb{E}_{\mathcal D}[\hat f-\bar f]=0$). So
+
+$$\boxed{\ \mathbb{E}[(y-\hat f(x))^2]=\sigma^2_{\text{noise}}+\text{Bias}^2+\text{Var}\ }$$
+
+- $\sigma^2$ — irreducible; if test error is near it, **stop tuning**.
+- $\text{Bias}^2$ — how wrong the *average* model is; high for under-parameterized/over-regularized fits.
+- $\text{Var}$ — sensitivity to the particular sample; high for flexible/under-regularized fits.
+
+Sweeping complexity, Bias² falls and Var rises, so the sum is the classic **U-curve**. (Caveat: this clean additive split holds **only for squared loss**; for 0-1 loss the decomposition is loss-dependent and non-additive — Domingos 2000.)
+
+<BiasVarianceUCurve caption="The bias-variance U-curve. Sweeping model complexity (x-axis): Bias² drops as capacity grows (blue); Variance rises (red); the total is their sum plus the irreducible noise floor σ² (dashed). The optimum sits where those two forces balance — well below where either alone would put you. The 'σ² floor' line is the reason 'more tuning' has a floor; if your test error is near it, stop." />
+
+## Part 2 — Double descent
+
+> **Goal — know where the U-curve stops being the whole story.**
+
+Past the **interpolation threshold** (roughly when #parameters $=n$, where the model first fits the training data exactly), test risk can **descend a second time** (Belkin et al. 2019). Mechanism: among the infinitely many interpolating solutions, the training procedure's inductive bias selects the **minimum-norm** (smoothest) one, and that norm keeps *decreasing* as capacity grows — an *implicit* ridge — so effective variance falls even at zero training error. This doesn't contradict Part 1: the decomposition is still exact; it's the **variance term** that, counterintuitively, comes *back down* in the over-parameterized regime. The classical U-curve is the *under-parameterized* story; modern over-parameterized models live on the second descent. (Nakkiran 2021 also shows *more data can transiently hurt* near the threshold.)
+
+<DoubleDescent caption="Test risk vs model capacity p/n. Under-parameterized regime (p < n): the classical U-curve — bias falls, variance rises, minimum somewhere in the middle. At p = n (interpolation threshold): the risk spikes because $X^\top X$ becomes ill-conditioned and the min-norm solution's variance blows up. Over-parameterized regime (p > n): risk descends again, and often to a lower minimum than the classical one — because the training procedure's implicit ridge (minimum-norm interpolant) shrinks effective variance as p grows. The whole word 'double' only makes sense as this picture." />
+
+## Part 3 — Cross-validation, as an estimator
+
+> **Goal — treat CV as a random quantity and reason about its bias, its variance, and the bias you create by selecting on it.**
+
+**Its bias (choice of $K$).** Each surrogate trains on $n(1-1/K)$ points, so it's *weaker* than the final all-$n$ model ⇒ $\widehat{\text{CV}}_K$ is **pessimistically biased**, and the bias **grows as $K$ shrinks** ($K=2$ trains on half the data). LOO ($K=n$) trains on $n-1$ → nearly unbiased.
+
+**Its variance.** LOO's $n$ training sets overlap in $n-2$ points ⇒ the fold errors are **highly correlated** ⇒ their average doesn't concentrate ⇒ **high variance**. Smaller $K$ → less-correlated folds → lower variance. So $K$ is itself a bias-variance knob *about the estimator*; **$K=5$ or $10$ is the empirical sweet spot** (Kohavi 1995 found 10-fold stratified beats LOO for *selection*). There's no unbiased estimator of $\text{Var}(\widehat{\text{CV}})$ (Bengio & Grandvalet 2004) — which is why people report a crude $\pm$ SE and use the **one-standard-error rule** (pick the simplest model within 1 SE of the best). (For least-squares linear models LOO is *free* via $\text{PRESS}=\sum_i (e_i/(1-h_{ii}))^2$ using the hat-matrix diagonal — so "LOO is expensive" doesn't apply there.)
+
+**Selection bias (the winner's curse).** For a *single fixed* model, $\widehat{\text{CV}}$ is ~unbiased. But you report $\min_\lambda\widehat{\text{CV}}(\lambda)$, and by Jensen, $\mathbb{E}[\min_\lambda\widehat{\text{CV}}(\lambda)]\le\min_\lambda R(\lambda)$ — **selecting the argmin systematically under-estimates** the chosen model's true risk. With $m$ roughly-independent candidates of noise $\tau$, the optimism is $\approx\tau\sqrt{2\ln m}$. This is the *same statistical phenomenon* as tuning on the test set (c1.1 data-snooping), only milder — and it's the same phenomenon as reporting the best of 100 A/B tests: the *min of noisy estimates* is biased downward, and the bias worsens with more candidates. **Nested CV** fixes it: the inner loop selects $\lambda$, the outer loop (whose folds the selection never saw) estimates the risk of the *whole tuning procedure*.
+
+<CvFoldStrip caption="K-fold CV's structural bias-variance dial. K=5 (top): five folds, each holding out 20% of the data — training sets overlap in ~60% of rows, giving moderately independent fold errors. K=10: smaller held-out slices, larger training sets → lower per-fold bias, higher variance from more-correlated folds. LOO (bottom): n=20 folds; every pair of training sets overlaps in n−2 rows → fold errors are strongly correlated → the mean CV estimate is nearly unbiased but has high variance because it's an average of dependent numbers. That's why K=5 or 10 usually beats LOO in practice." />
+
+> **Stop and think.** Your train and validation errors are both high and nearly equal. Will collecting more data help? *Hint: no — equal-and-high curves are the high-bias/underfit signature; the dominant term is $\text{Bias}^2$, a property of the model class, not the sample size. More data only closes a persistent train-val *gap* (high variance). The fix is more capacity / fewer constraints, not more rows.*
+
+## Part 4 — Hyperparameter search
+
+> **Goal — search the hyperparameter space efficiently, exploiting that few hyperparameters actually matter.**
+
+**Random beats grid in high dimensions** (Bergstra & Bengio 2012). A grid of $v$ values over $d$ hyperparameters costs $v^d$ trials but probes only $v$ distinct values *per axis*; $n$ random points probe $n$ distinct values on *every* axis. If only $d_{\text{eff}}\ll d$ hyperparameters matter (usually true), the grid wastes its budget re-evaluating irrelevant axes while random search explores the important ones at full resolution. The probabilistic guarantee is **dimension-free**: $n$ random draws hit the top-$\beta$ region with probability $\ge 1-\gamma$ once $n\ge\frac{\log\gamma}{\log(1-\beta)}$ — for the top 5% at 95% confidence, **$n=59$** trials, regardless of $d$. ("Top-5% region" means the 5% of the hyperparameter space with the best validation loss — hit it once and one of your random configs is already inside the good neighborhood.)
+
+Beyond random: **Bayesian optimization** (fit a surrogate over tried configs, propose the point maximizing expected improvement — e.g. Optuna's TPE) and **Hyperband / successive halving** (Li et al. 2017 — start many configs at a small budget, keep the top $1/\eta$, multiply survivors' budget, repeat) for expensive training.
+
+## Part 5 — Learning curves and information criteria
+
+> **Goal — diagnose *which* term dominates, and select without a held-out set when you must.**
+
+A **learning curve** (error vs training-set size) diagnoses the regime: **high bias** = train and val errors converge to a *high* floor (more data won't help → add capacity); **high variance** = a persistent train-val *gap* (more data or regularization helps).
+
+<LearningCurveDiag caption="The two learning-curve diagnostic patterns. Left (high bias): train and validation errors converge to the same high floor. More rows won't help — the model class is too weak. Fix: more capacity, weaker regularization, or richer features. Right (high variance): a persistent train-val gap that doesn't close with more data. Fix: regularize, simplify, or genuinely add data if you can. Same axes, so the diagnosis is a matter of shape recognition, not measurement." />
+
+**Information criteria** select without held-out data via penalized likelihood: $\text{AIC}=-2\hat\ell+2k$ and $\text{BIC}=-2\hat\ell+k\ln n$. BIC's heavier penalty ($\ln n>2$ for $n>7$) makes it **consistent** (recovers the true model as $n\to\infty$ if it's in the candidate set; the AIC/BIC crossover is at $\ln n>2$, i.e. $n>e^2\approx7.4$); AIC is **efficient** (minimizes prediction risk) but can over-select.
+
+## Tradeoff matrix
+
+| Search | Cost | Best when |
+|---|---|---|
+| Grid | $v^d$ | $d\le 2$–$3$, want reproducible axis coverage |
+| **Random** | $n$ (dimension-free guarantee) | high-$d$, few hyperparameters matter (the default) |
+| Bayesian (TPE/GP) | sequential | expensive evals, smooth response surface |
+| Hyperband / SHA | multi-fidelity | training has a tunable budget (epochs/data) |
+
+| $K$ | Bias of $\widehat{\text{CV}}$ | Variance | Use |
+|---|---|---|---|
+| 2–3 | high (pessimistic) | low | quick/cheap |
+| **5–10** | moderate | moderate | **default** |
+| $n$ (LOO) | ~none | high (correlated folds) | small $n$; free for OLS via PRESS |
+
+## The stats / quant-research lens
+
+- **The decomposition is the whole game** — derive it cold, state the squared-loss caveat, and connect "ridge accepts bias to cut variance" to c1.3's shrinkage story (a little bias can strictly lower total MSE).
+- **CV error is an estimator with a sampling distribution** — three distinct effects (pessimistic bias from smaller folds, high variance from correlated LOO folds, optimistic *selection* bias from min-over-candidates); a staff-level answer separates all three.
+- **Data-snooping = meta-level leakage:** running 100 CV configs and reporting the best is multiple testing; the number is an order statistic biased by $\approx\tau\sqrt{2\ln m}$. In quant this is **backtest overfitting** (Bailey & López de Prado's *deflated Sharpe ratio*); nested CV / a truly-held-out set is the only honest fix — the same root cause as "more factors mechanically raise in-sample $R^2$" (c1.3).
+- **Double descent as statistics:** at $p=n$ the min-norm solution's variance spikes ($X^\top X$ ill-conditioned), then falls as $p\gg n$ because the pseudoinverse spreads and shrinks weight — an implicit ridge (the c1.3 SVD picture).
+
+
+## Worked decision walk-throughs
+
+**Scenario A: small dataset, you must tune hyperparameters AND report honest generalization.** **Nested CV** — inner loop tunes, outer loop estimates the tuned procedure's risk. Reporting `best_score_` from a single CV would be optimistically biased.
+
+**Scenario B: 8 hyperparameters, only a couple matter.** **Random search** (or Bayesian) — grid wastes budget; ~60 random trials guarantee the top-5% region. 
+
+**Scenario C: each training run is expensive (deep net).** **Hyperband / successive halving** — kill bad configs early at small budgets, promote survivors.
+
+**Scenario D: is my model underfit or overfit?** Plot a **learning curve**: converged-high → bias (add capacity); persistent gap → variance (more data / regularization).
+
+
+## Production failure modes
+
+1. **Tuning on the test set / reporting the best of many CV runs as generalization.** Selection bias ($\approx\tau\sqrt{2\ln m}$) — use a held-out test set or nested CV (c1.1 data-snooping).
+2. **Trusting `GridSearchCV.best_score_` as the generalization estimate.** It's optimistic by construction; it estimates the *selected* model on the *selection* data.
+3. **Defaulting to LOO "because it's unbiased."** High variance + $n$ fits; $K=5$–$10$ usually better (except OLS, where PRESS makes LOO free).
+4. **Grid search in high-dim.** Wastes budget on irrelevant axes; use random/Bayesian.
+5. **Halving estimators import error.** `HalvingGridSearchCV`/`HalvingRandomSearchCV` are still experimental — you must `from sklearn.experimental import enable_halving_search_cv` first.
+6. **Confused by negative scores.** sklearn negates losses (`neg_log_loss`, `neg_mean_squared_error`) so "higher is better"; `best_score_` being negative is expected.
+
+
+## Interview gotchas
+
+- **"Derive the bias-variance decomposition."** From $y=f+\varepsilon$ over $\mathcal D$; name which assumption kills each cross term; squared-loss-only caveat.
+- **"Does more data always help?"** No — high-bias models plateau (converged-high learning curve). More data helps the variance regime.
+- **"Is CV unbiased?"** For a fixed model ~yes (mildly pessimistic); after *selecting* on it, optimistic — nested CV estimates the tuned procedure.
+- **"Grid or random search?"** Random in high-dim (rule of 59 / effective dimensionality, Bergstra–Bengio).
+- **"Does bias always trade off with variance?"** Not past the interpolation threshold — double descent (Belkin 2019); the decomposition still holds, the variance term comes back down.
+- **"LOO vs 10-fold?"** LOO ~unbiased but high-variance and expensive; 10-fold usually better for selection (Kohavi).
+
 
 ## Cited references
 
@@ -591,3 +727,24 @@ External works cited:
 - Rajpurkar et al., 2017. "CheXNet: Radiologist-level pneumonia detection on chest x-rays with deep learning." *arXiv 1711.05225.*
 - Zech et al., 2018. "Variable generalization performance of a deep learning model to detect pneumonia in chest radiographs: A cross-sectional study." *PLOS Medicine* 15(11): e1002683.
 - Kaggle Mercedes-Benz Greener Manufacturing competition discussion (2017).
+
+- Ref 21 — *k-fold cross-validation* — `c1/references/21_kfold_cv.html`
+
+External works (the real sources for the math):
+- Stone, M. 1974. "Cross-Validatory Choice and Assessment of Statistical Predictions." *JRSS B.*
+- Kohavi, R. 1995. "A Study of Cross-Validation and Bootstrap…" *IJCAI.* (10-fold stratified beats LOO for selection.)
+- Bergstra, J., Bengio, Y. 2012. "Random Search for Hyper-Parameter Optimization." *JMLR.* (Random beats grid; rule of 59.)
+- Li, L. et al. 2017. "Hyperband." *JMLR* (successive halving from Jamieson & Talwalkar 2016).
+- Belkin, M. et al. 2019. "Reconciling modern ML practice and the classical bias–variance trade-off." *PNAS.* (Double descent.)
+- Nakkiran, P. et al. 2021. "Deep Double Descent." *J. Stat. Mech.*
+- Bengio, Y., Grandvalet, Y. 2004. "No Unbiased Estimator of the Variance of K-Fold CV." *JMLR.*
+- Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., Ch. 7 (the canonical reference: bias-variance, CV, AIC/BIC, the 1-SE rule, §7.10.2 on the wrong way to do CV).
+
+
+## Take the quiz
+
+When you're done reading, the conceptually-difficult quiz is at **[/c/c1/c1.1/quiz](/c/c1/c1.1/quiz)** — 12 questions, derivations and counter-examples, not recall. The point is to expose where your understanding is shallow before an interviewer does.
+
+Twelve conceptually difficult questions — the bias-variance derivation, the CV selection-bias proof, the rule of 59, double descent, and learning-curve diagnosis.
+
+**[Take the quiz →](/c/c1/c1.1/quiz)**
