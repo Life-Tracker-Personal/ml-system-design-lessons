@@ -43,6 +43,36 @@ Now attach the failure to each stage. Barnett et al. (2024), *Seven Failure Poin
 
 Failures 1 through 3 are retrieval or plumbing. Failures 4 through 7 are generation or query understanding. That split is the whole diagnostic frame.
 
+### The query whose answer is in no chunk
+
+That taxonomy assumes the answer exists as text somewhere and retrieval either found it or did not. One query breaks the assumption: "summarize the main themes of this 300-page report."
+
+Size the document first. Three hundred pages at roughly 500 words per page is 150,000 words, and at about 1.33 tokens per word that is close to 200,000 tokens, so about 400 chunks of 500 tokens each. Retrieval embeds the question, returns the 5 nearest chunks, and hands over 2,500 tokens. That is 1.25% of the document.
+
+The failure is not that 1.25% is too thin a sample. A theme is what recurs across the 400 chunks. It is a property of the set, and the sentence that states it appears verbatim in none of the members. A retriever returns text that is already in the index, so text that is not in the index cannot be returned at any $k$.
+
+Be precise about that, because raising $k$ is the reflex and it distinguishes two different situations. Sometimes an answer is thinly spread: each of eight chunks holds one piece, and pasting all eight in lets the model assemble them. Raising $k$ from 5 to 20 fixes that. A theme is not spread thinly, it is absent. Push $k$ to 100 and you have pasted 50,000 tokens, a quarter of the report, at long-context prices and with the middle of the context going unread, and still no chunk contains the sentence you wanted. The model is now doing the summarization itself over a fraction of the source, which is a worse version of a job you could have done offline.
+
+Chunk size fails for the same reason. Quadruple the chunk to 2,000 tokens and one chunk covers 1% of the report instead of 0.25%. The theme still lives in the other 99%, and you have made every local lookup worse by burying the specific fact inside four times as much surrounding text.
+
+So the fix cannot be a search-time knob. It has to change what is in the index. Make the missing text exist before the query arrives:
+
+1. Embed the chunks and cluster them, so each cluster holds passages about roughly one thing.
+2. Summarize each cluster with a model. That summary is new text stating what its members have in common, and it appears in no source chunk.
+3. Embed the summaries, cluster those, summarize again. Repeat until one node remains.
+
+The result is a tree. Leaves are the original chunks. Each level up is more abstract, and the top is document-level or corpus-level. Index every node in the same vector store, leaves and summaries alike, and search all levels at once. No router is needed, because the vocabulary does the routing: "what was Q3 revenue" lands on a leaf, since only leaves contain the number, and "what are the main themes" lands on an upper node, since upper nodes are written in exactly that abstract register. This is the **RAPTOR** pattern, recursive abstractive processing for tree-organized retrieval.
+
+Now price it, with a 100,000-chunk corpus and clusters of about 10. The first level makes 10,000 summaries and reads all 100,000 chunks, so $100{,}000 \times 500 = 5.0 \times 10^{7}$ input tokens. The second level makes 1,000 summaries reading 10,000 summaries of about 300 tokens, $3.0 \times 10^{6}$ tokens. Levels above that shrink by another factor of 10 each time and add under 1% more. Total is about 11,111 model calls and $5.3 \times 10^{7}$ input tokens, plus roughly $3.3 \times 10^{6}$ output tokens. At an illustrative USD 3 per million input and USD 15 per million output that is about USD 160 plus USD 50, so USD 210. Embedding the same corpus is $100{,}000 \times 500 = 5.0 \times 10^{7}$ tokens, about USD 5 at an illustrative USD 0.10 per million. The tree build costs roughly 40 times the embedding bill, and it is serial model latency rather than one batched matrix multiply.
+
+Two more costs, both worse than the money.
+
+**Drift.** A level-3 node is a model summary of model summaries of model summaries. An error introduced at level 1 propagates upward with nothing to correct it, and the higher the node, the further its text sits from anything a human wrote. Make citations resolve downward: an answer built from an upper node cites the leaves beneath it, so a reader can check the abstraction against the source.
+
+**Staleness.** A tree of 100,000 chunks with clusters of 10 is about $\log_{10} 100{,}000 = 5$ levels deep. Editing one chunk invalidates its cluster summary, that summary's parent, and so on to the root, which is 5 dirty nodes. The root sits on every path, so *any* edit anywhere dirties the top of the tree. Under a change feed carrying edits all day, the upper levels are permanently stale unless you rebuild them on a schedule, which puts back the batch-rebuild staleness that incremental indexing was there to remove. The workable compromise is to accept staleness that grows with height: leaves are live, mid-levels rebuild hourly, the top rebuilds nightly. Say that out loud rather than pretending the tree is fresh.
+
+One confusion to head off. This is not the same as summarizing at query time. A map-reduce summarizer reads the whole document on every request and pays the long-context bill each time. The tree pays that bill once and amortizes it over every future query. If the corpus is small and static and the global questions are rare, query-time map-reduce is the cheaper engineering.
+
 ## Part 2 — Reranking, and why a bi-encoder cannot do it
 
 A bi-encoder scores a query $q$ against a candidate document $d$ by embedding each one on its own and taking an inner product. Write $f$ for the query encoder and $g$ for the document encoder, both mapping text to vectors of the same dimension, and $s$ for the relevance score they produce:
@@ -72,6 +102,32 @@ Rerank 50 candidates and that is $5.3 \times 10^{12}$ FLOPs. On an accelerator d
 Now try to skip retrieval and cross-encode a 10M-document corpus directly. That is $200{,}000$ times the work, about $1.1 \times 10^{18}$ FLOPs, roughly 6 hours per query. This is why the pattern is fixed: cheap recall-oriented retrieval to top-50, expensive precision-oriented reranking down to top-5.
 
 > **Stop and think.** If the cross-encoder is strictly better at ranking, why does raising the retrieval depth from 50 to 500 sometimes fail to improve the final answer at all? Hint: the reranker only reorders what it is given, so ask what recall@50 already was.
+
+### Late interaction, the third point on the axis
+
+Bi-encoder and cross-encoder are not the only two things the factorization allows, and finding the third is a matter of asking what exactly the bi-encoder gave up. It gave up two separate things at once. It gave up seeing the query while encoding the document, and it gave up representing the document as anything richer than one vector. Precomputation needs only the first. Nothing forces the second.
+
+So keep the encoders independent and drop the single-vector commitment. Encode a document $d$ of $m$ tokens into $m$ vectors, one per token, written $g(d)_1, \dots, g(d)_m$. None of them contains $q$, so all of them are computed at index time exactly as before. Encode the query $q$ of $n$ tokens into $f(q)_1, \dots, f(q)_n$ at query time. Then score:
+
+$$
+s(q, d) = \sum_{i=1}^{n} \max_{1 \le j \le m} f(q)_i^\top g(d)_j
+$$
+
+Read it in words. Each query token looks across every document token, keeps its single best match, and contributes that similarity. Sum over the query tokens. The name for the inner operation is **MaxSim**, and the family is called **late interaction**, because query and document meet only after both have been encoded, rather than inside the encoder.
+
+Why this recovers some of what the cross-encoder had. A part number in the query is one token with its own vector, and it can match the part-number token in the chunk at full resolution. In a bi-encoder that same token was averaged into a single vector alongside 499 others, and a 500-token chunk that mentions the part number once looks almost identical to one that never mentions it. MaxSim keeps the evidence local.
+
+Why it is still not a cross-encoder. Each $g(d)_j$ was computed without seeing the query, so what you have is a similarity table between two fixed sets of vectors, not attention conditioned on the pair. A chunk reading "this failure mode is not covered under warranty" has a "warranty" token whose vector matches the query's "warranty" token perfectly well. Scoping, negation and the resolution of which of two dates applies live in the interaction between the sequences, and late interaction never computes that interaction. It sits between the two on quality for a reason you can point at in the equation.
+
+The scoring is nearly free. One candidate at $n = 30$ query tokens, $m = 500$ document tokens and 128 dimensions per token costs $30 \times 500 \times 128 \times 2 = 3.8 \times 10^{6}$ FLOPs, against $1.1 \times 10^{11}$ for one cross-encoder pair. That is a factor of roughly 28,000 cheaper per pair.
+
+The bill moved to storage. Take a 768-dimensional single vector at fp32: $768 \times 4 = 3{,}072$ bytes per chunk, so 10M chunks is 30.7 GB. Store one 768-dimensional fp32 vector per token instead and a 500-token chunk costs $500 \times 3{,}072 = 1.54$ MB, which is 500 times as much and 15.4 TB for the corpus. Unusable, which is why the standard construction projects each token vector down to 128 dimensions and stores it at fp16, 256 bytes per token. Then a 500-token chunk is $500 \times 256 = 128{,}000$ bytes, and the ratio against 3,072 bytes is 41.7. The multiple is not a constant, because storage is one vector per token: it is proportional to the tokens per chunk, so it is 41.7 at 500-token chunks and 20.8 at 250, and it lands in the tens across normal chunk lengths rather than at any single figure. At 500-token chunks, 10M of them need about 1.28 TB. Residual quantization to about 2 bits per dimension is the next step down: 128 dimensions at 2 bits is 32 bytes per token, so a 500-token chunk is 16,000 bytes and the multiple falls to about 5, paid for with some ranking quality.
+
+The query path also gets harder. Approximate nearest-neighbour search now returns matching *tokens*, not documents. You look up each query token's neighbours, map the hits back to the documents that own them, gather that candidate set, then load each candidate's full token matrix and compute MaxSim over it. That is a two-stage retrieve-and-score inside what used to be one lookup, and it needs the complete per-document matrix resident somewhere fast.
+
+When the trade is worth taking. Late interaction moves cost from query time to storage and index complexity, so it earns its place when the query-time budget is the binding constraint: high QPS where 100 ms of reranker GPU per query is a capacity problem rather than a latency annoyance, and a failure population that is genuinely token-level, meaning identifiers, codes and rare terms that the single vector is smearing together. It also earns its place when you want that token sensitivity in the *first* stage, over the whole corpus, rather than only inside a top-50 window that the first stage already had to produce correctly.
+
+When the boring answer is better. If recall@50 from a hybrid lexical-plus-dense first stage is already high and the losses are in ordering, a bi-encoder plus a cross-encoder reranker wins on nearly every axis you care about: one vector per chunk, a stronger top-5 because the reranker really does read the pair, and a component you can add, tune, cache or switch off without touching the index. Lexical retrieval already handles exact identifiers at almost no cost. Measure first: if you cannot show that the first stage is the ceiling and that the misses are token-level, a 20-fold to 40-fold index is a large bill for a hypothesis.
 
 ## Part 3 — Context assembly and lost-in-the-middle
 
@@ -165,6 +221,54 @@ Do this with arithmetic. A 1M-token context call at an illustrative \$3 per mill
 The decision rule. **Long context** wins when the relevant material is small, static and fits the window. Do not build retrieval for a 40-page handbook. **RAG** wins when the corpus is much larger than the window, changes, is permissioned, or needs citations. **Fine-tuning** teaches behavior, format and domain vocabulary. It does not teach volatile facts, and a fine-tuned fact cannot be cited, updated or revoked.
 
 The more useful frame: retrieval is a tool in a loop, not automatically a pipeline. On a navigable structured corpus, a codebase or a well-organized wiki, an agent doing keyword search and following links often beats embedding the whole thing. Prototype the cheapest option and let recall@k on a labeled set make the call.
+
+### When to stop an iterative retriever
+
+Once retrieval is a loop, something has to end it, and the obvious control is wrong in an instructive way.
+
+Start with why the loop exists. "Which of our EU subsidiaries buys from the vendor whose SOC 2 report lapsed last quarter?" cannot be answered by one retrieval, because no chunk contains both halves. Round one finds the vendor whose report lapsed. Round two, now holding that vendor's name, finds the subsidiary that buys from it. The query for round two could not be written until round one returned, which is what makes this multi-hop rather than merely broad.
+
+Each round costs a retrieval plus a model call to decide what to ask next, so latency and price scale with the number of rounds. Tail latency is where this hurts: at roughly 150 ms of retrieval and 800 ms of generation per round, one hop is about a second and three hops is about three.
+
+The obvious control is a fixed cap, three iterations and stop. It fails in both directions at once, because the number of hops is a property of the question and a cap is a constant.
+
+Put numbers on it. Suppose you label 200 real questions with the number of hops each actually needs, and get 70% at one hop, 25% at two, 5% at three. A loop that always runs to a cap of 3 does 3 rounds per question. A loop that stops when the evidence is in does
+
+$$
+0.70 \times 1 + 0.25 \times 2 + 0.05 \times 3 = 1.35
+$$
+
+rounds on average. The cap does 2.2 times the work for the same answers. Lower the cap to 1 to protect the tail and 30% of questions now return an answer built from half the evidence, confidently and silently, and it is the hardest 30% that breaks. The cap fires exactly where you least want it to and idles exactly where you least need it.
+
+What should gate the next hop is **evidence sufficiency**: an explicit check over the pair (question, context retrieved so far) asking whether that context can answer the question yet. Sufficient, stop and generate. Insufficient, write the next sub-query from what is now known and go again. Keep the cap, demoted to a cost backstop, and make it loud: when it fires, log the event and have the answer say the search was cut short, because a truncated multi-hop answer that reads as complete is the failure mode this whole design exists to avoid.
+
+Feed the check the question and the retrieved spans, not the draft answer. Given a draft it starts scoring whether the answer is supported by the context, which is faithfulness, a different question with a different failure profile. A cheap deterministic pre-check helps too: if the entities named in the last sub-query do not appear in the retrieved text at all, the context is insufficient and no model call is needed to establish that.
+
+Now the part people skip. The check is a binary classifier, so it earns exactly the validation a faithfulness judge earns: human labels, the two conditional rates, roughly 100 labels per class. What is specific to this classifier is what a label is and which class is positive. A label is a (question, context) pair a human marked as sufficient or not, harvested from real multi-hop traffic and stratified so both classes are populated. Take the positive class to be "insufficient, keep going", so TPR is the fraction of genuinely insufficient contexts the check flags and TNR the fraction of genuinely sufficient ones it correctly stops on.
+
+The two errors are not symmetric, and the asymmetry sets the operating point. A false "sufficient" ends retrieval early and produces a wrong answer with no signal that anything went missing. A false "insufficient" buys one more round. Price both against the same distribution, taking the 1.35 rounds of a perfect check as the baseline. A check running at TNR 0.7 fires an extra round on 30% of the questions that should have stopped, adding about 0.3 rounds to reach 1.65, a 22% cost increase. A check running at TPR 0.75 sends 25% of the genuinely insufficient cases to an early answer; with 30% of traffic needing more than one hop, that is $0.25 \times 0.30 = 0.075$, so 7.5% of all queries answered wrong. Trading 22% on the bill against 7.5% wrong answers is not a close call, so tune the threshold toward continuing.
+
+Two things to log per query, since neither is visible otherwise: the number of hops taken, and whether the cap fired. The hop distribution tells you whether the cap is set anywhere near reality. A rising cap-fired rate means the corpus changed or the query mix got harder, and it moves before the answer-quality metrics do.
+
+### When a knowledge graph earns its cost
+
+A second index-time construction comes up whenever multi-hop questions do, so price it the same way.
+
+The construction: at index time, run a model over each chunk and have it emit entity-relationship triplets, subject-relation-object, each stamped with the chunk it came from. Accumulate them into a graph where nodes are entities and edges are relations. At query time, resolve the entities in the question to nodes, walk edges outward, and pull the chunks attached to the nodes and edges you traversed. This is **GraphRAG**.
+
+What it buys is a join that no chunk states. "Which of our suppliers is downstream of a company sanctioned last month" needs chunk A saying X supplies Y, chunk B saying Y is owned by Z, and chunk C sanctioning Z. No chunk contains the connection, and top-$k$ over the question's embedding retrieves none of the three reliably, because the question's vocabulary matches none of them well. The graph performs that join once, offline, and the traversal is what a single similarity lookup cannot be. The shape is familiar: like a thematic summary, the answer exists in no chunk, and the fix is to manufacture the missing structure at index time. The missing thing here is a join rather than an abstraction.
+
+What it costs is one model call per chunk, and that inverts the usual cost shape. Take 20,000 documents a week at 20 chunks each, so 400,000 chunks a week. An extraction call reads about 500 tokens of chunk plus roughly 1,000 tokens of schema and instructions, and writes about 300 tokens of triplets. Weekly that is $400{,}000 \times 1{,}500 = 6.0 \times 10^{8}$ input tokens and $400{,}000 \times 300 = 1.2 \times 10^{8}$ output tokens. At an illustrative USD 3 per million input and USD 15 per million output, USD 1,800 plus USD 1,800, about USD 3,600 a week. Serving 10,000 queries a day at roughly USD 0.01 each is 70,000 queries a week, so USD 700. Indexing is roughly 5 times serving, and it scales with how much you ingest rather than how much anyone asks, so it does not amortize when usage is low and it does not fall when traffic does.
+
+That makes the qualifying test a measurement, not a preference. Take 50 real questions, label for each how many documents its evidence spans and whether those documents share enough vocabulary for one query embedding to reach both. If a handful qualify, a graph is an expensive way to be a vector index. Extraction also introduces a failure mode the vector path does not have: a model reading "X terminated its supply agreement with Y" and emitting the triplet (X, supplies, Y) has written a confident false edge, and every traversal through it inherits the error. Sample extracted triplets against their source chunks and carry a triplet precision number, because nothing downstream will surface that error as anything but a wrong answer.
+
+**The evaluation trap.** This is the sharper point, and it is where the published enthusiasm needs reading carefully.
+
+The strongest published GraphRAG results are on sense-making questions, the "what are the main themes across this corpus" shape, judged head to head by a model on criteria like comprehensiveness, meaning how many aspects the answer covers, and diversity, meaning how varied the perspectives are. Read what those criteria measure. Neither one asks whether a claim is true. An answer listing ten related facts, three of them wrong, beats an answer listing four correct ones on both criteria. A decisive win there is fully consistent with a system that is less accurate, and it is consistent with a system whose multi-hop answers are wrong most of the time, because the score never looked.
+
+The judge is the second half of the trap. Comprehensiveness is a graded subjective criterion, so it fails the validation bar a faithfulness judge has to clear, and there is no TPR or TNR to report for it at all. Head-to-head preference judging also carries position and verbosity biases, and answers assembled by aggregating many cluster summaries are longer than answers assembled from five chunks. Longer answers score higher on comprehensiveness close to by construction, so part of the measured win is a property of the output length rather than of the retrieval.
+
+Correctness has to be measured separately and it needs different labels. Build multi-hop questions with a known short answer and a known evidence set, then report two numbers. On the retrieval side, recall over the labeled evidence set: did the traversal actually pull the chunks supporting each hop. On the generation side, exact match against the short answer, or a single binary judge asking one question with a decision rule, validated on human labels by TPR and TNR. Put those beside the cost per indexed document. A graph that wins on comprehensiveness and loses on multi-hop answer accuracy has told you to keep the vector index.
 
 ## Tradeoff matrix
 
