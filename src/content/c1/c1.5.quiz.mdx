@@ -1,392 +1,125 @@
 ---
 lessonId: c1.5
 chapter: 1
-title: Quiz — Trees & ensembles
-description: 12 conceptually difficult questions on CART, bagging/random forests, boosting/GBDT, and stacking.
-estimatedMinutes: 45
+title: Quiz — PCA & dimensionality reduction
+description: Conceptually difficult questions on PCA and how eigendecompositions are actually computed.
+estimatedMinutes: 15
 ---
 
-These questions test whether you can explain what an ensemble is doing before reaching for its formula. Start every answer with the behavior you expect, then use the derivation to justify it. The decorrelation identity, functional gradient descent, and the XGBoost objective are evidence for the intuition—not substitutes for it.
+These 14 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
 
 <Quiz id="1">
 
-**Q1. Did the split make the groups easier to predict?** A parent node contains 8 class-A and 2 class-B examples. A candidate question sends $\{6A,0B\}$ left and $\{2A,2B\}$ right. Before calculating, explain which child is pure, which remains uncertain, and why child sizes must be used as weights. Then compute the Gini decrease and entropy information gain. Do the criteria agree?
+**Q14 · must-know. How would you actually compute the eigenvalues?** You have said PCA is an eigendecomposition of the covariance matrix $C=\frac1nX^\top X$. The interviewer asks how that gets computed.
+
+**(a)** Explain why "solve $\det(C-\lambda I)=0$" is the wrong answer, on two separate counts. Then say which direction the relationship between polynomial roots and eigenvalues actually runs in numerical software.
+
+**(b)** Start from $\max_{\lVert v\rVert=1}v^\top Cv$. Take any $q_0$, expand it in the eigenbasis, and multiply by $C$ repeatedly. Derive what $C^tq_0/\lVert C^tq_0\rVert$ converges to and under exactly which two conditions. Give the convergence rate, then show how you recover the eigenvalue once you have the vector.
+
+**(c)** You want the top $k$ components, so you run (b) from $k$ different random starting vectors. What goes wrong, and what is the minimal fix? Name the resulting algorithm and say precisely what the QR step is doing.
+
+**(d)** Now the full spectrum. Factor $A_t=Q_tR_t$ and re-multiply in the reverse order, $A_{t+1}=R_tQ_t$. Show in two lines why this leaves the eigenvalues unchanged, and say what a symmetric $A_t$ converges to and where the eigenvectors come from. Then: one dense QR step costs $O(d^3)$, so why is this algorithm not hopeless? Name the preprocessing step, the reflection that performs it, and where the total cost actually lands.
+
+**(e)** You have $d=10{,}000$ features and want $k=50$ components. Say why you would not run (d) at all, name what you would run instead, and explain why the whole computation needs only $Xv$ and $X^\top u$ products. Give two separate reasons — one about memory, one about numerical accuracy — for running SVD on $X$ rather than eigendecomposing $X^\top X$.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Gini.** Parent: $p_A=0.8$, $p_B=0.2$, $G = 1 - (0.8^2 + 0.2^2) = 1 - 0.68 = 0.32$.
-- Left $\{6A,0B\}$: pure, $G_L = 0$.
-- Right $\{2A,2B\}$: $G_R = 1 - (0.5^2 + 0.5^2) = 0.5$.
-- Weighted child Gini: $\frac{6}{10}(0) + \frac{4}{10}(0.5) = 0.2$.
-- **Gini decrease $= 0.32 - 0.2 = 0.12$.**
+**(a) Two independent objections.**
 
-**Entropy** (bits). Parent: $H = -(0.8\log_2 0.8 + 0.2\log_2 0.2) = -(0.8(-0.3219) + 0.2(-2.3219)) \approx 0.722$.
-- Left: pure, $H_L = 0$. Right: $\{2,2\}$, $H_R = 1$.
-- Weighted child entropy: $0.6(0) + 0.4(1) = 0.4$.
-- **Information gain $= 0.722 - 0.4 \approx 0.322$ bits.**
+*No closed form.* By Abel–Ruffini there is no radical formula for polynomial roots past degree 4, so for $d>4$ you would need an iterative root-finder anyway. You have not escaped iteration; you have moved it somewhere worse.
 
-Both criteria give a positive decrease, so both agree it's a good split (it perfectly isolates 6 of the A's). In general Gini and entropy rarely disagree on the chosen split — both peak at $p=0.5$, where $G = 0.5$ equals half the entropy *in bits* — and Gini is cheaper (no logarithm).
+*Conditioning.* Root-finding from polynomial coefficients is badly conditioned — tiny perturbations in the coefficients move the roots enormously (Wilkinson's polynomial is the standard demonstration). Forming the characteristic polynomial discards the structure of the matrix and converts a well-conditioned symmetric eigenproblem into an ill-conditioned root problem. You would be throwing away the very property that makes the problem easy.
+
+*The direction reverses.* Software goes the other way. To find the roots of a polynomial you build its **companion matrix** and compute *its* eigenvalues — that is what `numpy.roots` does internally. Eigenvalue algorithms are the primitive; polynomial root-finding is the client.
+
+**(b) Power iteration.** $C$ is symmetric, so it has an orthonormal eigenbasis $C=V\Lambda V^\top$ with $\lambda_1\ge\cdots\ge\lambda_d\ge0$. Write $q_0=\sum_jc_jv_j$. Each multiplication scales each eigenvector by its own eigenvalue:
+
+$$C^tq_0=\sum_jc_j\lambda_j^tv_j=\lambda_1^t\left[c_1v_1+\sum_{j\ge2}c_j\left(\frac{\lambda_j}{\lambda_1}\right)^tv_j\right]$$
+
+If $\lambda_1>\lambda_2$ every ratio $(\lambda_j/\lambda_1)^t\to0$, so the normalized iterate $\to\pm v_1$.
+
+*The two conditions.* (i) A **strict gap** $\lambda_1>\lambda_2$ — with a repeated top eigenvalue the iteration converges to *some* vector in the top eigenspace, not a unique direction. (ii) $c_1\neq0$ — the start must have a component along $v_1$. In practice a random start satisfies this with probability 1, and rounding noise reintroduces the component even if you started orthogonal to it.
+
+*Rate.* Linear, with ratio $\lambda_2/\lambda_1$: the error falls by that factor each step. Close leading eigenvalues means slow convergence, which is the honest weakness of the method.
+
+*Eigenvalue.* Once $q\approx v_1$, $Cq\approx\lambda_1q$; left-multiply by $q^\top$ and use $\lVert q\rVert=1$:
+
+$$q^\top Cq\approx\lambda_1q^\top q=\lambda_1$$
+
+the **Rayleigh quotient**. Worth adding: it is accurate to *second* order — an $O(\epsilon)$ error in the eigenvector gives only $O(\epsilon^2)$ error in the eigenvalue, because the Rayleigh quotient is stationary at an eigenvector. The eigenvalue is always better converged than the vector.
+
+**(c) They all collapse onto $v_1$.** Independent starts do not help: every start has a $v_1$ component, and $v_1$ dominates all of them equally. You get $k$ noisy copies of the same direction.
+
+*Minimal fix.* Iterate them as a block and re-orthogonalize every step. With $Q$ holding $k$ orthonormal columns:
+
+$$Z_t=CQ_t,\qquad Q_{t+1}=\operatorname{orth}(Z_t)\ \text{ via }\ Z_t=QR,\ \text{keep }Q,\ \text{discard }R$$
+
+This is **orthogonal iteration** (simultaneous power iteration). The QR step is doing the anti-collapse work: multiplication by $C$ pushes every column toward $v_1$, and orthogonalization projects out the directions already claimed by earlier columns, so column $j$ retains the leading direction *not* spanned by columns $1..j-1$. The span converges to $\operatorname{span}(v_1,\ldots,v_k)$ at a rate set by $\lambda_{k+1}/\lambda_k$ — the gap at the *edge* of the block you kept.
+
+**(d) The QR algorithm.** $A_t=Q_tR_t$ with $Q_t$ orthogonal gives $R_t=Q_t^\top A_t$, hence
+
+$$A_{t+1}=R_tQ_t=Q_t^\top A_tQ_t$$
+
+a similarity transform. It preserves eigenvalues: if $Av=\lambda v$ and $B=Q^\top AQ$, set $w=Q^\top v$; then $Bw=Q^\top AQQ^\top v=Q^\top Av=\lambda Q^\top v=\lambda w$.
+
+For symmetric $A_t$ the iterates converge to $\Lambda$ — eigenvalues on the diagonal. The eigenvectors are the **accumulated rotations** $\bar Q_t=Q_0Q_1\cdots Q_t\to V$; you get them by carrying the product along, not by a second pass. (Non-symmetric matrices converge instead to real Schur form, quasi-upper-triangular with $2\times2$ blocks for complex-conjugate pairs.)
+
+*Why it is not hopeless.* Reduce before you iterate. Householder reflections $H=I-2vv^\top$ applied on both sides, $C\to HCH$ — still a similarity since $H$ is symmetric and orthogonal — drive $C$ to **tridiagonal** form (Hessenberg for a general matrix). Symmetry means clearing below the subdiagonal simultaneously clears above the superdiagonal.
+
+The cost then lands as: a one-time $O(d^3)$ for the reduction, after which each QR step on a tridiagonal matrix is $O(d)$ instead of $O(d^3)$. With shifts (Wilkinson) and deflation the iteration takes $O(1)$ steps per eigenvalue. So the total is $O(d^3)$ **dominated by the reduction, not the iteration** — which is the whole reason "reduce, then iterate" is the standard shape of a symmetric eigensolver.
+
+**(e) You want 50 of 10,000, so do not compute 10,000.** Running (d) means producing $9{,}950$ eigenvectors to discard them.
+
+*What to run.* A Krylov method — **Lanczos** for the symmetric case (`scipy.sparse.linalg.eigsh`, ARPACK underneath), or **randomized SVD** (`PCA(svd_solver="randomized")` in scikit-learn). Power iteration already showed that $q,Cq,C^2q,\ldots$ carries increasing information about the dominant eigenvectors, so keep the whole sequence: build an orthonormal basis $Q_m$ of $\mathcal K_m(C,q)=\operatorname{span}\lbrace q,Cq,\ldots,C^{m-1}q\rbrace$, project
+
+$$T_m=Q_m^\top CQ_m$$
+
+which is only $m\times m$ (and tridiagonal when $C$ is symmetric), solve the small problem $T_my=\theta y$, and lift back with $v\approx Q_my$. Those are the Ritz pairs.
+
+*Why only matrix-vector products.* Krylov methods never need $C$ itself, only its action:
+
+$$Cv=\tfrac1nX^\top Xv=\tfrac1nX^\top(Xv)$$
+
+so $v\to Xv\to X^\top(Xv)$, two passes over $X$ and no $d\times d$ matrix anywhere.
+
+*Two reasons to SVD $X$ directly.* **Memory and compute:** $C$ is $d\times d=10^8$ entries you never have to store, and forming it costs $O(nd^2)$ you never have to spend. **Accuracy:** $\kappa(X^\top X)=\kappa(X)^2$. Squaring the condition number costs you roughly half your significant digits, and it destroys exactly the small singular values — which matters whenever the design is near-collinear. A matrix $X$ that is perfectly workable can produce an $X^\top X$ that is numerically singular.
+
+*The bridge.* $X=UDV^\top\Rightarrow X^\top X=VD^2V^\top$, so the right singular vectors of $X$ *are* the eigenvectors of $C$, with $\lambda_j=d_j^2/n$. You get the same answer, computed on a better-conditioned object.
 
 **Rubric:**
-- Parent Gini 0.32; weighted child 0.2; decrease 0.12
-- Parent entropy ≈0.722; weighted child 0.4; gain ≈0.322
-- Both positive → both favor the split
-- Note Gini and entropy track closely (both peak at 0.5, where $G=0.5=H_{\text{bits}}/2$); Gini cheaper
+- (a) Both objections, kept separate: no closed form past degree 4, *and* root-finding is ill-conditioned — not just one of them
+- (a) Knows the dependency runs the other way: companion matrix, `numpy.roots` calls an eigensolver
+- (b) Expands $q_0$ in the eigenbasis and factors out $\lambda_1^t$ — the derivation, not just the name
+- (b) Both conditions ($\lambda_1>\lambda_2$ strictly; $c_1\neq0$) and what breaks under a repeated top eigenvalue
+- (b) Rate $\lambda_2/\lambda_1$; Rayleigh quotient for the eigenvalue; bonus for its second-order accuracy
+- (c) Identifies that independent starts all collapse to $v_1$, and that the fix is blocking + re-orthogonalization
+- (c) Says what QR is *for* (projecting out claimed directions), not merely that it appears; rate $\lambda_{k+1}/\lambda_k$
+- (d) $R_t=Q_t^\top A_t\Rightarrow A_{t+1}=Q_t^\top A_tQ_t$, plus the one-line similarity proof
+- (d) Eigenvectors come from the accumulated product $\bar Q_t$, not a second pass
+- (d) Householder $\to$ tridiagonal as a one-time $O(d^3)$; per-step drops to $O(d)$; total dominated by the reduction
+- (e) Names Lanczos/Krylov or randomized SVD and the project–solve–lift structure
+- (e) $Cv=\frac1nX^\top(Xv)$ — only the action of $C$ is ever needed
+- (e) Both reasons distinctly: memory/compute *and* $\kappa(X^\top X)=\kappa(X)^2$ losing half the digits
+- (e) Connects $X=UDV^\top$ to $C=VD^2V^\top/n$
 
 </details>
 
 </Quiz>
 
-<Quiz id="2">
-
-**Q2. Why does a forest need disagreement, not merely more trees?** Suppose every tree has variance $\sigma^2$ and every pair has error correlation $\rho$. Derive the variance of their average, separating the part more trees remove from the shared-error floor they cannot remove. Take $B\to\infty$, then quantify what happens when feature subsampling lowers $\rho$ from $0.9$ to $0.5$.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**Derivation.** For $\bar X = \frac1B\sum_b X_b$ with $\operatorname{Var}(X_b)=\sigma^2$ and $\operatorname{Cov}(X_i,X_j)=\rho\sigma^2$ for $i\ne j$:
-
-$$\operatorname{Var}(\bar X) = \frac{1}{B^2}\left[\sum_b \operatorname{Var}(X_b) + \sum_{i\ne j}\operatorname{Cov}(X_i,X_j)\right] = \frac{1}{B^2}\left[B\sigma^2 + B(B-1)\rho\sigma^2\right]$$
-
-$$= \frac{\sigma^2}{B} + \frac{B-1}{B}\rho\sigma^2 = \rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$$
-
-**Limit.** As $B\to\infty$, $\operatorname{Var}(\bar X) \to \rho\sigma^2$ — a **floor set entirely by the correlation**. Adding trees only helps until you hit it.
-
-**Factor.** The large-$B$ variance is $\rho\sigma^2$, so cutting $\rho$ from 0.9 to 0.5 multiplies it by $0.5/0.9 \approx 0.556$ — about a **44% reduction** in the variance floor. This is precisely why random forests inject per-split feature randomness: to drive $\rho$ down.
-
-**Rubric:**
-- Expand $\operatorname{Var}(\bar X)$ into variance + covariance terms
-- Land on $\rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$
-- $B\to\infty$ floor $=\rho\sigma^2$
-- Factor $0.5/0.9\approx0.556$; connect to RF's purpose (lower $\rho$)
-
-</details>
-
-</Quiz>
-
-<Quiz id="3">
-
-**Q3. How does resampling create free validation predictions?** A bootstrap sample makes $n$ draws with replacement, so some rows repeat and others are absent. Derive the probability that one particular row is never drawn and its $n\to\infty$ limit. For $n=1000$, distinguish total draws from distinct in-bag rows. With 100 trees, estimate how many can honestly contribute to one row's OOB prediction.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**Derivation.** A bootstrap draws $n$ rows with replacement. The probability a specific row is *not* picked in one draw is $1 - \frac1n$; over $n$ independent draws it's $\left(1-\frac1n\right)^n$. As $n\to\infty$:
-
-$$\left(1 - \frac1n\right)^n \to e^{-1} \approx 0.368$$
-
-So **~36.8% of rows are out-of-bag** per tree, and ~63.2% are in-bag.
-
-**For $n=1000$:** $\approx 368$ rows OOB per tree; expected distinct in-bag $\approx n(1-e^{-1}) \approx 632$.
-
-**With 100 trees:** each row is OOB for ~36.8% of trees, so ~**37 trees** never saw it and contribute to its OOB prediction. Averaging those gives the row's OOB estimate; doing this for all rows yields a near-free, CV-quality error estimate.
-
-**Rubric:**
-- $(1-1/n)^n \to e^{-1} \approx 0.368$
-- ~368 OOB, ~632 distinct in-bag for $n=1000$
-- ~37 of 100 trees score a given row OOB
-- Note OOB ≈ free cross-validation
-
-</details>
-
-</Quiz>
-
-<Quiz id="4">
-
-**Q4. How loudly should AdaBoost trust the next classifier?** Derive $\beta=\tfrac12\log((1-\operatorname{err})/\operatorname{err})$ from exponential loss. Interpret a perfect learner and a chance-level learner. Then explain why repeatedly emphasizing misclassified rows helps with hard examples but becomes dangerous when a label is wrong.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**Setup.** At stage $m$ we add $\beta G(x)$ to $f_{m-1}$, minimizing exponential loss over the (normalized) weights $w_i \propto e^{-y_i f_{m-1}(x_i)}$:
-
-$$\sum_i w_i\, e^{-y_i \beta G(x_i)} = e^{-\beta}\!\!\sum_{y_i = G(x_i)}\!\! w_i + e^{\beta}\!\!\sum_{y_i \ne G(x_i)}\!\! w_i$$
-
-Let $W = \sum_i w_i$ and $\text{err} = \frac{\sum_{\text{wrong}} w_i}{W}$. The objective is $W\!\left[e^{-\beta}(1-\text{err}) + e^{\beta}\,\text{err}\right]$.
-
-**Minimize over $\beta$.** $\frac{d}{d\beta} = -e^{-\beta}(1-\text{err}) + e^{\beta}\,\text{err} = 0 \Rightarrow e^{2\beta} = \frac{1-\text{err}}{\text{err}} \Rightarrow \boxed{\beta = \tfrac12\ln\frac{1-\text{err}}{\text{err}}}$.
-
-(Discrete AdaBoost often quotes the classifier weight $\alpha_m = \ln\frac{1-\text{err}}{\text{err}} = 2\beta$; the factor of 2 washes out under reweight-and-renormalize and doesn't change predicted signs.)
-
-**Edge cases.** $\text{err}\to0 \Rightarrow \beta\to+\infty$ (a perfect learner gets infinite vote); $\text{err}=0.5 \Rightarrow \beta=0$ (a chance learner is ignored); $\text{err}>0.5 \Rightarrow \beta<0$ (flip it).
-
-**Fragility to noise.** Exponential loss $e^{-yf}$ grows *exponentially* in the negative margin, so a persistently misclassified point (e.g. a mislabeled example) gets its weight blown up round after round, and the ensemble keeps contorting to fit it. That's why AdaBoost degrades under label noise, and why gradient boosting with a robust loss (or random forests) is preferred there.
-
-**Rubric:**
-- Split exp-loss into correct/incorrect sums; define err
-- Differentiate, solve $e^{2\beta}=(1-\text{err})/\text{err}$ → $\beta=\tfrac12\ln\frac{1-\text{err}}{\text{err}}$
-- Edge cases: err 0 → ∞, 0.5 → 0
-- Exp-loss up-weights mislabeled points exponentially → noise fragility
-
-</details>
-
-</Quiz>
-
-<Quiz id="5">
-
-**Q5. What correction is each new tree being asked to learn?** Define a pseudo-residual as the change that would reduce the current loss fastest at each row. Derive it for squared loss, MAE, and binary log loss, interpreting each in words. Explain why squared-loss boosting literally fits residuals and why a constant leaf update is a mean for squared loss but a median for absolute loss.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**What it fits.** Each tree fits the **negative gradient of the loss w.r.t. the current prediction** (the pseudo-residual), evaluated at $f_{m-1}$:
-
-$$r_{im} = -\left[\frac{\partial L(y_i, f(x_i))}{\partial f(x_i)}\right]_{f = f_{m-1}}$$
-
-This is gradient descent in function space: the tree approximates the steepest-descent direction.
-
-**Specializations.**
-- **Squared loss** $L=\tfrac12(y-f)^2$: $-\partial L/\partial f = (y-f) = r$, the **ordinary residual**.
-- **MAE** $L=|y-f|$: $-\partial L/\partial f = \text{sign}(y-f)$.
-- **Log loss** (binary, $f$ = logit, $p=\sigma(f)$): $-\partial L/\partial f = y - p$.
-
-**Why "fit the residuals."** Because for squared loss the pseudo-residual *is* the residual $y-f$, so each round literally fits a tree to the current residuals and adds it — the classic intuition.
-
-**Mean vs median leaf value.** After fitting the tree's structure, the leaf value is chosen to minimize the *actual loss* on that leaf's points. The constant $c$ minimizing $\sum(y_i - c)^2$ is the **mean**; the constant minimizing $\sum|y_i - c|$ is the **median** (the same mean-vs-median result as c1.2: squared loss → conditional mean, absolute loss → conditional median).
-
-**Rubric:**
-- Each tree fits the negative gradient (pseudo-residual)
-- Squared → residual $y-f$; MAE → $\text{sign}(y-f)$; log → $y-p$
-- L2 pseudo-residual = residual ⇒ "fit the residuals"
-- Leaf value: mean for L2, median for L1 (argmin of the loss)
-
-</details>
-
-</Quiz>
-
-<Quiz id="6">
-
-**Q6. How large should one XGBoost leaf's correction be?** A leaf gives all its rows the same update $w_j$. Starting from the second-order approximation, collect their gradients into $G_j$ and curvatures into $H_j$, then derive $w_j^\star=-G_j/(H_j+\lambda)$. Interpret the numerator, denominator, and penalty before showing the squared-loss special case. Why does zero curvature make ordinary MAE incompatible with this Newton step?
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**Objective.** A 2nd-order Taylor expansion of the loss around $f_{m-1}$, plus L2 leaf regularization, gives (per leaf $j$ with instance set $I_j$, $g_i, h_i$ the first/second derivatives):
-
-$$\text{obj}_j(w_j) = G_j w_j + \tfrac12(H_j + \lambda) w_j^2, \qquad G_j = \sum_{i\in I_j} g_i,\ \ H_j = \sum_{i\in I_j} h_i$$
-
-**Minimize.** $\frac{d}{dw_j} = G_j + (H_j+\lambda)w_j = 0 \Rightarrow \boxed{w_j^\star = -\dfrac{G_j}{H_j+\lambda}}$. Substituting back gives the structure score contribution $-\tfrac12 G_j^2/(H_j+\lambda)$, which drives the split-gain formula.
-
-**Squared loss.** $L=\tfrac12(y-f)^2 \Rightarrow g_i = f - y_i = -r_i$, $h_i = 1$. So $G_j = -\sum_{i\in I_j} r_i$, $H_j = n_j$, and
-
-$$w_j^\star = \frac{\sum_{i\in I_j} r_i}{n_j + \lambda} = \frac{n_j\,\bar r_j}{n_j+\lambda} = \frac{\bar r_j}{1 + \lambda/n_j}$$
-
-— the **mean residual, shrunk** by the regularizer. With $\lambda=0$ it's exactly the mean residual, recovering plain gradient boosting.
-
-**MAE.** $L=|y-f|$ has $h_i = 0$ almost everywhere (it's piecewise linear). Then $w_j^\star = -G_j/\lambda$ — it depends *only* on $\lambda$, and is undefined/degenerate at $\lambda=0$. The Newton leaf step has no curvature to work with. **This is the c1.2 connection:** naive MAE breaks XGBoost's second-order method (the "zero gradient" warning is really zero *Hessian*); the fix is `reg:pseudohubererror` (smooth, positive Hessian) or the special-cased `reg:absoluteerror` (a constant Hessian for split-finding, plus an adaptive leaf-update that sets each leaf to ~the median of its residuals).
-
-**Rubric:**
-- Per-leaf objective $G_j w + \tfrac12(H_j+\lambda)w^2$
-- Minimize → $w^\star = -G_j/(H_j+\lambda)$
-- Squared loss: $g=f-y$, $h=1$ → shrunk mean residual; $\lambda=0$ → mean (= plain GB)
-- MAE: $h=0$ → degenerate; c1.2 tie (zero Hessian; pseudo-Huber / reg:absoluteerror)
-
-</details>
-
-</Quiz>
-
-<Quiz id="7">
-
-**Q7. When does bagging have nothing to average away?** Construct a stable learner whose fitted function barely changes across bootstrap samples. Predict whether bagging helps before applying the decorrelation identity, then show which value of $\rho$ explains the result. As an extension, explain how training on bootstrap samples with fewer distinct rows can slightly hurt a stable learner.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**The learner.** Any **stable, low-variance, high-bias** learner — e.g. **ordinary linear/OLS regression** (or LDA, or large-$k$ kNN). Fit on different bootstrap resamples, OLS produces nearly identical coefficients, so the bagged models are almost perfectly correlated: $\rho \approx 1$.
-
-**Why, via the identity.** Bagging's variance is $\rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$. With $\rho\approx1$ this is $\approx\sigma^2$ for any $B$ — the $\frac{1-\rho}{B}$ term is ~0, so averaging buys nothing. Bagging reduces *variance*, and a stable learner has little variance to remove; it does nothing for the *bias* that dominates such a learner's error. (Bagging helps unstable, high-variance learners — deep trees, small-$k$ kNN — which is exactly why trees are the canonical bagging base learner.)
-
-**Bonus — why it can hurt.** Each bootstrap contains only ~63% distinct rows, so each base model is trained on effectively less data than the full set → slightly higher bias/variance *per model*. For a stable learner, averaging near-identical slightly-worse models can't compensate, so bagged error can edge *above* the single full-data fit.
-
-**Rubric:**
-- Pick a stable high-bias learner (OLS / LDA / large-$k$ kNN); note $\rho\approx1$
-- Apply identity: $\rho\approx1$ → variance $\approx\sigma^2$ regardless of $B$ → no gain
-- Bagging removes variance, not bias; stable learners are bias-dominated
-- Bonus: ~63% distinct rows → each base model slightly worse → can increase error
-
-</details>
-
-</Quiz>
-
-<Quiz id="8">
-
-**Q8. Why do 5,000 extra trees mean different things in RF and GBDT?** In a forest, another tree is another randomized vote; in boosting, it is another fitted correction to the same training loss. Use that distinction and the forest variance identity to explain why increasing $B$ converges for RF while excessive boosting rounds can fit noise. Then connect the argument to deep forest trees versus shallow boosting trees.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**GBDT overfits; RF does not.**
-
-**RF (doesn't).** The trees are i.i.d. draws from the same randomized procedure (bootstrap + feature subsampling). Averaging $B$ such trees, the generalization error converges almost surely as $B\to\infty$ (a strong-law-of-large-numbers result — Breiman 2001): more trees drive the Monte Carlo averaging error to zero and the error settles at a fixed limit (the $\rho\sigma^2$-floor regime). Adding trees can only *reduce* the averaging variance — it never increases test error. So RF needs no early stopping.
-
-**GBDT (does).** Boosting is *sequential* and *adaptive*: each round fits the negative gradient of the residual loss, monotonically reducing training loss. Past the point where the signal is captured, additional rounds fit noise — training loss keeps falling while test loss turns up. So more rounds overfit, and early stopping on a validation set is essential.
-
-**Corollary (tree depth).** RF reduces **variance** by averaging, so it wants each tree to be **low-bias** → grow **deep** trees (their high variance is washed out by averaging). GBDT reduces **bias** by adding many small corrections, so each tree should be a **weak, high-bias** learner → **shallow** trees (depth controls the interaction order; deep trees + boosting overfit immediately).
-
-**Rubric:**
-- GBDT overfits, RF doesn't
-- RF: i.i.d. trees → LLN convergence → more trees never hurt (Breiman)
-- GBDT: sequential bias reduction → eventually fits noise → early stop
-- Corollary: RF deep (low-bias to average), GBDT shallow (weak learners)
-
-</details>
-
-</Quiz>
-
-<Quiz id="9">
-
-**Q9. Is the stack learning which model generalizes, or which model memorizes?** An engineer trains every base model on all training rows, predicts those same rows, and uses the predictions as meta-features. Explain why those features describe memorization rather than deployment behavior. Use 1-NN to make the failure concrete, then give the exact out-of-fold construction that fixes it.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**The leak.** Building meta-features from base models' **in-sample** predictions is train/test leakage. Each base model has already seen the rows it's now predicting, so its meta-features reflect *memorization*, not generalization. The meta-learner then learns weights tuned to optimistic, in-sample base predictions that won't hold at test time.
-
-**Why 1-NN makes it catastrophic.** A 1-nearest-neighbor base model has **zero training error** — predicting on the training set, every point's nearest neighbor is itself, so its meta-feature equals the true label exactly. The meta-learner sees a "base model" that's perfectly correct and hands it ~all the weight. At test time the 1-NN generalizes far worse, and the stack collapses. (Any low-bias/high-variance base model produces the same pathology in milder form.)
-
-**The fix — out-of-fold (OOF) predictions.** Split the training data into $K$ folds. For each base model, produce each row's meta-feature from a copy trained on the *other* $K-1$ folds (so it never saw that row). Train the meta-learner on these honest OOF meta-features. Then refit each base model on all the data for inference. (This is the c1.1 leakage principle: a feature must be computable without the row's own label.) "Blending" is the simpler one-held-out-set variant.
-
-**Rubric:**
-- Identify in-sample meta-features as train/test leakage
-- 1-NN has zero training error → its meta-feature = the label → meta over-weights it → collapse
-- Fix: out-of-fold (K-fold) meta-features; refit base models on all data for inference
-- Tie to c1.1 (feature must not use the row's own label)
-
-</details>
-
-</Quiz>
-
-<Quiz id="10">
-
-**Q10. Why can a useless ID look important?** A 1,000-value identifier outranks a genuinely predictive binary feature under impurity importance. Explain how many candidate split points create more chances for accidental training gain. Propose held-out permutation importance, state the question it answers, and explain why correlated predictors can make each other look unimportant unless permuted together.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**Mechanism.** Impurity (Gini/MDI) importance sums the impurity decrease attributed to each feature across all splits. A high-cardinality feature offers **many candidate cut-points**, so by sheer multiple comparisons it can find a split that reduces impurity *on the training data* by chance — even with no real signal (Strobl et al. 2007). Combined with the fact that MDI is computed **on training data** (so it rewards overfitting), a noise ID column with 1000 distinct values can out-rank a real binary feature. This is a bias of the metric, not a finding about the data.
-
-**Use instead — permutation importance on held-out data.** Permute one feature's values in a validation set and measure the drop in performance; an irrelevant feature causes no drop, regardless of cardinality. Because it's measured on held-out data against actual performance, it's not fooled by cardinality or training-set overfitting.
-
-**Why permutation is also unreliable under correlation.** If two features are collinear, permuting one barely hurts performance because the model recovers the same information from its correlated partner — so *both* look unimportant even if the underlying signal is crucial. (Same redundancy that defeats drop-column leakage detection in c1.1 and inflates VIF in c1.4.) The fix is to **cluster correlated features and permute the cluster jointly**, or use conditional/grouped permutation importance.
-
-**Rubric:**
-- MDI bias: high-cardinality → many cut-points → spurious impurity decrease (Strobl 2007); computed on train data
-- Use permutation importance on held-out data
-- Permutation also fails under collinearity (partner carries the info) → both look unimportant
-- Fix: cluster/permute correlated features jointly (c1.1/c1.4 tie)
-
-</details>
-
-</Quiz>
-
-<Quiz id="11">
-
-**Q11. A score of 0.8 should mean 80%—does it?** Explain what a calibration curve compares, then sketch the typical curve for an uncalibrated random forest and AdaBoost. Explain the mechanism that compresses their predictions toward the middle. Name the standard post-hoc calibrators and say why the more flexible one needs more data.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**Both are sigmoid-distorted — under-confident at the extremes.** The counterintuitive part: RF *and* AdaBoost push their probabilities *toward* 0.5 (away from 0 and 1), so both have the same qualitative reliability shape, for different reasons (Niculescu-Mizil & Caruana 2005).
-
-**Random forest.** RF probabilities are the *average* of many trees' bounded $[0,1]$ votes. Averaging bounded values compresses the result toward the middle, so the forest rarely outputs values near 0 or 1 — for a prediction of, say, 0.8 the empirical accuracy is *higher* than 0.8. The reliability curve is sigmoidal, lying above the diagonal at the high-confidence end: under-confident at the extremes.
-
-**AdaBoost.** AdaBoost maximizes margins; mapping its margin scores to $[0,1]$ pushes the probability mass *away* from 0 and 1, so its predictions are also too moderate — again a sigmoidal curve, under-confident at the extremes (*not* over-confident, despite the exponential loss).
-
-**Fixes.** Post-hoc calibration on a held-out set: **Platt scaling** (fit a logistic/sigmoid to the scores) or **isotonic regression** (fit a monotonic step function). Wrap with `CalibratedClassifierCV`. **Isotonic is more flexible but needs more data** (it can overfit on small calibration sets, where Platt's two-parameter sigmoid is safer). Verify with a reliability diagram + ECE/Brier (c1.3).
-
-**Rubric:**
-- BOTH RF and AdaBoost are under-confident at the extremes (sigmoid curves; probabilities pushed toward 0.5) — Niculescu-Mizil & Caruana 2005
-- RF mechanism: averaging bounded tree votes compresses toward the middle; AdaBoost mechanism: margin maximization pushes mapped scores away from 0/1
-- Fixes: Platt (sigmoid) / isotonic on held-out data
-- Isotonic needs more data (overfits small sets); Platt safer when small
-- (c1.3 tie: reliability diagram, ECE, Brier)
-
-</details>
-
-</Quiz>
-
-<Quiz id="12">
-
-**Q12. Does the default actually decorrelate regression trees?** You call current scikit-learn's `RandomForestRegressor()` expecting roughly $p/3$ candidate features per split. State the real `max_features` default, explain what randomness remains, and trace the consequence through correlation $\rho$ to the variance floor. Give the setting that restores feature subsampling. As a version-awareness extension, name XGBoost's default `tree_method` since v2.0.
-
-<details>
-<summary>Model answer + rubric</summary>
-
-**What actually happens.** Modern scikit-learn's `RandomForestRegressor` defaults to **`max_features=1.0`** — i.e. it considers **all $p$ features at every split**. With no per-split feature randomness, the only randomization left is bootstrapping, so you've actually built **bagged trees, not a random forest**. (The classifier still defaults to `max_features="sqrt"`; the regressor's `1.0` default is the trap — it changed from `"auto"` in the 1.x line.)
-
-**Effect on variance.** Considering all features at each split makes the trees pick the same dominant splits, so they're **more correlated** — $\rho$ is higher. By the decorrelation identity, the large-$B$ variance floor $\rho\sigma^2$ is **higher**, so the ensemble has more variance (worse generalization) than a true RF would. **Fix:** set `max_features="sqrt"` or `max_features=1/3` to restore per-split feature subsampling and decorrelate the trees.
-
-**Bonus.** Since **XGBoost 2.0**, the default `tree_method` is **`"hist"`** (histogram-based split finding — fast, the former LightGBM-style approach), replacing the older auto-selection of exact/approximate methods. (Also: the unified `device="cpu"/"cuda"` parameter replaced `gpu_hist`.)
-
-**Rubric:**
-- `max_features=1.0` default (regressor) → all features per split → **bagged trees, not RF**
-- Higher $\rho$ → higher variance floor $\rho\sigma^2$ → worse than a true RF
-- Fix: `max_features="sqrt"` or `1/3`
-- Bonus: XGBoost ≥2.0 default `tree_method="hist"`
-
-</details>
-
-</Quiz>
-
-## Rapid-fire: trees, bagging & random forests
-
-1. **Greedy is blind.** Construct a two-feature dataset (XOR is the classic) on which *no* single axis-aligned split reduces impurity, yet a depth-2 tree is perfect. Why does the pathology vanish at depth 2, why doesn't lookahead search fix it in practice, and is the "deep trees have near-zero bias" claim a statement about the hypothesis class or about the greedy algorithm that searches it?
-2. **The axis-aligned tax.** The true decision boundary is the diagonal $x_1 + x_2 = 1$ on the unit square. What does a tree's fitted boundary look like, and roughly how does the number of leaves needed for error $\varepsilon$ scale? Contrast with a single oblique split $w^\top x = c$. Then defend the status quo: why do mainstream libraries still ship axis-aligned splits only — hit the compute, invariance-to-monotone-feature-transforms, and interpretability arguments — and what preprocessing partially buys obliqueness back?
-3. **Monotone-invariance, proved.** Show from the split-search procedure that a tree's fitted function is invariant to any strictly monotone transformation of a *feature* — so standardizing buys nothing. Then explain why the same argument fails for a monotone transformation of the *target* in gradient boosting: what changes in the pseudo-residuals?
-4. **Trees never extrapolate.** A random forest is trained on 2010–2018 returns; in 2022 the target drifts above every training label. Show that any tree ensemble predicts a *constant* along any direction leaving the training features' range — and that an RF regression prediction can never leave $[\min_i y_i, \max_i y_i]$ — then derive exactly what the forest predicts. Give two production fixes (target detrending/differencing, a fit-a-linear-trend-then-boost-the-residuals hybrid) and say why a quant forecasting pipeline must design around this. (Quant loops lead with it.)
-5. **√p — theorem or folklore?** Is $m=\sqrt p$ (classification) / $p/3$ (regression) derived from anything, or just Breiman's empirical defaults? Using the large-$B$ error $\approx \text{bias}^2 + \rho\sigma^2$, explain mechanistically why shrinking `max_features` lowers $\rho$ but raises per-tree bias, and what happens at the extremes $m=1$ and $m=p$. Then construct the failure: 2 relevant features among $p = 10{,}000$ noise features and $m = \sqrt p = 100$ — compute the probability a given split considers *any* relevant feature, and state what this implies for tuning $m$ on wide, sparse-signal data (genomics, alpha signals).
-6. **Two randomizations, one goal.** Random forests randomize twice — bootstrap rows, subsample features per split. What third randomization do Extremely Randomized Trees (Geurts et al. 2006) add, what do they *drop* by default, and what does each choice do to the bias and the correlation of the base trees?
-7. **Vote or average?** Breiman's forest takes a hard majority vote; scikit-learn's `predict_proba` averages each tree's leaf class proportions. Construct a small forest (3 trees, 2 classes) where hard and soft voting disagree on the predicted class, say which one scikit-learn's `predict` actually implements, and which output you'd feed into downstream expected-value math — and why that one still needs calibration per Q11.
-8. **The forest is a kernel.** Show that an RF regression prediction can be written $\hat f(x) = \sum_i w_i(x)\, y_i$ with $w_i(x) \ge 0$, $\sum_i w_i(x) = 1$ — an *adaptive nearest-neighbor* smoother (Lin & Jeon 2006). What determines the weights, which earlier facts does this view explain for free (no extrapolation, why RF smooths label noise), and how do quantile regression forests (Meinshausen 2006) extract a full conditional distribution — and prediction intervals — from the same weights of an already-trained forest?
-9. **What the bootstrap estimates.** State precisely what resampling from the empirical distribution is estimating, then argue that subsampling $63.2\%$ of rows *without* replacement is nearly equivalent for tree fitting — so what is actually load-bearing, the bootstrap specifically or randomization in general? Give two settings where the plain bootstrap fails outright (serially dependent data; extreme-value statistics), what replaces it for time series, and why a quant must care before bagging financial data.
-10. **OOB's fine print.** The $1/e$ result makes OOB error look like free cross-validation. Break the equivalence twice: (a) each row's OOB prediction averages only $\approx B/e$ trees, so OOB evaluates an ensemble a third the size of the real forest — which direction does that bias the estimate, and when does it matter (small $B$, small $n$)? (b) with near-duplicate rows or grouped data (multiple rows per patient/user), a row's "unseen" twin was in-bag — which direction now, and how does this reprise c1.1's grouped-split leakage? How would you cheaply sanity-check OOB against a genuine held-out set?
-11. **Attack the slogan.** Breiman proved the generalization error *converges* as $B \to \infty$ — the source of "random forests don't overfit." Show that convergence in $B$ says nothing about the *level* converged to: describe a regime (deep trees, small noisy dataset) where the infinite forest is still badly overfit, and reconcile that with the practical advice "don't prune RF trees." Distinguish three separate dials: overfitting in $B$, in tree depth, and the $\rho\sigma^2$ floor.
-12. **PCA before a forest?** A colleague whitens the features with PCA before a random forest "to remove correlation." Reconcile with Grinsztajn et al. 2022's rotational non-invariance finding: why does rotating tabular features typically *hurt* tree ensembles, and construct the kind of data where the rotation would genuinely help.
-13. **Error bars on importance.** Your top-ten permutation-importance ranking reorders between random seeds. Treat an importance score as an estimator: name its sources of sampling variance (data split, permutation draws, model refit) and design a procedure that puts honest confidence intervals on the ranking.
-14. **Where did the SVMs go?** A decade ago loops asked "SVM or random forest?"; today kernels barely come up. Reconcile: what about tree ensembles — training complexity, feature-scale invariance, native multiclass and probabilities, tolerance of junk features — drove kernels out of tabular practice, and name a regime where a kernel method is still the right call.
-15. **Isolating fraud in eight splits.** Explain why a tree built from purely *random* splits isolates anomalies at unusually shallow depth (Isolation Forest — Liu, Ting & Zhou 2008), how average path length becomes an anomaly score, and when you'd deploy it *alongside* — not instead of — a supervised GBDT in a fraud stack.
-16. **When OLS beats the forest.** Signal-to-noise on daily equity returns is minuscule. Argue why a quant desk might still run ridge/OLS over a tuned GBDT — estimator variance, non-stationarity, extrapolation, the audit trail — and state what evidence would flip the decision back to trees. (This is the seniority question at quant funds.)
-
-## Rapid-fire: boosting, GBDT & the tabular frontier
-
-1. **Why Newton?** Derive from XGBoost's second-order Taylor expansion that each new tree solves a *weighted* least-squares problem — targets $-g_i/h_i$ with weights $h_i$. For log loss ($h_i = p_i(1-p_i)$), what do those weights do to confidently-classified points, and why is that the right behavior — and what does this weighting view add over the plain "fit the pseudo-residual" story of first-order boosting?
-2. **The margin mystery.** AdaBoost's training error hits zero, yet test error keeps *falling* for hundreds more rounds — reconcile that with this lesson's "more rounds overfit, always early-stop" via margin theory (Schapire et al. 1998): what does continued boosting do to the margin distribution, what roles do label noise, weak-learner capacity, and the choice of loss play in deciding which story you observe, and is "GBDT overfits in rounds" a theorem or an empirical regularity?
-3. **Shrinkage is not just slow.** Empirically, halving the learning rate roughly doubles the rounds needed — yet $\nu = 0.05$ with 4,000 rounds routinely beats $\nu = 0.5$ with 400 *at matched training loss*. Explain the mechanism — why smaller steps trace a better regularization path through additive-model space — the compute bill it creates, and how early stopping couples the two knobs, so that `learning_rate` and `n_estimators` must be tuned jointly rather than independently.
-4. **Detours in the labels.** Ride-hailing ETA labels are heavy-tailed — drivers take detours. Show why squared-loss GBDT is fragile here (whose pseudo-residuals dominate each round?) and what switching to Huber or pseudo-Huber changes about the gradient each tree fits. This is c1.2's "robustness = gradient scaling" point, replayed in function space.
-5. **Ship an interval.** Product wants "arrives in 25–40 min." Design the GBDT: derive the pseudo-residual of the pinball/quantile loss at $\tau=0.1$ and $\tau=0.9$, explain why two separately trained quantile models can *cross*, and give a fix.
-6. **The categorical minefield.** For a 10,000-level merchant-ID feature, compare one-hot, ordinal codes, mean-target encoding, and native categorical splits (LightGBM/CatBoost): which fragments the trees, which leaks the label? Then the classical result (Fisher 1958; ESL §9.2.4): for squared loss — and binary classification — sorting levels by their mean target reduces the naive $2^{K-1}-1$ subset search to $K-1$ ordered splits, *exactly*. Sketch why it works, where it fails (multiclass), and why one-hot at high cardinality cripples trees: one level per split, depth and importance dilution, gain starvation.
-7. **CatBoost's two leaks.** You replace a 50,000-level categorical with the per-level training-set target mean. Explain quantitatively why a pure-noise ID column becomes a near-perfect *training* predictor (what does the encoding equal for a level with one row?), and show that leave-one-out encoding is still leaky — write what $x^{\text{enc}}_i$ equals as a function of $y_i$ for a two-row level and say what a tree does with that. Then the subtler leak CatBoost names *prediction shift*: round-$m$ residuals are computed by a model that already trained on those same rows. Explain how ordered target statistics fix the first, how ordered boosting's per-permutation models fix the second, and why both problems worsen as $n$ shrinks.
-8. **Missing values as signal.** Contrast classic CART surrogate splits with XGBoost/LightGBM's learned per-split *default direction* (Chen & Guestrin 2016): which one learns from missingness itself, and why does it beat mean-imputation for trees? Then the trap: when missingness is informative because of how the data was *collected* — a lab test ordered only for already-sick patients, a field populated only after the outcome — the learned default direction encodes exactly the c1.1 kind of leakage. How would you detect that before shipping?
-9. **XGBoost beyond the math.** The Newton step is half the paper; the other half is systems (Chen & Guestrin 2016) — weighted quantile sketch, sparsity-aware split finding, column blocks with cache-aware access. For each, derive what data regime makes it matter. ("How is XGBoost different from GBM?" is a verbatim screen question; the systems half is what separates candidates.)
-10. **GOSS is importance sampling.** LightGBM's GOSS keeps the large-gradient rows, subsamples the small-gradient ones, and multiplies the sampled rows' contribution by $(1-a)/b$. Why is that reweighting necessary — which estimator goes biased without it — and what property of sparse features does the same paper's EFB exploit?
-11. **`scale_pos_weight` breaks calibration.** Setting `scale_pos_weight` to $w$ up-weights positive-class gradients. Show this is equivalent to training under a shifted class prior, derive the logit correction that restores honest probabilities, and explain why an AUC-only evaluation never notices the damage.
-12. **Monotonic constraints, mechanically.** A credit model must have default probability non-decreasing in leverage. How does a GBDT enforce `monotone_constraints` *during split search* — what does it check at each candidate split on $x_j$, and what bound propagates to the children's leaf values? What do you pay in bias when the prior is (locally) wrong, why can the constraint *improve* out-of-sample performance when it's right, and why do quant and credit shops insist on it anyway — hit the economic-prior, regulatory/explainability, and adversarial-robustness arguments.
-13. **GBDT as feature factory.** Facebook's ads team (He et al. 2014) fed GBDT *leaf indices* into a logistic regression and beat either model alone. Reconstruct why: what do the leaves encode (learned feature crossings), why put an LR on top (calibration, cheap online updates), and what architecture eventually replaced the hybrid?
-14. **Boosting without a gradient.** NDCG is piecewise-constant in the scores — there is no gradient to fit. Explain how LambdaMART boosts it anyway: where do the "lambdas" come from, why are pairwise gradients weighted by $|\Delta\text{NDCG}|$, and why did GBDT-based learning-to-rank dominate search ranking for a decade?
-15. **Why recsys left GBDT.** TikTok/Meta-scale CTR moved from GBDT(+LR) to deep models. Give the forcing functions — billion-level sparse ID features, continuous online learning, embeddings shared across tasks — and explain what it is about a fitted tree that makes incremental updates hard. Then say when GBDT is *still* the right CTR model.
-16. **Leakage that survives OOF.** Your stack uses honest out-of-fold meta-features, yet the reported CV score is still optimistic. Find at least three remaining leaks: base-model hyperparameters tuned on the same folds, GBDT base learners early-stopped on the very fold they OOF-predict (which direction is that bias, and why is it small but *systematically* optimistic?), preprocessing or target encoding fit on the full data before splitting, and the same CV reused to select the meta-model. What does the fully honest protocol (nested CV) cost, and when is that price worth paying? (c1.1's selection-leakage rule, replayed on GBDT.)
-17. **The R² collapse.** Your GBDT scores $R^2 = 0.5$ in-sample (2010–2018) and $0.1$ out-of-sample (2019–2022). Enumerate the four distinct explanations — overfitting, regime change, look-ahead in the features, leakage in the CV design — and give one diagnostic that separates each from the other three. (A Two Sigma-style prompt.)
-18. **SHAP or nothing?** Split-gain importance can *decrease* when the model relies on a feature *more* — the inconsistency that motivated TreeSHAP (Lundberg et al. 2018, 2020). State the consistency property Shapley values guarantee, why exact Shapley is tractable for trees specifically, and what the interventional-vs-path-dependent background choice changes under correlated features.
-19. **When do nets win on tabular?** Grinsztajn et al. 2022 give three mechanisms for GBDT's tabular dominance — state all three. Then construct the reversal: a tabular task where a neural net *should* win (think: enormous $n$, smooth rotation-invariant targets, high-cardinality categoricals wanting learned embeddings, multimodal side-inputs, transfer from pretraining). For each of the three mechanisms, say whether it's a property of the data or of the inductive bias.
-20. **RF or GBDT — decide.** Pick one model family for each constraint: (a) p99 serving budget of 2 ms on CPU, (b) 30% label noise, (c) training must parallelize across a cluster, (d) weekly unattended automated retrains. Make the four calls and defend each with a mechanism — model size and tree count, loss curvature vs. noise, sequential vs. independent fitting, tuning surface — not a vibe.
-21. **Turn the knobs — which way does error move?** The rapid-fire breadth version of "you tune XGBoost and a random forest — what does each parameter do?" For a **random forest**, state the bias/variance direction of `n_estimators`, `max_features`, `max_depth`, and `min_samples_leaf`, and identify which one you can crank *without* overfitting risk (and why — the $\text{bias}^2+\rho\sigma^2$ view). For **XGBoost**, do the same for `learning_rate`, `n_estimators`, `max_depth`, `subsample`/`colsample_bytree`, `min_child_weight`, and `reg_lambda`/`gamma` — and nail the two contrasts that separate a strong answer: (a) why adding trees to an RF *converges* harmlessly while adding rounds to a GBDT eventually *overfits*, and (b) why `learning_rate` and `n_estimators` must be tuned *jointly* in boosting but tree count in an RF is a standalone "more is fine" dial. Bundle: which single GBDT knob most directly fights label noise, and why?
-
-## Rapid-fire: trees & ensembles, fast recall
-
-1. **How does a tree split?** What criterion does a *classification* tree use to pick a split (Gini or entropy) and a *regression* tree (variance / MSE reduction)? Write Gini impurity for a node.
-2. **Gini vs entropy.** Do they usually choose different trees? Which is cheaper to compute, and why?
-3. **Bagging in one line.** What is bagging, and which of bias / variance does it attack?
-4. **Why does averaging cut variance?** Give the variance-of-an-average argument, and say what role the *correlation* between trees plays in how much you gain.
-5. **The forest's second trick.** Beyond resampling rows, what does a random forest randomize at each split, and why does that help?
-6. **Bias or variance?** Relative to one deep tree, does a random forest mainly reduce bias, variance, or both?
-7. **Boosting vs bagging.** Sequential vs. parallel — which reduces bias and which reduces variance?
-8. **Gradient boosting in one line.** What does each new tree in a GBM fit?
-9. **Shrinkage.** What does the learning rate do, and why do smaller rates need more trees?
-10. **XGBoost's edges.** Name three things XGBoost adds over a vanilla GBM (regularization, second-order/Newton steps, sparsity-aware split finding, column subsampling).
-11. **Overfit a single tree.** Which hyperparameters control a tree's overfitting, and which direction is "more regularized" for each?
-12. **No scaling needed.** Why are tree models invariant to any monotone transform of a feature — so standardizing buys nothing?
-13. **Missing values.** How do XGBoost and LightGBM handle missing values without imputation?
-14. **Can it extrapolate?** Can a tree ensemble ever predict above the largest training label? Why or why not — and what does that mean for trending time series?
-15. **RF or XGBoost — pick.** Give the two-sentence "when do you reach for each" answer.
-16. **Feature importance.** Name two ways trees rank feature importance and one way the default (impurity/gain) can mislead.
+## Rapid-fire: PCA & dimensionality reduction
+
+These 12 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
+
+1. **PCA in one minute** Explain PCA to a smart engineer who has never seen it. Say what it does geometrically, what the first principal component is, and why "the direction of maximum projected variance" and "the line the points sit closest to" describe the same thing.
+2. **Center always, scale sometimes** Why is centering mandatory before PCA, while standardizing each column is a judgment call? Give a concrete dataset where PCA on the covariance matrix and PCA on the correlation matrix return completely different first components.
+3. **How many components exist** You have $n = 200$ rows and $d = 5000$ features. At most how many nonzero principal components can PCA return, and why? What does that imply about using PCA when $d \gg n$?
+4. **Choosing k honestly** You need to pick the number of components. Explain what the explained-variance ratio actually measures, and why "keep 95% of the variance" is a weak criterion when the components feed a supervised model. What would you do instead?
+5. **PCA and SVD** scikit-learn's PCA does not eigendecompose the covariance matrix, it runs an SVD on the centered $X$. Give the reasons why, and say how the singular values relate to the eigenvalues of the covariance matrix. If you had 10,000 features and wanted 50 components, what solver would you reach for?
+6. **When PCA deletes the signal** PCA never looks at $y$. Describe a concrete case where keeping the top components destroys your ability to predict the target, and name the supervised method that exists to fix exactly this.
+7. **PCR versus ridge** Your factor model has badly collinear predictors. Compare principal component regression with ridge regression on that data. Which directions does each one suppress, and why is ridge usually the safer default?
+8. **PCA is not feature selection** A colleague says PCA is a way to do feature selection. Correct them, and say what you lose by using components instead of original columns. When would you rather just drop some correlated columns?
+9. **PCA before a GBDT** Would you run PCA before training a gradient-boosted tree model? Say what you expect to happen to accuracy and to interpretability, and name one situation where it genuinely helps.
+10. **The loadings changed overnight** You retrain a production PCA every week, and the downstream coefficients keep flipping sign and jumping around. Give two mechanisms that cause this, and say how you would make the pipeline stable.
+11. **PCA on one-hot features** Does PCA make sense on a design matrix that is mostly one-hot encoded categoricals plus a few count columns? Explain what goes wrong, and name what you would use instead.
+12. **PC1 of a return matrix** You run PCA on the correlation matrix of daily returns for 500 stocks. The first component explains 40% of the variance and every loading has the same sign. What is that component, and what would you do with the components after it?
