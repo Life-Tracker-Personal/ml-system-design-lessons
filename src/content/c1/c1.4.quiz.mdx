@@ -410,7 +410,7 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 
 **Q13 · must-know. Noise in $y$ is harmless; noise in $x$ is not.** The true model is $y=\beta x+\epsilon$.
 
-**(a)** You observe $y^{obs}=y+u$ rather than $y$, where $u$ is mean-zero with $\mathbb E[u\mid x]=0$. Say what happens to the OLS slope and, separately, to its standard error.
+**(a)** You observe $y^{obs}=y+u$ rather than $y$, where $u$ is mean-zero with $\mathbb E[u\mid x]=0$ and uncorrelated with $\epsilon$. Say what happens to the OLS slope and, separately, to its standard error — and be explicit about which of those two assumptions does which job.
 
 **(b)** Now the response is clean but the predictor is not: you observe $x^{obs}=x+u$, with $u$ mean-zero and independent of both $x$ and $\epsilon$. Derive $\operatorname{plim}\hat\beta$ from $\operatorname{Cov}(x^{obs},y)\big/\operatorname{Var}(x^{obs})$. Explain in one sentence of geometry why the answer comes out the way it does, and name precisely which OLS assumption (a) preserves and (b) destroys.
 
@@ -429,7 +429,9 @@ $$y^{obs}=\beta x+\underbrace{(\epsilon+u)}_{\textstyle \epsilon'}$$
 
 The measurement noise merges into a new error term $\epsilon'$. Exogeneity survives: $\mathbb E[\epsilon'\mid x]=\mathbb E[\epsilon\mid x]+\mathbb E[u\mid x]=0$. Nothing on the *right-hand side* moved, so the estimator is untouched in expectation — $\hat\beta$ stays **unbiased and consistent**.
 
-What you pay is precision. $\operatorname{Var}(\epsilon')=\sigma_\epsilon^2+\sigma_u^2$, and since
+Note which assumption bought which result: **$\mathbb E[u\mid x]=0$ alone delivers the unbiasedness** — it is all that exogeneity of $\epsilon'$ needs. The second assumption, $\operatorname{Cov}(\epsilon,u)=0$, buys nothing for the slope; it only makes the variance decompose cleanly in the next step. A candidate who bundles them has not separated estimation from precision.
+
+What you pay is precision. With the noises uncorrelated, $\operatorname{Var}(\epsilon')=\sigma_\epsilon^2+\sigma_u^2$, and since
 
 $$\operatorname{SE}(\hat\beta)=\frac{\sigma_{\epsilon'}}{\sqrt{\textstyle\sum_i (x_i-\bar x)^2}}$$
 
@@ -507,6 +509,7 @@ As $n\to\infty$, $\hat\beta$ converges to $\lambda\beta$, not to $\beta$. The es
 
 **Rubric:**
 - (a) $y^{obs}$ folds into $\epsilon'=\epsilon+u$; exogeneity intact → $\hat\beta$ unbiased *and* consistent; only $\operatorname{Var}(\epsilon')=\sigma_\epsilon^2+\sigma_u^2$ grows → SEs inflate, $t$ shrinks, $R^2$ falls
+- (a) Separates the two assumptions: $\mathbb E[u\mid x]=0$ buys unbiasedness; $\operatorname{Cov}(\epsilon,u)=0$ only buys the clean variance decomposition
 - (b) Derives $\operatorname{Cov}(x+u,y)=\beta\sigma_x^2$ and $\operatorname{Var}(x+u)=\sigma_x^2+\sigma_u^2$ with every cross term justified by independence
 - (b) Lands $\operatorname{plim}\hat\beta=\beta\sigma_x^2/(\sigma_x^2+\sigma_u^2)$; identifies $\lambda\in(0,1]$ ⇒ shrunk toward zero, sign preserved; checks both limits
 - (b) Geometric statement: noise adds horizontal spread without adding covariance → denominator grows, numerator does not → line flattens

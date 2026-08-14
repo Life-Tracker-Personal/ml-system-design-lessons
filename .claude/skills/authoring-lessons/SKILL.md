@@ -76,7 +76,7 @@ If a lesson only confirms what a textbook says, it's missing the point of this c
 
 ## 5. Quiz anatomy (`cX.Y.quiz.mdx`)
 
-- **12 questions.** `estimatedMinutes: 45`.
+- **12 questions minimum**, `estimatedMinutes: 45`. Going beyond 12 is allowed only to add a **must-know** question — a result an interviewer opens with that the quiz would otherwise leave to a one-line rapid-fire item (c1.4's Q13 on errors-in-variables is the reference case). Tag such a question `**QN · must-know.**` in its title, and bump the frontmatter `description` count and `estimatedMinutes` to match. Padding past 12 for any other reason is a smell: prefer sharpening an existing question.
 - **Intro paragraph** stating these test understanding/derivation/counter-example construction, **not recall**, and inviting the reader to answer before revealing. Keep it to what the questions test — then stop.
 - **No study-coaching meta-text.** Do **not** add a "calibration line" ("if you can answer 8 of these you're calibrated for a staff interview / you can teach this material"), a self-assessment bar, timing or performance instructions ("answer in ~2 minutes", "out loud", "under 90 seconds"), or "if you can't answer this, that's the gap to close" framing. It reads as filler; the questions carry the value on their own.
 - Each question is a `<Quiz id="N">` block containing:
@@ -120,7 +120,7 @@ estimatedMinutes: 60
 lessonId: c1.3
 chapter: 1
 title: Quiz — <topic>
-description: 12 conceptually difficult questions on <topics>.
+description: <N> conceptually difficult questions on <topics>.   # N = 12 unless a must-know was added
 estimatedMinutes: 45
 ---
 ```
@@ -191,7 +191,7 @@ Before considering a lesson + quiz done:
 - [ ] Every core claim is **derived, quantified, or named-incident-grounded** — no bare assertions.
 - [ ] At least one **"challenge the standard story"** moment in the lesson, and counter-example/adversarial questions in the quiz (§4).
 - [ ] Each "what you'll be able to do" bullet has a **matching quiz question**.
-- [ ] Quiz: **12 questions**, derive/prove/construct phrasing, each with a **model answer + explicit rubric**, plus a short intro paragraph — **no calibration line or study-coaching meta-text** (§5).
+- [ ] Quiz: **12 questions** (13+ only for a tagged must-know, §5), derive/prove/construct phrasing, each with a **model answer + explicit rubric**, plus a short intro paragraph — **no calibration line or study-coaching meta-text** (§5).
 - [ ] Quiz ends with **1–2 rapid-fire sections** (§5): 15–20 interview-verbatim questions each, bold hooks, no answers, **no intro coaching/name-drop preamble**, sourced from current top-lab/FAANG/quant interviews, no overlap with the main 12.
 - [ ] **Plain-English-first** ordering throughout; intuition precedes every equation.
 - [ ] Every section / sub-section / worked example **opens with a 1–2 sentence goal statement** (big-picture-first, `**Goal — …**`).
