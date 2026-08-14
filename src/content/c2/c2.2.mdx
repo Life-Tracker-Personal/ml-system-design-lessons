@@ -11,7 +11,7 @@ estimatedMinutes: 55
 
 Optimizers, initialization schemes, normalization layers, learning-rate warmup, gradient clipping and weight decay look like seven unrelated tricks. They are seven controls on **one quantity: the size of the weight update relative to the size of the weight itself**, step after step, layer after layer. Initialization sets the starting scale of the forward signal. Normalization resets that scale at every layer. Adam divides each parameter's step by its own gradient magnitude so the step is roughly the learning rate regardless of scale. Warmup protects that division while the magnitude estimate is still noise. Clipping caps the top end. Weight decay shrinks the denominator. Batch size sets how much of each step is signal and how much is noise.
 
-Once you see the chapter that way, the interview questions stop being memorization. "Why LayerNorm in transformers" is a question about which axis you can average over when the batch is ragged. "Why warmup" is a question about how many samples you need before a variance estimate is trustworthy. "Why AdamW" is a question about what happens when you push a regularization term through a per-parameter rescaling that was never meant to see it. This lesson derives each one and does the arithmetic.
+Seen that way, the standard questions stop being memorization. "Why LayerNorm in transformers" is a question about which axis you can average over when the batch is ragged. "Why warmup" is a question about how many samples you need before a variance estimate is trustworthy. "Why AdamW" is a question about what happens when you push a regularization term through a per-parameter rescaling that was never meant to see it.
 
 ## What you'll be able to do after this lesson
 
@@ -25,15 +25,15 @@ Once you see the chapter that way, the interview questions stop being memorizati
 
 ## Part 1 — The ratio that governs everything
 
-Training is a sequence of multiplicative corrections to a weight matrix. What decides whether the run works is not the raw update size but the **relative** update size,
+Training is a sequence of multiplicative corrections to a weight matrix. A step that moves a weight by 0.01 means nothing on its own; it is enormous if the weight is 0.02 and invisible if the weight is 200. What decides whether the run works is the **relative** update size — the fraction of itself a weight is rewritten by in one step,
 
 $$
 r_t = \frac{\lVert \Delta w_t \rVert}{\lVert w_t \rVert}
 $$
 
-At $10^{-6}$ the model is frozen; at $10^{-1}$ the weights are rewritten every step and the loss bounces. Healthy training sits near $10^{-3}$ for most of the run and falls toward the end.
+where $t$ counts optimizer steps, $w_t$ is the weight vector at step $t$, $\Delta w_t$ is the update applied to it, and $\lVert \cdot \rVert$ is the Euclidean norm. At $10^{-6}$ the model is frozen; at $10^{-1}$ the weights are rewritten every step and the loss bounces. Healthy training sits near $10^{-3}$ for most of the run and falls toward the end.
 
-Plain SGD does not control $r_t$ at all. The update is $-\eta g$, so $r_t$ tracks the gradient magnitude, which varies by orders of magnitude across layers and across training. A learning rate that suits the last layer freezes the first one. Every technique below pulls $r_t$ back into range: some by fixing the numerator, some the denominator, some the activations that produce the gradient in the first place.
+Plain SGD does not control $r_t$ at all. Its update is $-\eta g$, with $\eta$ the learning rate and $g$ the current gradient, so $r_t$ tracks the gradient magnitude, which varies by orders of magnitude across layers and across training. A learning rate that suits the last layer freezes the first one. Every technique below pulls $r_t$ back into range: some by fixing the numerator, some the denominator, some the activations that produce the gradient in the first place.
 
 ## Part 2 — Optimizers, in the order the fixes appeared
 
@@ -45,7 +45,7 @@ $$
 w \leftarrow w - \eta\, g_t, \qquad g_t = \nabla_w \mathcal{L}(\text{minibatch})
 $$
 
-Two failure modes. First, in a ravine — a loss surface far steeper across one direction than along another — the gradient points mostly across the ravine, so you oscillate side to side and crawl forward. Second, the minibatch gradient is a noisy estimate, so consecutive steps partly cancel.
+Here $\mathcal{L}$ is the training loss, $\nabla_w$ the gradient with respect to the weights, and $g_t$ that gradient measured on the minibatch drawn at step $t$. Two failure modes. First, in a ravine — a loss surface far steeper across one direction than along another — the gradient points mostly across the ravine, so you oscillate side to side and crawl forward. Second, the minibatch gradient is a noisy estimate, so consecutive steps partly cancel.
 
 ### Momentum: average the direction
 
@@ -53,7 +53,7 @@ $$
 v_t = \beta v_{t-1} + g_t, \qquad w \leftarrow w - \eta\, v_t
 $$
 
-$v_t$ is an exponentially weighted sum of past gradients. Components that keep the same sign accumulate; components that flip sign cancel. With $\beta = 0.9$ the effective averaging window is $1/(1-\beta) = 10$ steps, and along a consistent direction the steady-state velocity is $1/(1-\beta) = 10\times$ the raw gradient. That is a 10x speedup along the valley floor and near-zero net movement across it. It fixes the direction. It does nothing about scale.
+$v_t$ is a running velocity, started at $v_0 = 0$ and built as an exponentially weighted sum of past gradients; the decay factor $\beta$ sits between 0 and 1 and sets how far back that sum reaches. Components that keep the same sign accumulate; components that flip sign cancel. With $\beta = 0.9$ the effective averaging window is $1/(1-\beta) = 10$ steps, and along a direction where the gradient stays put the velocity settles at the sum of a geometric series in $\beta$, which is $1/(1-\beta) = 10\times$ the raw gradient. That is a 10x speedup along the valley floor and near-zero net movement across it. It fixes the direction. It does nothing about scale.
 
 ### RMSProp: normalize the magnitude per parameter
 
@@ -61,7 +61,7 @@ $$
 s_t = \beta_2 s_{t-1} + (1-\beta_2) g_t^2, \qquad w \leftarrow w - \eta \frac{g_t}{\sqrt{s_t} + \epsilon}
 $$
 
-Divide each parameter's gradient by a running root-mean-square of its own recent gradients. The step becomes roughly $\pm\eta$ for every parameter, whatever its gradient scale. This directly controls the numerator of $r_t$. (RMSProp's own predecessor, Adagrad, accumulated $\sum g^2$ without decay, so the denominator grew without bound and the learning rate decayed to zero mid-run. The EWMA fixes that.)
+$s_t$ is a running mean of squared gradients, again started at zero, with its own decay factor $\beta_2$ in $(0,1)$; the squaring and the division are element-wise, and $\epsilon$ is a small constant, typically $10^{-8}$, that keeps the division safe when a parameter's gradients have been near zero. So each parameter's gradient is divided by a running root-mean-square of its own recent gradients. The step becomes roughly $\pm\eta$ for every parameter, whatever its gradient scale. This directly controls the numerator of $r_t$. (RMSProp's own predecessor, Adagrad, accumulated $\sum g^2$ without decay, so the denominator grew without bound and the learning rate decayed to zero mid-run. The exponentially weighted moving average (EWMA), which forgets old gradients instead of hoarding them, fixes that.)
 
 ### Adam: both, plus bias correction
 
@@ -71,13 +71,13 @@ $$
 m_t = \beta_1 m_{t-1} + (1-\beta_1) g_t, \qquad v_t = \beta_2 v_{t-1} + (1-\beta_2) g_t^2
 $$
 
-$m_t$ estimates $E[g]$, $v_t$ estimates $E[g^2]$. Both are initialized to zero, which biases them toward zero early. Unroll:
+$m_t$ is the first-moment estimate, decayed at rate $\beta_1$, and estimates $E[g]$, the mean gradient across minibatches; $v_t$ is the second-moment estimate, decayed at rate $\beta_2$, and estimates $E[g^2]$. (This $v_t$ is the second moment, not the momentum velocity of the previous section, which the literature also writes $v$.) Both start at zero, and that zero is a fictitious past gradient sitting inside the average, dragging the estimate toward zero for as long as it carries appreciable weight. Unrolling the recursion shows exactly how much weight that is:
 
 $$
 m_t = (1-\beta_1)\sum_{i=1}^{t} \beta_1^{\,t-i} g_i
 $$
 
-If the gradients are roughly stationary with mean $\bar g$, then $E[m_t] = \bar g (1-\beta_1)\sum_{i=1}^{t}\beta_1^{t-i} = \bar g\,(1 - \beta_1^{\,t})$. The estimate is short by exactly the factor $(1-\beta_1^t)$, so divide it out:
+The index $i$ runs over the steps taken so far, and $\beta_1^{\,t-i}$ is the weight this average still gives the gradient from step $i$. If the gradients are roughly stationary with mean $\bar g$ — the bar denotes an average over minibatches — then $E[m_t] = \bar g (1-\beta_1)\sum_{i=1}^{t}\beta_1^{t-i} = \bar g\,(1 - \beta_1^{\,t})$. Those weights would sum to 1 over an infinite history; after $t$ steps only $(1 - \beta_1^{\,t})$ of them have a real gradient behind them, and the missing $\beta_1^{\,t}$ multiplies the fictitious zero. The estimate is short by exactly that factor, so divide it out, writing a hat for the corrected quantity:
 
 $$
 \hat m_t = \frac{m_t}{1-\beta_1^{\,t}}, \qquad \hat v_t = \frac{v_t}{1-\beta_2^{\,t}}, \qquad w \leftarrow w - \eta \frac{\hat m_t}{\sqrt{\hat v_t} + \epsilon}
@@ -85,7 +85,7 @@ $$
 
 **Do the arithmetic for step 1** with the defaults $\beta_1 = 0.9$, $\beta_2 = 0.999$. Uncorrected: $m_1 = 0.1 g$, $v_1 = 0.001 g^2$, so $\sqrt{v_1} = 0.0316\,|g|$ and the step is $\eta \cdot 0.1g / (0.0316|g|) = 3.16\,\eta$. Three times the intended step, in a direction estimated from one sample. Corrected: $\hat m_1 = g$, $\hat v_1 = g^2$, and the step is exactly $\eta$. **Bias correction is what makes the update size equal the learning rate from step one.**
 
-> **Stop and think.** Bias correction fixes the *expectation* of $\hat v_1$. Does it fix the *variance*? Hint: $\hat v_1$ is built from one squared gradient sample no matter how you rescale it. Hold that thought until Part 6.
+> **Stop and think.** Bias correction fixes the *expectation* of $\hat v_1$. Does it fix the *variance*? Hint: $\hat v_1$ is built from one squared gradient sample no matter how you rescale it. Part 6 answers it.
 
 ### When plain SGD still wins
 
@@ -95,13 +95,13 @@ On convolutional vision models trained to convergence, SGD with momentum often g
 
 **Goal — explain a one-line difference between two optimizers that changes results.**
 
-Add an L2 penalty $\tfrac{\lambda}{2}\lVert w \rVert^2$ to the loss. Its gradient is $\lambda w$, so under plain SGD:
+Add an L2 penalty $\tfrac{\lambda}{2}\lVert w \rVert^2$ to the loss, where $\lambda \ge 0$ is the regularization coefficient you tune. Its gradient is $\lambda w$, so under plain SGD:
 
 $$
 w \leftarrow w - \eta(g + \lambda w) = (1 - \eta\lambda)\,w - \eta g
 $$
 
-That is literally "multiply the weights by a number slightly less than 1 each step." **Under SGD, L2 regularization and weight decay are the same operation.** The multiplicative shrink is why decay directly lowers the denominator of $r_t$: shrinking $\lVert w\rVert$ while the update size holds steady raises the relative step, which is part of why decay keeps a long run plastic rather than frozen.
+The first term is a multiplicative shrink: "multiply the weights by a number slightly less than 1 each step." **Under SGD, L2 regularization and weight decay are the same operation.** The multiplicative shrink is why decay directly lowers the denominator of $r_t$: shrinking $\lVert w\rVert$ while the update size holds steady raises the relative step, which is part of why decay keeps a long run plastic rather than frozen.
 
 Now push the same penalty through Adam. The gradient handed to the optimizer is $g + \lambda w$, and the whole thing gets divided by $\sqrt{\hat v} + \epsilon$. The decay a parameter actually receives is
 
@@ -123,15 +123,15 @@ The decay is applied to the weights directly and never touches the moment estima
 
 **Goal — derive Xavier and He from one calculation instead of memorizing two constants.**
 
-Start with why not zeros. If every weight in a layer is zero (or any single shared constant), every hidden unit in that layer computes the same output and receives the same gradient, forever. The layer has one distinct neuron wearing $n$ hats. You need to break symmetry, and the only question is at what scale.
+Start with why not zeros. If every weight in a layer is zero (or any single shared constant), every hidden unit in that layer computes the same output and receives the same gradient, forever. A layer of $n$ units is then one distinct neuron wearing $n$ hats. You need to break symmetry, and the only question is at what scale.
 
-Take one linear layer $z = Wx$ with $W$ of shape $(n_{\text{out}}, n_{\text{in}})$, weights drawn i.i.d. with mean zero and variance $\sigma_w^2$, inputs i.i.d. with variance $\sigma_x^2$. Then
+Take one linear layer $z = Wx$ with $W$ of shape $(n_{\text{out}}, n_{\text{in}})$, so $n_{\text{in}}$ inputs feed $n_{\text{out}}$ outputs; the weights $W_{ji}$ are drawn independently with mean zero and variance $\sigma_w^2$, and the inputs $x_i$ are independent with variance $\sigma_x^2$. For any one output $z_j$, with $i$ running over the inputs,
 
 $$
 \mathrm{Var}(z_j) = \sum_{i=1}^{n_{\text{in}}} \mathrm{Var}(W_{ji}) \,\mathrm{Var}(x_i) = n_{\text{in}}\, \sigma_w^2 \,\sigma_x^2
 $$
 
-To keep the variance unchanged layer to layer, you need $\sigma_w^2 = 1/n_{\text{in}}$. Run the same argument backward: the gradient with respect to the input is $W^{\top}\delta$, which sums $n_{\text{out}}$ terms, so preserving backward variance wants $\sigma_w^2 = 1/n_{\text{out}}$. You cannot have both unless the layer is square, so Xavier/Glorot splits the difference: $\sigma_w^2 = 2/(n_{\text{in}} + n_{\text{out}})$.
+Stack $L$ such layers and the variance is multiplied by $n_{\text{in}}\sigma_w^2$ each time, so anything but 1 becomes exponential growth or exponential decay with depth. To keep the variance unchanged layer to layer, you need $\sigma_w^2 = 1/n_{\text{in}}$. Run the same argument backward: the gradient with respect to the input is $W^{\top}\delta$, where $\delta$ is the gradient of the loss with respect to this layer's output, and each entry of that product sums $n_{\text{out}}$ terms, so preserving backward variance wants $\sigma_w^2 = 1/n_{\text{out}}$. You cannot have both unless the layer is square, so Xavier/Glorot splits the difference: $\sigma_w^2 = 2/(n_{\text{in}} + n_{\text{out}})$.
 
 That derivation assumed the layer is linear, which is roughly true for $\tanh$ near the origin. ReLU is not. For a symmetric zero-mean pre-activation $z$, ReLU zeroes half the distribution, so $E[\mathrm{relu}(z)^2] = \tfrac12 E[z^2]$ — **the variance is halved at every layer.** Compensate with a factor of 2 in the weights: $\sigma_w^2 = 2/n_{\text{in}}$. That is He/Kaiming, and the factor of 2 is the entire content of it.
 
@@ -139,23 +139,23 @@ That derivation assumed the layer is linear, which is roughly true for $\tanh$ n
 
 ## Part 5 — BatchNorm and LayerNorm: which axis do you average over?
 
-**Goal — answer the most reliably asked normalization question in current loops, at mechanism level.**
+**Goal — separate the two normalizers at mechanism level: which entries each one averages over, and what every downstream difference follows from.**
 
-Both compute $\hat x = (x - \mu)/\sqrt{\sigma^2 + \epsilon}$ then apply a learned scale and shift $y = \gamma \hat x + \beta$. The entire difference is which entries go into $\mu$ and $\sigma^2$.
+Both compute $\hat x = (x - \mu)/\sqrt{\sigma^2 + \epsilon}$ then apply a learned scale and shift $y = \gamma \hat x + \beta$, where $\mu$ and $\sigma^2$ are the mean and variance of some set of activations, $\epsilon$ is again a small constant guarding the division, and $\gamma$ and $\beta$ are learned per-feature vectors that let the layer undo the normalization if that is what the loss wants. (This $\beta$ is a learned shift, unrelated to the decay rates $\beta_1, \beta_2$ of Part 2.) The entire difference between the two methods is which entries go into $\mu$ and $\sigma^2$.
 
-**BatchNorm** averages over the batch (and, for images, the spatial positions), producing one mean and variance **per feature channel**. For activations of shape $(N, C)$:
+**BatchNorm** (BN) averages over the batch (and, for images, the spatial positions), producing one mean and variance **per feature channel**. For activations of shape $(N, C)$ — $N$ examples in the batch, $C$ features each, with $x_{nc}$ the value of feature $c$ in example $n$:
 
 $$
 \mu_c = \frac{1}{N}\sum_{n=1}^{N} x_{nc}
 $$
 
-Every example's normalization depends on the other examples in its batch. Three consequences, and interviewers want all three.
+Every example's normalization depends on the other examples in its batch. Three consequences follow, and they are independent of each other.
 
-1. **Train/inference asymmetry.** At inference you may have one example, so there is no batch to average over. BatchNorm keeps an exponential moving average of $\mu_c, \sigma_c^2$ during training and substitutes it at eval time. This is what `model.eval()` switches, and forgetting it is a top-five production bug. It also means the function the model computes at eval is not the function it was trained with.
+1. **Train/inference asymmetry.** At inference you may have one example, so there is no batch to average over. BatchNorm keeps an exponential moving average of $\mu_c$ and the matching per-channel variance $\sigma_c^2$ during training and substitutes it at eval time. This is what `model.eval()` switches, and forgetting it is one of the most common serving bugs in production. It also means the function the model computes at eval is not the function it was trained with.
 2. **Small or variable batches break the estimate.** The standard error of a sample mean falls as $1/\sqrt{N}$. At $N = 2$ the per-batch mean is $\sqrt{256/2} \approx 11\times$ noisier than at $N = 256$. Under gradient accumulation or memory-bound large models where the per-device batch is 1 or 2, BatchNorm's statistics are essentially random. Distributed training makes it worse: each device normalizes with its own local batch unless you pay for a synchronized all-reduce at every BatchNorm layer.
 3. **Ragged sequences poison it.** In a batch of sentences of different lengths, position 40 is real in three sequences and padding in the other 29. Per-position statistics get computed over a small arbitrary subset, with padding leaking in.
 
-**LayerNorm** averages over the feature dimension **within a single example**. For a token vector $x \in \mathbb{R}^{d}$:
+**LayerNorm** averages over the feature dimension **within a single example**. For a token vector $x \in \mathbb{R}^{d}$ of $d$ features, with $j$ indexing those features:
 
 $$
 \mu = \frac{1}{d}\sum_{j=1}^{d} x_j, \qquad \sigma^2 = \frac{1}{d}\sum_{j=1}^{d}(x_j - \mu)^2
@@ -163,11 +163,11 @@ $$
 
 No batch axis appears. So: identical at train and inference, no running statistics, no `.eval()` trap, works at batch size 1, works with any sequence length, needs no cross-device communication. **That is why transformers use LayerNorm**, and the answer is four independent reasons rather than a preference.
 
-Two modern footnotes. **RMSNorm** (Zhang and Sennrich, 2019; used by Llama and T5) drops the mean subtraction and the bias, keeping only $x / \sqrt{\tfrac1d\sum_j x_j^2}$ times a learned gain — cheaper, and the recentering turns out not to matter much. **Placement**: the original 2017 transformer used post-LN, $x \leftarrow \mathrm{LN}(x + \mathrm{Sublayer}(x))$, where the residual path passes through a normalization every block and deep models need warmup to train at all. Pre-LN, $x \leftarrow x + \mathrm{Sublayer}(\mathrm{LN}(x))$, leaves the residual path clean end to end and is far more stable at depth (Xiong et al., 2020). Every current large model is pre-LN.
+Two modern footnotes. **RMSNorm** (Zhang and Sennrich, 2019; used by Llama and T5) drops the mean subtraction and the bias, keeping only $x / \sqrt{\tfrac1d\sum_j x_j^2}$ times a learned gain. It is cheaper, and empirically the rescaling carries the benefit while the recentering contributes little. **Placement**: the original 2017 transformer used post-LN, $x \leftarrow \mathrm{LN}(x + \mathrm{Sublayer}(x))$, where the residual path passes through a normalization every block and deep models need warmup to train at all. Pre-LN, $x \leftarrow x + \mathrm{Sublayer}(\mathrm{LN}(x))$, leaves the residual path clean end to end and is far more stable at depth (Xiong et al., 2020). Every current large model is pre-LN.
 
 ### Challenge the standard story: internal covariate shift
 
-The 2015 BatchNorm paper explained the method as reducing "internal covariate shift" — the drift in each layer's input distribution as earlier layers update. Everyone recites it. Santurkar et al. (NeurIPS 2018) tested it directly: they injected large, time-varying random noise **after** the BatchNorm layer, deliberately reintroducing exactly the distributional drift BN was supposed to remove. Training still improved just as much. Their measurements point at a different mechanism — normalization makes the loss surface smoother and better conditioned, so gradients are more predictive over a longer step. Reciting internal covariate shift is the fastest way to signal that you learned this from a blog post rather than from the literature.
+The 2015 BatchNorm paper explained the method as reducing "internal covariate shift" — the drift in each layer's input distribution as earlier layers update. Everyone recites it. Santurkar et al. (NeurIPS 2018) tested it directly: they injected large, time-varying random noise **after** the BatchNorm layer, deliberately reintroducing exactly the distributional drift BN was supposed to remove. Training still improved just as much. Their measurements point at a different mechanism — normalization makes the loss surface smoother and better conditioned, so gradients are more predictive over a longer step. The covariate-shift story has survived on repetition rather than on evidence, and the conditioning account is the one the experiments support.
 
 ## Part 6 — Warmup, schedules, and clipping
 
@@ -175,31 +175,31 @@ The 2015 BatchNorm paper explained the method as reducing "internal covariate sh
 
 **Warmup** ramps the learning rate linearly from near zero to its peak over the first few hundred to few thousand steps. Return to the question from Part 2: bias correction fixes the expectation of $\hat v_t$, but at step $t$ that estimate is built from only $t$ samples, while the $\beta_2 = 0.999$ EWMA is designed to average roughly $1/(1-\beta_2) = 1000$ of them. The relative error of a variance estimate from $t$ samples goes as $\sqrt{2/t}$: about 63% at $t = 5$, 20% at $t = 50$. Adam is dividing by a number it does not yet know, and each parameter gets an independently wrong step. At large batch sizes — where the learning rate is already scaled up — those early wrong steps are big enough to push the model into a region it never recovers from. Warmup keeps the step tiny while the estimate settles. **The modern default is linear warmup followed by cosine decay to about 10% of peak**, which spends the middle of the run at a high rate and the end at a low one.
 
-**Gradient clipping** rescales by the global norm across all parameters:
+**Gradient clipping** compares the global norm across all parameters, concatenated into one vector, against a threshold $c$, and rescales only if the norm exceeds it:
 
 $$
 \text{if } \lVert g \rVert_2 > c: \quad g \leftarrow g \cdot \frac{c}{\lVert g \rVert_2}
 $$
 
-Clipping by global norm preserves the update direction; clipping element-wise by value does not, and silently rotates your gradient. Typical $c$ is 1.0. Say the second half out loud in an interview: **clipping treats the symptom.** It keeps a run alive through a rare bad batch. If you are clipping on most steps, the real problem is elsewhere — learning rate too high, a badly conditioned layer, an outlier in the data, or a numerical bug — and clipping is just hiding it.
+One scalar multiplies every coordinate, so clipping by global norm shortens the update without turning it. Clipping element-wise by value clamps each coordinate separately, shrinks the large coordinates more than the small ones, and so silently rotates the gradient into a direction that is not the gradient of anything. Typical $c$ is 1.0. The second half of the story matters as much as the first: **clipping treats the symptom.** It keeps a run alive through a rare bad batch. If you are clipping on most steps, the real problem is elsewhere — learning rate too high, a badly conditioned layer, an outlier in the data, or a numerical bug — and clipping is just hiding it.
 
 ## Part 7 — Batch size, gradient noise, and dropout
 
-**Goal — answer the batch-size rapid-fire triple without hand-waving.**
+**Goal — derive what changes at batch size 1, at full batch, and when the batch grows, from one fact about averaging.**
 
-The minibatch gradient is an average of $B$ i.i.d. per-example gradients, so its variance falls as $1/B$ and its standard deviation as $1/\sqrt{B}$. Everything follows from that.
+The minibatch gradient is an average of $B$ independent per-example gradients, where $B$ is the batch size, so its variance falls as $1/B$ and its standard deviation as $1/\sqrt{B}$. Everything in this part follows from that one line: doubling the batch buys only a factor of $\sqrt{2}$ in noise for a factor of 2 in compute.
 
 **Batch size 1.** Maximum gradient noise, terrible hardware utilization (a GPU running one example is idle), and BatchNorm is undefined. The noise is not purely bad — it acts as a regularizer and helps escape sharp regions — but you cannot use a large learning rate with it.
 
 **Full batch.** A deterministic, exact gradient. Each step is expensive, and with no noise the trajectory settles into whichever basin it started nearest. In practice you get fewer, more expensive steps and worse final generalization than a mid-size batch at a matched compute budget.
 
-**Scaling the learning rate.** If you take $k$ SGD steps at batch $B$ and the weights barely move, the total displacement is $\approx -\eta \sum_{i=1}^{k} g_i \approx -k\eta \bar g$, while one step at batch $kB$ moves $-\eta' \bar g$. Matching them gives $\eta' = k\eta$: **the linear scaling rule**, which Goyal et al. (2017) used to train ImageNet in an hour at batch 8192, with warmup, and which breaks down past that point. For Adam-family optimizers the more common heuristic is $\sqrt{k}$, because Adam already normalizes by the gradient magnitude and what you want to hold constant is the noise-to-step ratio.
+**Scaling the learning rate.** Compare $k$ small steps against one big one, where $k$ is the factor by which you are growing the batch. If you take $k$ SGD steps at batch $B$ and the weights barely move, every one of those gradients is approximately the same average gradient $\bar g$, so the total displacement is $\approx -\eta \sum_{i=1}^{k} g_i \approx -k\eta \bar g$, while one step at batch $kB$ with a new learning rate $\eta'$ moves $-\eta' \bar g$. Matching them gives $\eta' = k\eta$: **the linear scaling rule**, which Goyal et al. (2017) used to train ImageNet in an hour at batch 8192, with warmup, and which breaks down past that point. For Adam-family optimizers the more common heuristic is $\sqrt{k}$, because Adam already normalizes by the gradient magnitude and what you want to hold constant is the noise-to-step ratio.
 
 **Gradient accumulation** sums gradients over $k$ micro-batches before stepping, giving you the mathematics of batch $kB$ at the memory of batch $B$. The one thing it does not replicate is BatchNorm, whose statistics are still computed per micro-batch — another reason large-model code avoids BN.
 
-**Dropout** zeroes each activation independently with probability $p$ during training. The standard implementation is inverted dropout: scale the survivors by $1/(1-p)$ at training time so that $E[y] = x$, which makes inference a plain identity with nothing to remember. The backward pass reuses the same mask and the same $1/(1-p)$ factor. The old formulation instead multiplied by $(1-p)$ at test time; if an ML-coding round asks you to implement dropout, the graded part is that the train and inference paths compose to the identity in expectation.
+**Dropout** zeroes each activation independently with probability $p$ during training. The standard implementation is inverted dropout: scale the survivors by $1/(1-p)$ at training time so that the layer's output $y$ satisfies $E[y] = x$, the undropped activation, which makes inference a plain identity with nothing to remember. The backward pass reuses the same mask and the same $1/(1-p)$ factor. The old formulation instead multiplied by $(1-p)$ at test time, which puts the correction in the inference path and leaves $p$ as something serving has to remember. The property that matters in any implementation is that the training and inference paths compose to the identity in expectation.
 
-One live opinion worth having: **dropout has largely disappeared from large-model pretraining.** With a single pass over a corpus far larger than the parameter count there is nothing to memorize, and dropout only adds gradient noise; typical LLM pretraining configs set it to 0.0. It survives in fine-tuning, small-data regimes, and anywhere you are running many epochs over the same examples. Reflexively answering "add dropout" to a pretraining question dates you.
+**Dropout has largely disappeared from large-model pretraining.** With a single pass over a corpus far larger than the parameter count there is nothing to memorize, and dropout only adds gradient noise; typical LLM pretraining configs set it to 0.0. It survives in fine-tuning, small-data regimes, and anywhere you are running many epochs over the same examples. "Add dropout" is the wrong reflex for a pretraining question, because the condition dropout was invented for is absent.
 
 ## Tradeoff matrix
 

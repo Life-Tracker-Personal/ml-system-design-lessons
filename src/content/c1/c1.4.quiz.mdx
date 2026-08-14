@@ -6,7 +6,7 @@ description: Conceptually difficult questions on convexity, optimization and per
 estimatedMinutes: 15
 ---
 
-These 14 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
+These two questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
 
 <Quiz id="1">
 
@@ -15,13 +15,13 @@ These 14 questions test whether you understand regression as *estimation*—not 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Convexity.** Log-likelihood $\ell(\beta)=\sum_i[y_i\log p_i+(1-y_i)\log(1-p_i)]$ with $p_i=\sigma(x_i^\top\beta)$. Using $\partial p_i/\partial\beta = p_i(1-p_i)x_i$:
+**Convexity.** Log-likelihood $\ell(\beta)=\sum_i[y_i\log p_i+(1-y_i)\log(1-p_i)]$, summed over the $n$ training rows, where $x_i$ is the feature vector of row $i$, $y_i\in\{0,1\}$ its label, and $p_i=\sigma(x_i^\top\beta)$ the probability the model assigns it through the sigmoid $\sigma$. Using $\partial p_i/\partial\beta = p_i(1-p_i)x_i$:
 
 $$\nabla\ell = \sum_i (y_i-p_i)x_i = X^\top(y-p), \qquad \nabla^2\ell = -\sum_i p_i(1-p_i)x_ix_i^\top = -X^\top W X$$
 
-with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \preceq 0$ — the log-likelihood is **concave**, hence the **NLL is convex**. No bad local minima; Newton/IRLS finds the global optimum.
+with $W=\text{diag}(p_i(1-p_i))\succeq 0$, where $X$ is the design matrix whose $i$-th row is $x_i^\top$ and $\succeq 0$ reads "is positive semidefinite". So $\nabla^2\ell = -X^\top W X \preceq 0$ — the log-likelihood is **concave**, hence its negative, the negative log-likelihood, is convex: **NLL is convex**. No bad local minima; Newton/IRLS finds the global optimum.
 
-**Sigmoid + MSE is non-convex.** With $\mathcal{L}=\sum_i(y_i-\sigma(x_i^\top\beta))^2$, the Hessian involves $\sigma''$, which changes sign, so $\mathcal{L}$ is not convex in $\beta$ — multiple local minima even in 1-D. Plus it suffers vanishing gradients on saturated, confidently-wrong examples (c1.2). **Use cross-entropy** (the Bernoulli NLL), which is convex and has the clean $X^\top(y-p)$ gradient.
+**Sigmoid + MSE is non-convex.** Write $\mathcal{L}$ for the squared-error objective, $\mathcal{L}=\sum_i(y_i-\sigma(x_i^\top\beta))^2$. Its Hessian involves $\sigma''$, the second derivative of the sigmoid, which changes sign, so $\mathcal{L}$ is not convex in $\beta$ — multiple local minima even in 1-D. It also suffers vanishing gradients on saturated, confidently-wrong examples (c1.2). **Use cross-entropy** (the Bernoulli NLL), which is convex and has the clean $X^\top(y-p)$ gradient.
 
 **No closed form.** Setting $\nabla\ell=X^\top(y-p)=0$ gives an equation that is **nonlinear in $\beta$** because $p=\sigma(X\beta)$ — you cannot isolate $\beta$ algebraically. So you iterate (Newton–Raphson = IRLS, a sequence of weighted least-squares fits). Contrast OLS, where setting the gradient to zero gives the *linear* normal equations and thus a closed form.
 
@@ -42,14 +42,14 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 <details>
 <summary>Model answer + rubric</summary>
 
-**What happens.** If some hyperplane perfectly separates the two classes, take the separating direction $\beta^\*$ and scale it: $\beta=c\beta^\*$. As $c\to\infty$, every fitted probability $p_i=\sigma(x_i^\top\beta)\to$ its correct 0 or 1, so each likelihood term $\to 1$ and the log-likelihood $\to 0$ — its **supremum**, which is **never attained at any finite $\beta$**. Therefore:
+**What happens.** If some hyperplane perfectly separates the two classes, take the separating direction $\beta^*$ and scale it by a positive scalar $c$: $\beta=c\beta^*$. As $c\to\infty$, every fitted probability $p_i=\sigma(x_i^\top\beta)\to$ its correct 0 or 1, so each likelihood term $\to 1$ and the log-likelihood $\to 0$ — its **supremum**, which is **never attained at any finite $\beta$**. Therefore:
 - **Coefficients diverge to $\pm\infty$** (at least along the separating direction).
 - **The likelihood has no maximizer** — the **MLE does not exist** (Albert & Anderson, *Biometrika* 1984; this is the "complete separation" case, with an analogous "quasi-complete" case).
-- **Standard errors explode** — the Hessian $X^\top W X$ becomes near-singular as $p_i(1-p_i)\to0$ for all $i$, so $\text{Var}(\hat\beta)\to\infty$. Optimizers report non-convergence or absurd coefficients/SEs.
+- **Standard errors explode** — the Hessian $X^\top W X$ becomes near-singular as $p_i(1-p_i)\to0$ for all $i$, so the sampling variance of the fitted estimate, $\text{Var}(\hat\beta)$, obeys $\text{Var}(\hat\beta)\to\infty$. Optimizers report non-convergence or absurd coefficients/SEs.
 
-**Why it's counterintuitive.** It's *cleanly separable* data — the "easy" case — yet the unregularized fit blows up, precisely *because* it can keep improving the likelihood by becoming more confident without bound.
+**Why it's counterintuitive.** This is *cleanly separable* data — the "easy" case — yet the unregularized fit blows up, precisely *because* it can keep improving the likelihood by becoming more confident without bound.
 
-**Two fixes.** (1) **Regularization** — any penalty (ridge/L2 is standard; it's exactly why sklearn's penalized default doesn't diverge) caps the coefficient magnitude, restoring a finite optimum. (2) **Firth's penalized likelihood** (a Jeffreys-prior bias correction) guarantees finite estimates and is the standard remedy in statistics. (Also acceptable: drop/merge the separating feature, or use exact logistic regression.)
+**Two fixes.** (1) **Regularization** — any penalty (ridge/L2 is standard, and it is exactly why sklearn's penalized default does not diverge) caps the coefficient magnitude, restoring a finite optimum. (2) **Firth's penalized likelihood** (a Jeffreys-prior bias correction) guarantees finite estimates and is the standard remedy in statistics. (Also acceptable: drop/merge the separating feature, or use exact logistic regression.)
 
 **Rubric:**
 - Coefficients → ±∞; likelihood → its supremum but unattained → MLE does not exist
@@ -67,12 +67,12 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$. So $\nabla^2\ell = -X^\top W X \prece
 These 12 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
 
 1. **Linear in what** Logistic regression is called a linear model. Linear in what, exactly? Then give the two concrete things that break if you skip the sigmoid and just run OLS on a 0/1 target.
-2. **Bernoulli to cross-entropy** Start from $y \mid x \sim \text{Bernoulli}(p(x))$ plus the modeling choice $\log\frac{p}{1-p} = w^\top x + b$. Write the likelihood over $n$ points and say why maximizing it is exactly minimizing binary cross-entropy.
-3. **Why not squared error** Why not just minimize $\sum_i (y_i - \sigma(w^\top x_i))^2$ instead of cross-entropy? Give both reasons, and say which one you would notice first while training. What does the gradient look like at a confidently wrong prediction under each loss?
+2. **Bernoulli to cross-entropy** Start from $y \mid x \sim \text{Bernoulli}(p(x))$ plus the modeling choice $\log\frac{p}{1-p} = w^\top x + b$, in which $w$ is the weight vector and $b$ the intercept. Write the likelihood over $n$ labelled points and say why maximizing it is exactly minimizing binary cross-entropy.
+3. **Why not squared error** Why not minimize $\sum_i (y_i - \sigma(w^\top x_i))^2$ instead of cross-entropy? Give both reasons, and say which one you would notice first while training. What does the gradient look like at a confidently wrong prediction under each loss?
 4. **Reading a coefficient** A fitted model has $\hat\beta_j = 0.7$ on a binary feature. State exactly what that number means, say what $e^{0.7}$ is in plain words, and explain why "the probability goes up by 0.7" is wrong.
-5. **No closed form** The gradient of the logistic loss is $X^\top(p - y)$, the same shape as the OLS gradient. So why does OLS have a closed form while logistic regression does not? Say what you run instead, and why you can trust the answer it returns.
+5. **No closed form** The gradient of the logistic loss is $X^\top(p - y)$, the same shape as the OLS gradient (the sign is flipped relative to the log-likelihood gradient because the loss is the negative log-likelihood). So why does OLS have a closed form while logistic regression does not? Say what you run instead, and why you can trust the answer it returns.
 6. **Perfect separation** One feature perfectly separates the two classes in training. Say what happens to the coefficients and the likelihood as you scale $w$ up, and why the unregularized fit has no solution. How would you spot this in a model you did not train?
-7. **Downsampled negatives** An ads CTR model is trained after keeping only 1 in 10 negatives, and its predicted click rates come out far too high. Give the correction that undoes a sampling rate $w$, and say why only the intercept needs fixing.
+7. **Downsampled negatives** An ads CTR model is trained after keeping only 1 in 10 negatives, and its predicted click rates come out far too high. Give the correction that undoes a sampling rate $w$ — here a scalar between 0 and 1, not the weight vector of question 2 — and say why only the intercept needs fixing.
 8. **sklearn is not the MLE** You fit `LogisticRegression()` in scikit-learn and get different coefficients from statsmodels' `Logit`. Why? What would you change to get the textbook unregularized fit?
 9. **Does it need scaling** Does logistic regression need its features standardized? Answer for the unregularized fit and the L2-penalized fit separately.
 10. **Softmax versus one-vs-rest** You have five mutually exclusive classes. Contrast multinomial (softmax) logistic regression with one-vs-rest: what does each one optimize, and when does the difference actually matter?

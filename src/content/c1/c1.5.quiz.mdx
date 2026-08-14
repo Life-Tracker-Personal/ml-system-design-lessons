@@ -6,11 +6,11 @@ description: Conceptually difficult questions on PCA and how eigendecompositions
 estimatedMinutes: 15
 ---
 
-These 14 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
+This question tests whether you understand PCA as a *computation*—not whether you can call `.fit()`. Each part begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening the answer, first explain the idea in plain language; only then derive it.
 
 <Quiz id="1">
 
-**Q14 · must-know. How would you actually compute the eigenvalues?** You have said PCA is an eigendecomposition of the covariance matrix $C=\frac1nX^\top X$. The interviewer asks how that gets computed.
+**Q14 · must-know. How would you actually compute the eigenvalues?** You have said PCA is an eigendecomposition of the covariance matrix $C=\frac1nX^\top X$, where $X$ is the centered data matrix with $n$ rows and $d$ columns. The interviewer asks how that gets computed.
 
 **(a)** Explain why "solve $\det(C-\lambda I)=0$" is the wrong answer, on two separate counts. Then say which direction the relationship between polynomial roots and eigenvalues actually runs in numerical software.
 
@@ -47,7 +47,7 @@ If $\lambda_1>\lambda_2$ every ratio $(\lambda_j/\lambda_1)^t\to0$, so the norma
 
 $$q^\top Cq\approx\lambda_1q^\top q=\lambda_1$$
 
-the **Rayleigh quotient**. Worth adding: it is accurate to *second* order — an $O(\epsilon)$ error in the eigenvector gives only $O(\epsilon^2)$ error in the eigenvalue, because the Rayleigh quotient is stationary at an eigenvector. The eigenvalue is always better converged than the vector.
+the **Rayleigh quotient**. It is accurate to *second* order — an $O(\epsilon)$ error in the eigenvector gives only $O(\epsilon^2)$ error in the eigenvalue, because the Rayleigh quotient is stationary at an eigenvector. The eigenvalue is always better converged than the vector.
 
 **(c) They all collapse onto $v_1$.** Independent starts do not help: every start has a $v_1$ component, and $v_1$ dominates all of them equally. You get $k$ noisy copies of the same direction.
 
@@ -65,7 +65,7 @@ a similarity transform. It preserves eigenvalues: if $Av=\lambda v$ and $B=Q^\to
 
 For symmetric $A_t$ the iterates converge to $\Lambda$ — eigenvalues on the diagonal. The eigenvectors are the **accumulated rotations** $\bar Q_t=Q_0Q_1\cdots Q_t\to V$; you get them by carrying the product along, not by a second pass. (Non-symmetric matrices converge instead to real Schur form, quasi-upper-triangular with $2\times2$ blocks for complex-conjugate pairs.)
 
-*Why it is not hopeless.* Reduce before you iterate. Householder reflections $H=I-2vv^\top$ applied on both sides, $C\to HCH$ — still a similarity since $H$ is symmetric and orthogonal — drive $C$ to **tridiagonal** form (Hessenberg for a general matrix). Symmetry means clearing below the subdiagonal simultaneously clears above the superdiagonal.
+*Why it is not hopeless.* Reduce before you iterate. Householder reflections $H=I-2vv^\top$, where $v$ is the unit normal of the mirror, applied on both sides, $C\to HCH$ — still a similarity since $H$ is symmetric and orthogonal — drive $C$ to **tridiagonal** form (Hessenberg for a general matrix). Symmetry means clearing below the subdiagonal simultaneously clears above the superdiagonal.
 
 The cost then lands as: a one-time $O(d^3)$ for the reduction, after which each QR step on a tridiagonal matrix is $O(d)$ instead of $O(d^3)$. With shifts (Wilkinson) and deflation the iteration takes $O(1)$ steps per eigenvalue. So the total is $O(d^3)$ **dominated by the reduction, not the iteration** — which is the whole reason "reduce, then iterate" is the standard shape of a symmetric eigensolver.
 
@@ -83,7 +83,7 @@ $$Cv=\tfrac1nX^\top Xv=\tfrac1nX^\top(Xv)$$
 
 so $v\to Xv\to X^\top(Xv)$, two passes over $X$ and no $d\times d$ matrix anywhere.
 
-*Two reasons to SVD $X$ directly.* **Memory and compute:** $C$ is $d\times d=10^8$ entries you never have to store, and forming it costs $O(nd^2)$ you never have to spend. **Accuracy:** $\kappa(X^\top X)=\kappa(X)^2$. Squaring the condition number costs you roughly half your significant digits, and it destroys exactly the small singular values — which matters whenever the design is near-collinear. A matrix $X$ that is perfectly workable can produce an $X^\top X$ that is numerically singular.
+*Two reasons to SVD $X$ directly.* **Memory and compute:** $C$ is $d\times d=10^8$ entries you never have to store, and forming it costs $O(nd^2)$ you never have to spend. **Accuracy:** $\kappa(X^\top X)=\kappa(X)^2$, writing $\kappa$ for the condition number, the factor by which a relative error in the input can be magnified in the answer. Squaring the condition number costs you roughly half your significant digits, and it destroys exactly the small singular values — which matters whenever the design is near-collinear. A matrix $X$ that is perfectly workable can produce an $X^\top X$ that is numerically singular.
 
 *The bridge.* $X=UDV^\top\Rightarrow X^\top X=VD^2V^\top$, so the right singular vectors of $X$ *are* the eigenvectors of $C$, with $\lambda_j=d_j^2/n$. You get the same answer, computed on a better-conditioned object.
 

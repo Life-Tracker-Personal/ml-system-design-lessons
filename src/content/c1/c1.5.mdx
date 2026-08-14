@@ -21,7 +21,7 @@ Imagine a two-dimensional cloud where height and weight rise together. Taller pe
 
 Now look at where your axes are pointing. The original horizontal and vertical axes are not aligned with the cloud. Horizontal means height, vertical means weight, and the cloud runs diagonally between them. One diagonal direction captures most of its spread; the perpendicular direction captures the small remaining spread.
 
-Those two axes came from how somebody chose to record the measurements. Nothing about the cloud asked for them. So try the obvious thing: pick new axes that do line up with the cloud, and see what you get.
+Those two axes came from how somebody chose to record the measurements. Nothing about the cloud asked for them. So try the obvious thing: pick new axes that do line up with the cloud.
 
 PCA rotates to those directions:
 
@@ -29,23 +29,23 @@ PCA rotates to those directions:
 - **PC2** is the highest-variance unit direction orthogonal to PC1.
 - Later PCs continue the same rule, each orthogonal to those before it.
 
-Read that first bullet slowly, because every word is load-bearing. Pick a direction. Drop every point straight down onto it, the way a flagpole casts a shadow at noon. Each point is now a single number: how far along that direction its shadow landed. Those numbers have a spread, and the spread has a variance. PC1 is whichever direction makes that variance as large as it can be. PC2 asks the same question again, with the extra rule that it must sit at a right angle to PC1.
+Every word of that first bullet is load-bearing. Pick a direction. Drop every point straight down onto it, the way a flagpole casts a shadow at noon. Each point is now a single number: how far along that direction its shadow landed. Those numbers have a spread, and the spread has a variance. PC1 is whichever direction makes that variance as large as it can be. PC2 asks the same question again, with the extra rule that it must sit at a right angle to PC1.
 
-Count what you have after the rotation. Two features before, two coordinates after. Nothing was thrown away. PCA does not initially “delete features.” It creates a new orthogonal coordinate system. Dimensionality reduction happens only when we keep the first $m$ component scores and discard the rest.
+Count what you have after the rotation. Two features before, two coordinates after. Nothing was thrown away. PCA by itself deletes no features. It creates a new orthogonal coordinate system. Dimensionality reduction happens only when we keep the first $m$ component scores, for some chosen $m$ smaller than the number of original features, and discard the rest.
 
 <PCARotation caption="A correlated 2D cloud with the two principal directions overlaid. Look at the two arrows before anything else. PC1 points along the direction of largest projected variance; PC2 is orthogonal to it and captures what's left. Arrow lengths scale with the sample standard deviations along each axis, so the length ratio is the story: nearly all the spread lives on PC1. Keeping only PC1 replaces two correlated features with one uncorrelated summary — cheap compression, but 'high variance ≠ predictive of y', which is why PCR is target-blind." />
 
-Why keep the high-variance directions in particular, rather than any other pair of axes? Because of a guarantee. For a fixed number of linear dimensions, they minimize squared reconstruction error. Keep $m$ of them, throw the rest away, rebuild each point from what you kept, and no other choice of $m$ linear directions would have rebuilt the points more accurately. The discarded variance is exactly the information lost under that geometric criterion. But reconstruction of $X$ is not prediction of $y$—the crucial limitation. Hold on to that sentence. The rest of this lesson keeps walking back into it.
+Why keep the high-variance directions in particular, rather than any other pair of axes? Because of a guarantee. For a fixed number of linear dimensions, they minimize squared reconstruction error. Keep $m$ of them, throw the rest away, rebuild each point from what you kept, and no other choice of $m$ linear directions would have rebuilt the points more accurately. The discarded variance is exactly the information lost under that geometric criterion. The Pythagorean argument in the next subsection is where the guarantee comes from. But rebuilding the feature matrix $X$ — the table of $n$ observations by $d$ features that PCA is given — is a different job from predicting a target $y$, and that gap is the crucial limitation. Hold on to that sentence: the gap between reconstructing $X$ and predicting $y$ is where every PCA failure comes from.
 
 #### The two objectives are the same objective
 
-PCA gets described two different ways — "find the direction of maximum variance" and "find the line that the points are closest to" — and it is not obvious those are the same instruction. One of them is about spreading shadows out. The other is about hugging the points. They sound like different jobs, and a reader who assumes they coincide is usually just taking someone's word for it. They are, and the reason is Pythagoras.
+PCA gets described two different ways — "find the direction of maximum variance" and "find the line that the points are closest to" — and it is not obvious those are the same instruction. One of them is about spreading shadows out. The other is about hugging the points. They sound like different jobs. They are the same job, and the reason is Pythagoras.
 
-Center the data so the centroid is the origin. Fix a unit direction $v$. Every point splits into a piece along $v$ and a piece perpendicular to it, and those two pieces are the legs of a right triangle with $x_i$ as the hypotenuse:
+Center the data so the centroid is the origin. Fix a unit direction $v$, meaning a vector of length one. Write $x_i$ for the $i$-th centered observation, one of the $n$ points in $\mathbb R^d$, and $d_i$ for its perpendicular distance to the line through the origin in direction $v$ — that $d_i$ is a distance, unrelated to the feature count $d$, and the subscript is the only thing separating them. Every point splits into a piece along $v$ and a piece perpendicular to it, and those two pieces are the legs of a right triangle with $x_i$ as the hypotenuse:
 
 $$\lVert x_i\rVert^2=\underbrace{(v^\top x_i)^2}_{\text{along }v}+\underbrace{d_i^2}_{\text{perpendicular}}$$
 
-Say that out loud, one term at a time. On the left, the squared distance from the origin out to the point. On the right, first the squared length of the point's shadow on the line, then the squared distance from the point down to the line. Hypotenuse squared equals leg squared plus leg squared. That is all it is.
+Take that one term at a time. On the left, the squared distance from the origin out to the point. On the right, first the squared length of the point's shadow on the line, then the squared distance from the point down to the line. Hypotenuse squared equals leg squared plus leg squared. That is all it is.
 
 Sum over all points. The left side, $\sum_i\lVert x_i\rVert^2$, does not depend on $v$ at all — it is a property of the data. So the two terms on the right trade off exactly: every unit of squared projection you gain is a unit of squared distance you lose.
 
@@ -59,17 +59,17 @@ The double arrow reads "these two problems have the same solution." Maximizing t
 
 This is also the cleanest way to see why PCA is not regression. Both fit a line through a cloud, but they measure error along different directions: OLS measures **vertically**, because $y$ is special and $x$ is taken as given. PCA measures **perpendicularly**, because no variable is special — it is describing the cloud, not predicting one coordinate from the others. Swap $y$ and $x$ and the OLS line changes; the PCA line does not.
 
-That asymmetry test is worth keeping in your pocket. If relabelling which column is the target changes the answer, you are doing regression. If it cannot possibly change the answer, you are describing a cloud.
+That asymmetry is a reliable test. If relabelling which column is the target changes the answer, you are doing regression. If it cannot possibly change the answer, you are describing a cloud.
 
 #### The dual picture: feature space
 
-The scatter plot above is **point space** — $n$ points living in $\mathbb R^d$, one axis per feature. There is a second, less familiar picture that the same matrix supports, and it is worth carrying because some facts are obvious in it that are invisible in the scatter.
+The scatter plot above is **point space** — $n$ points living in $\mathbb R^d$, one axis per feature. The same matrix supports a second, less familiar picture, and facts that are invisible in the scatter are plain in it.
 
 The scatter plot reads the data matrix row by row: each row is a person, each person is a dot. Nothing stops you reading it column by column instead.
 
 Turn the matrix on its side. Instead of $n$ points in $d$ dimensions, look at $d$ vectors in $\mathbb R^n$ — one arrow per *column* of $X$, living in a space whose axes are the observations. This is **feature space** (classically, "variable space"). Ten features means ten arrows, no matter how many rows you have.
 
-Two facts make it readable. For centered columns,
+Two facts make it readable. Index the features by $j$ and $k$, each running from $1$ to $d$, and write $x_j$ for the $j$-th column of $X$, $x_{ij}$ for the entry in row $i$ and column $j$, $s_j$ for the sample standard deviation of feature $j$, and $r_{jk}$ for the sample correlation between features $j$ and $k$. For centered columns,
 
 $$\lVert x_j\rVert^2=\sum_i x_{ij}^2=(n-1)s_j^2,\qquad \cos\angle(x_j,x_k)=\frac{x_j^\top x_k}{\lVert x_j\rVert\,\lVert x_k\rVert}=r_{jk}$$
 
@@ -81,11 +81,11 @@ Two statistical quantities you normally compute have become two things you can s
 
 <PCAFeatureSpace caption="Two standardized features with correlation r = 0.8, drawn as vectors in observation space. Watch the angle, not the arrows' positions. Because they are standardized the arrows have equal length, so the correlation shows up purely as the angle between them: cos θ = 0.8, about 37°. PCA finds an orthogonal pair inside the plane they span. z₁ bisects them and is long; z₂ is perpendicular and short. For this matrix λ₁ = 1.8 and λ₂ = 0.2, so z₁ is exactly √(1.8/0.2) = 3 times the length of z₂ — the whole compression argument, visible as a length ratio." />
 
-Read the compression story off the picture. The two feature arrows nearly coincide, so almost everything they span is captured by one direction; $z_2$ is the small leftover. Push $r_{12}\to1$ and the arrows merge, $\lambda_2\to0$, and the second component vanishes — perfect collinearity is *literally* two arrows lying on top of each other, with a genuinely one-dimensional span. Push $r_{12}\to0$ and the arrows go perpendicular, $\lambda_1=\lambda_2=1$, and there is no preferred direction to find: PCA has nothing to compress.
+Read the compression story off the picture. Call the two component arrows $z_1$ and $z_2$, and write $\lambda_1\ge\lambda_2$ for the variances of the data along them. The two feature arrows nearly coincide, so almost everything they span is captured by one direction; $z_2$ is the small leftover. Push $r_{12}\to1$ and the arrows merge, $\lambda_2\to0$, and the second component vanishes — perfect collinearity is *literally* two arrows lying on top of each other, with a genuinely one-dimensional span. Push $r_{12}\to0$ and the arrows go perpendicular, $\lambda_1=\lambda_2=1$, and there is no preferred direction to find: PCA has nothing to compress.
 
 Turning the correlation knob from 1 down to 0 walks you from "one arrow pretending to be two" to "two arrows with nothing in common," and PCA's usefulness dies at the far end. It compresses exactly to the extent that your features were saying the same thing twice.
 
-The final row of the figure is the conservation law that makes PCA a rotation rather than a reduction. Since $V$ is orthogonal it preserves total squared length,
+The final row of the figure is the conservation law that makes PCA a rotation rather than a reduction. The rotation is carried by a matrix $V$ whose columns are the principal directions; because those columns are orthonormal, $V$ preserves total squared length. Summing over the $d$ features on the left and the $d$ components on the right,
 
 $$\sum_j\lVert x_j\rVert^2=\sum_k\lVert z_k\rVert^2$$
 
@@ -93,13 +93,13 @@ so the components redistribute variance among directions without creating or des
 
 ### The mechanics: center, usually scale, then decompose
 
-You now have the picture. Here is the recipe that produces it, which is three lines of code and one line of linear algebra.
+The recipe that produces that picture is three lines of code and one line of linear algebra.
 
 Center $X$, then take the **SVD**
 
 $$X=UDV^\top$$
 
-Read it right to left, as a sequence of operations on the data: $V^\top$ rotates into the principal coordinate system, $D$ stretches each new axis by its own amount, and $U$ carries the result back out. The $d_j$ below are the diagonal entries of $D$, one per component.
+Here $U$ and $V$ have orthonormal columns and $D$ is diagonal with nonnegative entries. Read it right to left, as a sequence of operations on the data: $V^\top$ rotates into the principal coordinate system, $D$ stretches each new axis by its own amount, and $U$ carries the result back out. The $d_j$ below are the diagonal entries of $D$, called the **singular values**, ordered $d_1\ge d_2\ge\cdots$, one per component; $u_j$ and $v_j$ are the $j$-th columns of $U$ and $V$. That $d_j$ is a singular value, not the perpendicular distance $d_i$ from the Pythagorean argument and not the feature count $d$ — the letter does three jobs in this lesson and only the subscript separates them.
 
 Equivalently, eigendecompose the sample covariance:
 
@@ -113,13 +113,13 @@ $$\frac{d_j^2}{\sum_kd_k^2}$$
 
 That fraction is "this component's share of the total spread." Sum it over the first $m$ components and you have the familiar "the top 3 PCs explain 91% of the variance" sentence.
 
-Centering is mandatory because PCA describes variation around the mean. Scaling is a modeling choice but usually essential when units differ: without standardization, a feature measured in dollars can dominate one measured in percentages simply because its numerical variance is larger. Change that feature's unit from dollars to cents and its variance grows by a factor of 10,000, which would move PC1 without a single data point changing. Fit the scaler and PCA on training data only; fitting them before a split leaks validation/test distribution information.
+Centering is mandatory because PCA describes variation around the mean. Scaling is a modeling choice but usually essential when units differ: without standardization, a feature measured in dollars can dominate one measured in percentages only because its numerical variance is larger. Change that feature's unit from dollars to cents and its variance grows by a factor of 10,000, which would move PC1 without a single data point changing. Fit the scaler and PCA on training data only; fitting them before a split leaks validation/test distribution information.
 
 One more piece of bookkeeping that trips people up in code reviews. The sign of a component is arbitrary: $v_j$ and $-v_j$ describe the same axis. Interpret relative loading magnitudes and directions, not the sign in isolation.
 
 ### How the decomposition is actually computed
 
-"Eigendecompose the covariance matrix" hides the part that matters. You do **not** solve the eigenvalue equation symbolically. You turn it into an iterative optimization problem. Because the covariance matrix is symmetric positive semidefinite, that turns out to be especially clean.
+"Eigendecompose the covariance matrix" hides the part that matters. You do **not** solve the eigenvalue equation symbolically. You turn it into an iterative optimization problem. Because the covariance matrix is symmetric positive semidefinite, that optimization is especially clean.
 
 The linear algebra course answer is to form the characteristic polynomial and find its roots. For a 10,000-by-10,000 covariance matrix that is a degree-10,000 polynomial, and nobody does this.
 
@@ -131,25 +131,25 @@ Let
 
 $$C=\frac{1}{n}X^\top X$$
 
-be the covariance matrix. The first principal component solves
+be the covariance matrix. (The $1/n$ here in place of the $1/(n-1)$ used above rescales every eigenvalue by the same constant and moves no direction, so nothing in this section depends on the choice.) The first principal component solves
 
 $$\max_{\lVert v\rVert=1} v^\top Cv$$
 
-Out loud: among all directions of length one, find the one that makes the number $v^\top Cv$ as large as possible. This is the "maximum spread of the shadows" instruction from the first section, written in matrix form.
+In words: among all directions of length one, find the one that makes the number $v^\top Cv$ as large as possible. This is the "maximum spread of the shadows" instruction from the first section, written in matrix form.
 
-Theory says the answer is the eigenvector with the largest eigenvalue. But suppose you do not know the eigenvectors. How do you find it numerically?
+The answer is the eigenvector with the largest eigenvalue. But suppose you do not know the eigenvectors. How do you find it numerically?
 
-Because $C$ is symmetric it has an orthonormal eigenbasis,
+Because $C$ is symmetric it has an orthonormal eigenbasis — an orthogonal matrix $V$ whose columns $v_1,\ldots,v_d$ are the eigenvectors, and a diagonal matrix $\Lambda$ holding the corresponding eigenvalues, ordered largest first:
 
 $$C=V\Lambda V^\top,\qquad \lambda_1\ge\lambda_2\ge\cdots\ge\lambda_d\ge0$$
 
-An orthonormal eigenbasis means the eigenvectors are mutually perpendicular unit vectors, so they work as a coordinate system. That is the lever for everything that follows.
+An orthonormal eigenbasis means the eigenvectors are mutually perpendicular unit vectors, so they work as a coordinate system. That coordinate system is also where the claim about the maximizer comes from, and the argument is two lines. Write any unit vector in those coordinates, $v=\sum_ja_jv_j$, where the weights $a_j$ satisfy $\sum_ja_j^2=1$ because $v$ has length one. Then $v^\top Cv=\sum_ja_j^2\lambda_j$: the quantity being maximized is a weighted average of the eigenvalues, with weights that are forced to sum to one. A weighted average is as large as it can be when all the weight sits on the largest item, so the maximizer puts $a_1=1$ and the rest at zero, which is $v=v_1$. That coordinate system is the lever for everything that follows.
 
 Take literally any starting vector $q_0$. The eigenvectors form a basis, so
 
 $$q_0=c_1v_1+c_2v_2+\cdots+c_dv_d$$
 
-You do not know the $c_j$ and you never will. You only need to know that they exist.
+The $c_j$ are the coordinates of $q_0$ in that eigenbasis. You do not know them and you never will; you only need to know that they exist.
 
 Multiply by $C$. Each eigenvector is just scaled by its own eigenvalue:
 
@@ -157,11 +157,11 @@ $$Cq_0=c_1\lambda_1v_1+c_2\lambda_2v_2+\cdots+c_d\lambda_dv_d$$
 
 Nothing mixed. Each eigenvector stayed pointing where it was and only got longer or shorter, which is what being an eigenvector means.
 
-Multiply again:
+Multiply again, and the same thing happens a second time — every eigenvalue picks up one more factor of itself:
 
 $$C^2q_0=c_1\lambda_1^2v_1+c_2\lambda_2^2v_2+\cdots+c_d\lambda_d^2v_d$$
 
-After $t$ multiplications:
+The pattern is now fixed. Each further multiplication raises every eigenvalue to one higher power and leaves the directions where they were, so after $t$ multiplications:
 
 $$C^tq_0=c_1\lambda_1^tv_1+c_2\lambda_2^tv_2+\cdots+c_d\lambda_d^tv_d$$
 
@@ -181,7 +181,7 @@ The normalization is there to strip off the $\lambda_1^t$ out front, which would
 
 #### The algorithm for the top direction
 
-Start with any unit vector $q$. Repeat:
+Start with any unit vector $q$, and let $z$ be a scratch vector holding the result of one multiplication. Repeat:
 
 $$z=Cq,\qquad q\leftarrow\frac{z}{\lVert z\rVert}$$
 
@@ -219,11 +219,11 @@ Watch the ratio of the two entries: $1/3$, then $0.6$, then $0.78$, then $120/13
 
 $$v_1=\frac{1}{\sqrt2}\begin{bmatrix}1\\1\end{bmatrix},\qquad v_1^\top Cv_1=4$$
 
-The top eigenpair, found numerically, with no polynomial solved. (The other eigenpair here is $\lambda_2=2$ at $\tfrac1{\sqrt2}[1,-1]^\top$, so the convergence rate was $\lambda_2/\lambda_1=0.5$ — the error halves each step, which is what the table of ratios shows.)
+The top eigenpair, found numerically, with no polynomial solved. (The other eigenpair here is $\lambda_2=2$ at $\tfrac1{\sqrt2}[1,-1]^\top$, so the convergence rate was $\lambda_2/\lambda_1=0.5$ — the error halves each step, which is what the sequence of ratios shows.)
 
 #### PCA needs several eigenvectors, so stop them collapsing
 
-One direction is rarely enough. You wanted $m$ components, so try the obvious extension.
+One direction is rarely enough. You wanted several components, so try the obvious extension.
 
 Power-iterate several vectors independently and they all converge to $v_1$. You need something that stops them landing on the same direction.
 
@@ -233,13 +233,13 @@ Say you want $k$ components. Instead of one vector, keep a matrix of $k$ orthono
 
 $$Q=\begin{bmatrix}q_1&q_2&\cdots&q_k\end{bmatrix}$$
 
-Multiply all of them at once, $Z=CQ$. Every column starts drifting toward $v_1$, so immediately re-orthogonalize the columns by taking a QR decomposition $Z=QR$, throwing away $R$ and keeping the new orthonormal $Q$. Repeat:
+Multiply all of them at once, $Z=CQ$. Every column starts drifting toward $v_1$, so immediately re-orthogonalize the columns by taking a QR decomposition $Z=QR$ — which rewrites the columns of $Z$ as an orthonormal set $Q$ spanning the same space, times an upper-triangular bookkeeping factor $R$ — throwing away $R$ and keeping the new orthonormal $Q$. Repeat:
 
 $$\boxed{\ Z_t=CQ_t,\qquad Q_{t+1}=\operatorname{orth}(Z_t)\ }$$
 
 One step of drift, one step of pushing the columns back apart, forever.
 
-This is **orthogonal iteration**, also called simultaneous power iteration. Why does it work? If the starting block is $Q_0=VA$ — its columns are combinations of eigenvectors — then
+This is **orthogonal iteration**, also called simultaneous power iteration. Why does it work? If the starting block is $Q_0=VA$ for some coefficient matrix $A$, which is another way of saying its columns are combinations of eigenvectors, then
 
 $$C^tQ_0=V\Lambda^tA$$
 
@@ -249,7 +249,7 @@ That is already a working algorithm for PCA's top $k$ directions.
 
 #### The same idea, rewritten, is the QR eigensolver
 
-Now suppose you want *all* eigenvalues. Start with $A_0=C$, factor it, then multiply the factors back in the opposite order:
+Now suppose you want *all* eigenvalues. Start with $A_0=C$ — the first in a sequence of matrices $A_0,A_1,A_2,\ldots$, unrelated to the coefficient matrix $A$ just above — factor it, then multiply the factors back in the opposite order:
 
 $$A_0=Q_0R_0,\qquad A_1=R_0Q_0$$
 
@@ -281,9 +281,9 @@ The eigenvalues literally appear on the diagonal. That is the **QR algorithm**. 
 
 #### Why it drives toward diagonal form
 
-Repeated QR iteration is closely related to running simultaneous power iteration on all the basis vectors at once. In simultaneous power iteration, $C^tQ_0$ becomes dominated by the eigenvectors of the largest eigenvalues; QR repeatedly extracts an orthonormal basis for those increasingly eigenvector-aligned directions.
+Repeated QR iteration is orthogonal iteration run on all $d$ basis vectors at once, written in a different form. In orthogonal iteration, $C^tQ_0$ becomes dominated by the eigenvectors of the largest eigenvalues; QR repeatedly extracts an orthonormal basis for those increasingly eigenvector-aligned directions.
 
-So this is not a new algorithm. It is the previous section's algorithm with $k=d$, written down differently.
+So this is not a new algorithm. It is orthogonal iteration with $k=d$, written down differently.
 
 If you accumulate the rotations,
 
@@ -293,11 +293,11 @@ then the algorithm is effectively driving $\bar Q_t\to V$, the eigenvector matri
 
 $$\bar Q_t^\top C\bar Q_t\longrightarrow V^\top CV$$
 
-and since $CV=V\Lambda$,
+Conjugating $C$ by the accumulated rotation therefore converges to conjugating it by $V$ itself. Evaluate that limit using the eigenvector equation $CV=V\Lambda$, then use $V^\top V=I$, which holds because the eigenvectors are orthonormal:
 
 $$V^\top CV=V^\top V\Lambda=\Lambda$$
 
-giving, with $V^\top V=I$ in that last step because the eigenvectors are orthonormal,
+The first line says what the algorithm approaches; the second says what that limit is equal to. Putting them together,
 
 $$\boxed{\ \bar Q_t^\top C\bar Q_t\longrightarrow\Lambda\ }$$
 
@@ -307,15 +307,15 @@ The QR algorithm is iteratively rotating the coordinate system until the matrix 
 
 The algorithm works. Now price it.
 
-A dense $d\times d$ QR decomposition costs about $O(d^3)$. Doing that at every iteration would be wasteful. Hundreds of iterations at $O(d^3)$ each is a bill nobody wants to pay. But covariance matrices are symmetric, and you can exploit that *before* iterating.
+A dense $d\times d$ QR decomposition costs about $O(d^3)$. Hundreds of iterations at $O(d^3)$ each is a bill nobody wants to pay. But covariance matrices are symmetric, and you can exploit that *before* iterating.
 
 Transform $C$ into a **tridiagonal** matrix
 
 $$T=\begin{bmatrix}a_1&b_1&0&\cdots\\b_1&a_2&b_2&\cdots\\0&b_2&a_3&\cdots\\\vdots&&&\ddots\end{bmatrix}$$
 
-built so that $T=Q^\top CQ$ — again a similarity transformation, so $T$ has exactly the same eigenvalues as $C$. Tridiagonal means nonzero on the diagonal and on the two bands next to it, zero everywhere else.
+with diagonal entries $a_1,a_2,\ldots$ and off-diagonal entries $b_1,b_2,\ldots$, built so that $T=Q^\top CQ$ for some orthogonal $Q$ — again a similarity transformation, so $T$ has exactly the same eigenvalues as $C$. Tridiagonal means nonzero on the diagonal and on the two bands next to it, zero everywhere else.
 
-That is the same lemma from two sections ago, reused. You are allowed to change the matrix as long as you change it by a similarity transformation, because the answer you want rides through untouched.
+That is the eigenvalue-preserving property of similarity transformations, reused. You are allowed to change the matrix as long as you change it by a similarity transformation, because the answer you want rides through untouched.
 
 #### Householder reflections do the tridiagonalization
 
@@ -327,11 +327,11 @@ $$Hx=\begin{bmatrix}\pm\lVert x\rVert\\0\\0\\\vdots\end{bmatrix}$$
 
 A reflection cannot change a vector's length, so all of $x$'s length has to end up in the single surviving entry. That is why $\lVert x\rVert$ appears there.
 
-Construct $u=x\pm\lVert x\rVert e_1$, normalize to $v=u/\lVert u\rVert$, and define
+Construct $u=x\pm\lVert x\rVert e_1$, where $e_1$ is the first standard basis vector $[1,0,0,\ldots]^\top$, normalize to $v=u/\lVert u\rVert$, and define
 
 $$H=I-2vv^\top$$
 
-Why is that a reflection? Split any vector into parts parallel and perpendicular to $v$: $x=x_\perp+\alpha v$. Then since $v^\top x_\perp=0$ and $\lVert v\rVert=1$,
+Why is that a reflection? Split any vector into parts parallel and perpendicular to $v$: $x=x_\perp+\alpha v$, where $x_\perp$ is the perpendicular part and the scalar $\alpha=v^\top x$ says how far the vector runs along $v$. Here $u$ and $v$ are the reflection's own vectors and have nothing to do with the singular vectors of the same name. Then since $v^\top x_\perp=0$ and $\lVert v\rVert=1$,
 
 $$Hx=(I-2vv^\top)(x_\perp+\alpha v)=x_\perp+\alpha v-2\alpha v=x_\perp-\alpha v$$
 
@@ -371,7 +371,7 @@ Power iteration already told you something useful: the sequence $q,\ Cq,\ C^2q,\
 
 $$\boxed{\ \mathcal K_m(C,q)=\operatorname{span}\lbrace q,Cq,C^2q,\ldots,C^{m-1}q\rbrace\ }$$
 
-That is the span of everything power iteration produced along the way, discarded work reclaimed as a subspace.
+That is the span of everything power iteration produced along the way, discarded work reclaimed as a subspace. Its dimension $m$ is how many multiplications you are willing to do — a different $m$ from the count of retained components in the modeling sections.
 
 Instead of solving a $d\times d$ eigenproblem, find an orthonormal basis $Q_m$ for this much smaller $m$-dimensional space and project $C$ into it:
 
@@ -379,7 +379,7 @@ $$T_m=Q_m^\top CQ_m$$
 
 Read that as "what does $C$ look like to someone who can only see inside this subspace."
 
-Now $T_m$ is only $m\times m$. Solve the small problem $T_my=\theta y$, then lift the answer back:
+Now $T_m$ is only $m\times m$. Solve the small problem $T_my=\theta y$, whose eigenvalue $\theta$ and eigenvector $y$ both live entirely inside the subspace, then lift the answer back:
 
 $$v\approx Q_my$$
 
@@ -399,7 +399,7 @@ The parentheses are the whole trick. Multiply by $X$ first to get a short vector
 
 So you can go $v\xrightarrow{\ X\ }Xv\xrightarrow{\ X^\top\ }X^\top Xv$ without ever forming the $d\times d$ covariance matrix.
 
-This is a large practical win. If $d$ is $10{,}000$, then $C$ is a hundred million entries you never have to store. It is also more numerically accurate: forming $X^\top X$ squares the condition number, so you lose roughly half your significant digits before you start. This is exactly why PCA implementations run SVD on $X$ directly rather than eigendecomposing $X^\top X$, and it is what truncated and randomized SVD solvers are built on.
+This is a large practical win. If $d$ is $10{,}000$, then $C$ is a hundred million entries you never have to store. It is also more numerically accurate: forming $X^\top X$ squares the condition number — the factor by which a relative error in the input can be magnified in the answer — so you lose roughly half your significant digits before you start. This is exactly why PCA implementations run SVD on $X$ directly rather than eigendecomposing $X^\top X$, and it is what truncated and randomized SVD solvers are built on.
 
 #### The hierarchy to keep in your head
 
@@ -430,13 +430,13 @@ That trade is the whole comparison. PCA is attractive for compression, visualiza
 
 Once the rotation exists, using it for prediction is the obvious next move.
 
-**PCR** performs PCA on $X$, keeps the top $m$ scores, then regresses $y$ on those scores. Orthogonality removes collinearity, and choosing $m<p$ reduces variance. It is a hard decision: directions $1$ through $m$ get full access to the fit; directions after $m$ get none. There is no in-between, and no appeal.
+**PCR** performs PCA on $X$, keeps the top $m$ scores, then regresses $y$ on those scores. Orthogonality removes collinearity, and choosing $m<p$ reduces variance, where $p$ is the number of predictor columns — the quantity written $d$ in the geometric sections above. The rule is a hard threshold: directions $1$ through $m$ get full access to the fit; directions after $m$ get none. There is no in-between, and no appeal.
 
-The number of components is a supervised hyperparameter even though the PCA transformation is unsupervised. Choose $m$ by cross-validation on the full pipeline, not solely by a “95% explained variance” rule. Explained variance concerns reconstruction of $X$, not predictive information about $y$. That is the crucial limitation from the first section, showing up as a concrete tuning mistake.
+The number of components is a supervised hyperparameter even though the PCA transformation is unsupervised. Choose $m$ by cross-validation on the full pipeline, not solely by a “95% explained variance” rule. Explained variance concerns reconstruction of $X$, not predictive information about $y$. That is the gap between reconstructing $X$ and predicting $y$, showing up as a concrete tuning mistake.
 
 Now compare that all-or-nothing rule against what ridge does to the same directions.
 
-**Ridge is "soft PCR."** With $X=UDV^\top$, the ridge fit is
+**Ridge is "soft PCR."** With $X=UDV^\top$, and writing $\lambda>0$ for the ridge penalty — a different $\lambda$ from the eigenvalues above, and unrelated to them — the fitted values $\hat y_{\text{ridge}}$ are
 
 $$\hat y_{\text{ridge}} = \sum_{j=1}^p u_j\,\frac{d_j^2}{d_j^2+\lambda}\,u_j^\top y$$
 
@@ -446,13 +446,13 @@ OLS uses shrinkage factor $1$ on every principal direction; ridge multiplies dir
 
 Two methods, one axis, two shapes of decision: a step and a slope.
 
-This spectral view explains regularization at a deeper level. OLS divides by singular values; a very small $d_j$ can amplify noise enormously. Ridge replaces the dangerous inversion with a shrinkage factor that approaches 0 for weak directions and 1 for strong directions. PCR uses a step function; ridge uses a smooth dial. Neither asks whether the direction predicts $y$ before deciding how strongly to retain it, although ridge's $\lambda$ is chosen using predictive validation.
+Seen this way, regularization is a decision about singular directions. OLS divides by singular values; a very small $d_j$ can amplify noise enormously. Ridge replaces the dangerous inversion with a shrinkage factor that approaches 0 for weak directions and 1 for strong directions. PCR uses a step function; ridge uses a smooth dial. Neither asks whether the direction predicts $y$ before deciding how strongly to retain it, although ridge's $\lambda$ is chosen using predictive validation.
 
-That last sentence is the setup for the failure mode.
+That target-blindness is where PCA goes badly wrong.
 
 **When PCA hurts.** PCA is **unsupervised — target-blind**. It keeps high-*variance* directions, which may be exactly the *irrelevant* ones; the predictive signal can live in a low-variance component that PCA discards. It also assumes linearity and "variance = importance," and destroys interpretability (components are blends of features). It helps when collinearity/dimensionality is the problem *and* signal aligns with high-variance directions; otherwise supervised methods (PLS, or just ridge) are better.
 
-An interview-quality counterexample: let a nuisance feature vary wildly while a low-variance sensor almost perfectly determines the target. PC1 follows the nuisance variance; truncating to PC1 destroys the signal. PCA worked perfectly at its stated job—reconstructing $X$—and failed at the different job we cared about. It was never told there was a target.
+A counterexample makes it concrete. Let a nuisance feature vary wildly while a low-variance sensor almost perfectly determines the target. PC1 follows the nuisance variance; truncating to PC1 destroys the signal. PCA worked perfectly at its stated job—reconstructing $X$—and failed at the different job we cared about. It was never told there was a target.
 
 PCA also captures only linear directions, can be dominated by outliers, and makes components dependent on the training distribution. When feature covariance shifts, old loadings may no longer summarize the new population well.
 
