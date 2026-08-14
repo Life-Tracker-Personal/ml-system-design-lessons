@@ -9,7 +9,7 @@ estimatedMinutes: 70
 
 ## TL;DR
 
-Clustering looks like a grab-bag of algorithms, but they're all **a probabilistic generative model plus a hardening choice** — and the keystone fact is that **k-means is the hard-EM, infinite-precision, isotropic-shared-covariance limit of a Gaussian mixture**. Take that model seriously and every assumption, failure mode, and "how do I pick $k$?" falls out. For visualization, the dual reframe: **t-SNE and UMAP optimize a divergence between neighbor-*probability* distributions, not a metric** — so their axes, cluster sizes, and inter-cluster distances are optimization artifacts, not data. (Linear, variance-preserving PCA — with interpretable axes and faithful distances — is in c1.4; this lesson is clustering + the nonlinear embeddings.)
+Clustering looks like a grab-bag of algorithms, but they're all **a probabilistic generative model plus a hardening choice** — and the keystone fact is that **k-means is the hard-EM, infinite-precision, isotropic-shared-covariance limit of a Gaussian mixture**. Take that model seriously and every assumption, failure mode, and "how do I pick $k$?" falls out. For visualization, the dual reframe: **t-SNE and UMAP optimize a divergence between neighbor-*probability* distributions, not a metric** — so their axes, cluster sizes, and inter-cluster distances are optimization artifacts, not data. (Linear, variance-preserving PCA — with interpretable axes and faithful distances — is in c1.3; this lesson is clustering + the nonlinear embeddings.)
 
 ## What you'll be able to do after this lesson
 
@@ -30,7 +30,7 @@ Clustering looks like a grab-bag of algorithms, but they're all **a probabilisti
 > - **Latent variable** — an unobserved label (which cluster a point came from); EM infers a distribution over it.
 > - **Responsibility** $\gamma_{ij}$ — the posterior probability that point $i$ belongs to component $j$ (a soft assignment).
 > - **Perplexity** — t-SNE's "effective number of neighbors" per point ($2^{H}$ of its neighbor distribution).
-> - **Embedding** — a low-dimensional representation that aims to preserve *neighborhoods* (t-SNE/UMAP), as opposed to *variance* (PCA, c1.4).
+> - **Embedding** — a low-dimensional representation that aims to preserve *neighborhoods* (t-SNE/UMAP), as opposed to *variance* (PCA, c1.3).
 
 ## Part 1 — k-means
 
@@ -44,7 +44,7 @@ $$J=\sum_{j=1}^{k}\sum_{x_i\in C_j}\lVert x_i-\mu_j\rVert_2^2$$
 
 **k-means++** (Arthur & Vassilvitskii 2007) seeds centers with probability $\propto D(x)^2$ (distance to the nearest chosen center), with a provable $O(\log k)$-competitive guarantee against the optimal WCSS *before* a single Lloyd step (the exact constant isn't interview material). That's why you also run multiple restarts (`n_init`).
 
-**Picking $k$ is not optimization.** $J(k)$ is **monotonically non-increasing** ($J(n)=0$) — a finer partition can always replicate a coarser one and split — so minimizing inertia trivially returns $k=n$ (the exact analogue of $R^2$ rising with features, c1.4). You need a complexity-aware selector: the **elbow** (heuristic kink), the **silhouette** $s(i)=\frac{b(i)-a(i)}{\max(a(i),b(i))}\in[-1,1]$ (peak of the mean), or the **gap statistic** (Tibshirani 2001 — the only one with a principled null: compare $\log W_k$ to its expectation under uniform reference data).
+**Picking $k$ is not optimization.** $J(k)$ is **monotonically non-increasing** ($J(n)=0$) — a finer partition can always replicate a coarser one and split — so minimizing inertia trivially returns $k=n$ (the exact analogue of $R^2$ rising with features, c1.3). You need a complexity-aware selector: the **elbow** (heuristic kink), the **silhouette** $s(i)=\frac{b(i)-a(i)}{\max(a(i),b(i))}\in[-1,1]$ (peak of the mean), or the **gap statistic** (Tibshirani 2001 — the only one with a principled null: compare $\log W_k$ to its expectation under uniform reference data).
 
 <KMeansVoronoi caption="Left: k-means recovers three well-separated blobs. Its cell edges are perpendicular bisectors between centroid pairs — always straight lines, so the regions are always convex polygons. Right: the same algorithm on two nested rings fails badly — it slices each ring in half rather than separating inner from outer, because 'convex Voronoi cells' can't wrap around a hole. This is precisely why the Stop-and-think below points at DBSCAN or spectral clustering." />
 
@@ -91,13 +91,13 @@ A GMM models density as $p(x)=\sum_{j=1}^k \pi_j\,\mathcal{N}(x\mid\mu_j,\Sigma_
 - **Inter-cluster distances are meaningless** — the heavy-tailed (Cauchy) low-dim kernel and the neighbor-only objective mean gaps aren't metric.
 - **Low perplexity manufactures clusters** — t-SNE on pure Gaussian noise shows "clumps" at small perplexity.
 
-So treat t-SNE/UMAP as **hypothesis-generating local-neighborhood views**: sweep perplexity/`n_neighbors`, set a seed, and verify any "cluster" or "gap" against the original-space data or a metric method. This is the opposite of **PCA** (c1.4), whose axes are interpretable eigenvectors, whose distances are a faithful variance-preserving approximation, and which is deterministic and invertible.
+So treat t-SNE/UMAP as **hypothesis-generating local-neighborhood views**: sweep perplexity/`n_neighbors`, set a seed, and verify any "cluster" or "gap" against the original-space data or a metric method. This is the opposite of **PCA** (c1.3), whose axes are interpretable eigenvectors, whose distances are a faithful variance-preserving approximation, and which is deterministic and invertible.
 
 ## The stats / quant-research lens
 
 - **EM is MLE with latent variables, made tractable by the ELBO** — the same minorize-maximize skeleton behind variational inference, VAEs, and HMM training. GMM responsibilities are posterior state probabilities (e.g. soft risk-on/risk-off regime weights).
 - **GMM admits BIC/AIC** for choosing $k$ (penalized likelihood) — a *statistical* model-selection answer where k-means has only the geometric elbow/silhouette.
-- **The curse of dimensionality kills distance-based clustering** (c1.6): pairwise distances concentrate ($\text{CoV}\sim1/\sqrt d$, Beyer 1999), so k-means/DBSCAN/silhouette all degrade — reduce dimension (PCA from c1.4, or a learned embedding) *before* clustering.
+- **The curse of dimensionality kills distance-based clustering** (c1.8): pairwise distances concentrate ($\text{CoV}\sim1/\sqrt d$, Beyer 1999), so k-means/DBSCAN/silhouette all degrade — reduce dimension (PCA from c1.3, or a learned embedding) *before* clustering.
 - **Why embeddings can't be trusted metrically:** both t-SNE and UMAP minimize a divergence between *neighbor-probability* distributions, invariant to global isometries/scaling of the output — so axes carry no units, the adaptive per-point bandwidth erases density, and the heavy tail erases distance. PCA is the interpretable, metric contrast.
 
 ## Tradeoff matrix

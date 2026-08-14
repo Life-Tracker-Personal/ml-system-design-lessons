@@ -1,15 +1,17 @@
 ---
 id: c1.2
 chapter: 1
-title: Regression losses
-subtitle: MSE, MAE, Huber — derived from noise models
-refs: [16, 17, 18]
-estimatedMinutes: 60
+title: Loss functions
+subtitle: Regression and classification losses as noise models
+refs: [16, 17, 18, 15, 11, 10, 12]
+estimatedMinutes: 110
 ---
 
 ## TL;DR
 
 Every regression loss function is **secretly a statement about what the noise in your data looks like**. MSE is MLE under Gaussian noise; MAE is MLE under Laplace noise; Huber is what you reach for when noise is mostly Gaussian but has a heavy tail of outliers. Choosing a loss is choosing a noise model — and the choice changes outlier sensitivity, optimization difficulty, and the very meaning of "best fit."
+
+A classification loss is the **same maximum-likelihood story as regression** (c1.2), specialized to discrete labels. **Cross-entropy is the negative log-likelihood of a Categorical/Bernoulli model**, and minimizing it is minimizing the KL divergence from your prediction to the label distribution. Everything else — focal loss, class-balanced weighting, label smoothing — is a *deliberate distortion* of that objective to fix imbalance or miscalibrated confidence. Every distortion has a price, and the price is almost always paid in **calibration**: whether the number your model calls "0.9" actually happens 90% of the time.
 
 ## What you'll be able to do after this lesson
 
@@ -20,6 +22,13 @@ Every regression loss function is **secretly a statement about what the noise in
 - Recognize quantile (pinball) loss, log-cosh, and ε-insensitive loss, and say *which noise model each corresponds to*.
 - Diagnose why "my MAE loss in XGBoost isn't training" and propose a fix.
 - Defend a loss choice in an interview by referring to the data's noise structure rather than to muscle memory.
+
+- Derive that cross-entropy is MLE under a Categorical/Bernoulli model, and that $\text{CE} = H(p) + \text{KL}(p\,\|\,q)$.
+- Derive the clean softmax–cross-entropy gradient $\partial \mathcal{L}/\partial z = q - y$, and explain why that cancellation is *the* reason CE pairs with softmax.
+- Give two independent arguments for why CE beats MSE on classification.
+- Define focal loss and class-balanced loss, and compute *exactly* how hard focal down-weights an easy example.
+- Reason about calibration like a statistician: proper scoring rules, ECE, the Brier decomposition, temperature scaling — and why modern nets are overconfident.
+- Defend a loss choice for an imbalanced problem, and recognize when the loss is the *wrong* lever (decoupling, logit adjustment).
 
 ## Why losses come before models
 
@@ -293,6 +302,126 @@ The loss picture shows the bowl shape, but the **gradient** picture is where rob
 
 Read the right panel as the thesis of the lesson: **outlier sensitivity is just the slope of the gradient curve in the tails.** MSE's gradient keeps climbing, so one residual of 100 pulls 100× harder than a residual of 1. MAE flattens to $\pm 1$ immediately, so every residual — outlier or not — pulls with the same unit force. Huber is the deliberate compromise: linear (MSE-like, statistically efficient) near zero, then clamped (MAE-like, robust) once $|r|$ passes $\delta$.
 
+## Why losses, again, before models
+
+> **Goal — see classification through the same lens as regression: the loss is the spec.** In c1.2 we argued every regression loss is a noise model. Classification is the discrete-label case of the same principle — and the loss decides not just the decision boundary but the model's *confidence*, which is what production systems threshold, rank, and calibrate on.
+
+A classifier rarely ships its argmax alone. It ships a *score* — and downstream code thresholds that score (fraud above 0.8 → block), ranks by it (show the top-10 most-likely-relevant), or feeds it into expected-value math (probability × dollar amount). All three break silently if the score is poorly calibrated. So the loss is doing two jobs at once: shaping the boundary, and shaping the probabilities. Most courses only teach the first.
+
+> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+>
+> - **Logits** $z$ — the raw, unnormalized model outputs *before* softmax/sigmoid. Range over all of $\mathbb{R}$.
+> - **Softmax** — turns a logit vector into a probability distribution: $\text{softmax}(z)_k = e^{z_k} / \sum_j e^{z_j}$. **Sigmoid** $\sigma(z) = 1/(1+e^{-z})$ is the two-class special case.
+> - **One-hot label** $y$ — the true class as a probability vector with a single 1.
+> - **Calibration** — the property that among all predictions of confidence $c$, a fraction $c$ are actually correct.
+> - **Proper scoring rule** — a loss whose expected value is uniquely minimized by reporting the *true* probabilities. (Not all losses are; accuracy isn't.)
+> - **ECE** — expected calibration error, a scalar summary of miscalibration.
+
+## The big idea: a classification loss is a noise model too
+
+> **Goal — anchor cross-entropy as MLE, so it stops looking like an arbitrary formula.**
+
+Assume each label is drawn from a Categorical distribution whose parameters are your model's predicted probabilities $q = \text{softmax}(z)$. The likelihood of one observed one-hot label $y$ is $\prod_k q_k^{y_k}$, so its log-likelihood is $\sum_k y_k \log q_k$. Maximizing the total log-likelihood over the dataset is identical to minimizing
+
+$$\mathcal{L}_{\text{CE}} = -\sum_k y_k \log q_k$$
+
+which is exactly **cross-entropy**. So CE is not a design choice pulled from a hat — it is MLE under a Categorical noise model, the discrete sibling of "MSE is MLE under Gaussian noise" from c1.2.
+
+There's a second, equally important reading. Write the cross-entropy between the label distribution $p$ and the prediction $q$:
+
+$$\text{CE}(p, q) = -\sum_k p_k \log q_k = \underbrace{-\sum_k p_k \log p_k}_{H(p)} + \underbrace{\sum_k p_k \log \frac{p_k}{q_k}}_{\text{KL}(p\,\|\,q)} = H(p) + \text{KL}(p\,\|\,q)$$
+
+The entropy $H(p)$ is fixed by the data, so **minimizing CE over $q$ is minimizing $\text{KL}(p\,\|\,q)$** — pulling your predicted distribution onto the label distribution. With one-hot labels $H(p)=0$, so CE *equals* the KL divergence. This framing is what makes label smoothing and distillation make sense later: both work by changing the *target* $p$.
+
+## Cross-entropy
+
+> **Goal — derive its gradient, its numerics, and why it dominates MSE — the three things interviewers actually probe.**
+
+### Definition
+
+Binary, with $q = \sigma(z)$ and label $y \in \{0,1\}$:
+
+$$\mathcal{L}_{\text{BCE}} = -\bigl[\, y \log q + (1-y)\log(1-q)\,\bigr]$$
+
+Multiclass, with $q = \text{softmax}(z)$ and one-hot $y$: $\mathcal{L}_{\text{CE}} = -\log q_{c}$ where $c$ is the true class. (Cross-entropy of the true class only — every other term is multiplied by zero.)
+
+### The gradient is astonishingly clean: $\partial \mathcal{L}/\partial z = q - y$
+
+The softmax Jacobian is $\partial q_i/\partial z_j = q_i(\delta_{ij} - q_j)$. Chain-rule through $\mathcal{L} = -\sum_i y_i \log q_i$:
+
+$$\frac{\partial \mathcal{L}}{\partial z_j} = \sum_i \left(-\frac{y_i}{q_i}\right) q_i(\delta_{ij} - q_j) = -\sum_i y_i(\delta_{ij} - q_j) = -y_j + q_j \sum_i y_i = q_j - y_j$$
+
+using $\sum_i y_i = 1$. So $\nabla_z \mathcal{L}_{\text{CE}} = q - y$ — **predicted minus actual**, the same beautiful form as the linear-regression gradient. The $1/q_i$ from the log derivative cancels the $q_i$ in the softmax Jacobian. **That cancellation is the entire reason cross-entropy is the natural partner of softmax** (and BCE of sigmoid: $\partial \mathcal{L}_{\text{BCE}}/\partial z = \sigma(z) - y$). Pair CE with a different output nonlinearity and you lose it.
+
+### Train on logits, not probabilities
+
+$\log \text{softmax}(z)_k = z_k - \operatorname{logsumexp}(z)$, and $\operatorname{logsumexp}(z) = m + \log\sum_j e^{z_j - m}$ with $m = \max_j z_j$. Computing softmax *then* taking the log overflows ($e^{1000} = \infty$) and underflows ($\log 0 = -\infty$); the fused, max-subtracted form is numerically stable. This is why PyTorch's `CrossEntropyLoss` takes **raw logits** (it is `LogSoftmax` + `NLLLoss` internally) and why `BCEWithLogitsLoss` exists. **Feeding probabilities into a logit loss — or applying softmax twice — is a silent correctness bug**, not an error.
+
+### Why CE beats MSE for classification — two arguments
+
+**1. Vanishing gradients.** With sigmoid + squared error, $\mathcal{L} = \tfrac12(\sigma(z) - y)^2$ gives $\partial \mathcal{L}/\partial z = (\sigma(z) - y)\,\sigma'(z)$, and $\sigma'(z) = \sigma(1-\sigma) \to 0$ when the unit saturates. A **confidently wrong** example ($z = -10$, $y = 1$) has gradient magnitude $\approx e^{-10} \approx 4.5\times 10^{-5}$ — the model that most needs to learn barely moves. Cross-entropy's gradient is $\sigma(z) - y \to -1$ in that same situation: maximal push exactly when most wrong.
+
+**2. Convexity.** For a linear model, BCE is convex in the weights; sigmoid + MSE is *non-convex* (a sigmoid composed with a quadratic), so it can trap optimization in bad local minima even in the simplest setting.
+
+<ClassificationLossCurves caption="Loss vs margin m = y·f(x). 0-1 (gray step) is what you actually want to minimize but has zero gradient everywhere. Hinge (red, previewing c1.8's SVM) is convex, kicks in below m=1, and vanishes on the safe side. Logistic (blue) is CE's margin form — always strictly positive, with a gradient that stays useful even for confidently-wrong points. Sigmoid+MSE (amber, dashed) saturates in both tails — the vanishing-gradient failure argued above, now visible as flat regions where the curve stops descending." />
+
+### Cross-entropy is a *proper scoring rule*
+
+> **Goal — establish the precise reason CE is a good training loss and accuracy is not.**
+
+Hold $x$ fixed and ask which constant forecast $q$ minimizes the expected loss $\mathbb{E}_{y\sim p}[-\log q_y]$. By Gibbs' inequality ($\text{KL}(p\,\|\,q)\ge 0$, equality iff $q=p$), the unique minimizer is $q = p$, the **true conditional distribution**. A loss with this property is a *strictly proper scoring rule*. Accuracy/0-1 loss is *not* proper — many different probability forecasts produce the same accuracy, so optimizing accuracy doesn't pin down the right probabilities, and its gradient is zero almost everywhere. That is the rigorous version of "use cross-entropy to train, accuracy to report."
+
+*In plain English:* a proper scoring rule is one whose optimal forecast is *telling the truth* — no constant lie wins in expectation. If the true positive rate is 30%, the forecast that minimizes CE in expectation is exactly 0.30; hedging up or down loses on average. Accuracy is not like this: forecasting "0.51" and "0.99" score identically on every example the model would call positive.
+
+## Calibration: the part everyone skips
+
+> **Goal — judge a classifier the way a quant does: not just is the argmax right, but is the 0.9 really a 0.9.**
+
+CE's minimizer is the true posterior — *in the limit of infinite data and a correctly specified model*. Real deep nets violate both, and the failure mode is systematic: **modern networks are overconfident**. Guo et al. (2017) showed that increasing depth/width and adding batch normalization *worsen* calibration, and that networks overfit NLL — test error keeps falling while test NLL rises, because the model inflates confidence on examples it already gets right.
+
+Tools to know:
+
+- **Reliability diagram.** Bin predictions by confidence, plot empirical accuracy vs. mean confidence; the diagonal is perfect calibration.
+
+<ReliabilityDiagram caption="Reliability diagram: predicted confidence (x) vs empirical accuracy (y). The dashed diagonal is perfect calibration. Modern nets (red) sag below the diagonal on the high-confidence bins — a 0.95 prediction is only ~0.82 accurate; that's the 'overconfident' Guo et al. signature. Temperature scaling (blue) is a one-parameter post-hoc fix that snaps the curve back onto the diagonal without changing the argmax — so the accuracy number is unchanged and the probabilities are usable." />
+- **Expected Calibration Error (ECE).** $\text{ECE} = \sum_b \frac{|B_b|}{N}\,\bigl|\,\text{acc}(B_b) - \text{conf}(B_b)\,\bigr|$. Caveat worth stating in an interview: ECE is sensitive to the binning scheme and only measures *top-label* calibration — class-wise ECE or the Brier score are more robust.
+- **Brier score** $= \frac1N\sum_n \|q_n - y_n\|^2$ — MSE on probabilities, itself a proper scoring rule. It splits cleanly into a **calibration** term and a **discrimination** term (plus an irreducible base-rate term) — for the formal reliability–resolution–uncertainty (Murphy) decomposition, ask an AI assistant; an interviewer won't.
+- **Temperature scaling** (Guo 2017). Post-hoc, learn a single scalar $T>0$ and predict $\text{softmax}(z/T)$, fitting $T$ by minimizing validation NLL. $T>1$ softens overconfidence. **It cannot change accuracy** — dividing all logits by a positive constant preserves the argmax — so it's a free calibration fix that never costs you decisions.
+
+This is the stats/quant lens on classification: cross-entropy and Brier are *proper scoring rules*; perplexity (the language-model headline metric) is just $\exp(\text{CE})$; calibration is the bridge between a model's loss and a decision system's expected value.
+
+## Class imbalance: distorting the objective on purpose
+
+> **Goal — fix the rare-class problem by reshaping the loss, and know exactly what each reshape costs.**
+
+When positives are 1% of the data, plain CE lets the 99% majority dominate the gradient (see c1.1's gradient-share argument). Three standard levers:
+
+### Reweighting
+
+Scale each class's loss by a constant. In PyTorch, `CrossEntropyLoss(weight=...)` per class, or `BCEWithLogitsLoss(pos_weight=#neg/#pos)` for the positive term. Cheap, no extra data. Raising `pos_weight` trades precision for recall. Caveat: with `weight`, the `'mean'` reduction divides by the *sum of weights present*, not by $N$ — a classic gotcha.
+
+### Focal loss (Lin et al., ICCV 2017)
+
+Define $p_t = q$ if $y=1$ else $1-q$ (the probability assigned to the *true* class). Then
+
+$$\text{FL}(p_t) = -\alpha_t\,(1 - p_t)^{\gamma}\,\log(p_t)$$
+
+The **modulating factor** $(1-p_t)^\gamma$ shrinks the loss on easy examples; $\gamma$ (paper default **2**) is the focusing parameter; at $\gamma = 0$ focal loss *is* $\alpha$-balanced CE. Quantify it: with $\gamma = 2$, an example at $p_t = 0.9$ is down-weighted by $(0.1)^2 = 0.01$ — **100×** — and at $p_t \approx 0.968$ by **1000×**, while a hard example at $p_t = 0.1$ is barely touched ($(0.9)^2 \approx 0.81$). Focal loss let RetinaNet solve the ~1:1000 foreground/background imbalance of dense detection, hitting **36.0 AP vs. 32.8** for the best online-hard-example-mining baseline.
+
+<FocalDownweighting caption="Focal loss vs CE, as a function of the true-class probability p_t. CE (γ=0) treats a p_t=0.9 example (already confident and correct) the same weight as a p_t=0.1 example (hard). Focal's (1−p_t)^γ multiplier flattens the easy-side almost to zero: at γ=2 the p_t=0.9 point falls to 1% of its CE loss (100× down-weighting) and p_t≈0.968 falls to 0.1% (1000×), while p_t=0.1 keeps 81% of its weight. That's how you free the ~1:1000 foreground/background imbalance in dense detection: hard examples still drive learning, easy ones stop dominating." />
+
+### Class-balanced loss (Cui et al., CVPR 2019)
+
+Reweight by the inverse **effective number of samples**, $E_n = (1 - \beta^n)/(1 - \beta)$, with $\beta \in \{0.99, 0.999, 0.9999\}$. The intuition: as you add examples of a class they cover *overlapping* feature volume, so the marginal information saturates — the "useful count" is $E_n < n$. It interpolates: $\beta \to 0$ gives no reweighting; $\beta \to 1$ gives inverse-frequency ($1/n$) weighting. It's *loss-agnostic* — you apply the $1/E_n$ factor on top of CE, BCE, or focal.
+
+> **Stop and think.** Is reweighting the loss equivalent to resampling the data? *Hint: in expectation over a full epoch they can match — but oversampling changes the empirical distribution (more gradient steps, overfitting risk on duplicated rares) while reweighting changes per-example gradient magnitude (noisier steps). They diverge under minibatch SGD, and — see the failure modes — both may be the wrong lever entirely.*
+
+## Label smoothing
+
+> **Goal — understand a one-line trick that improves calibration and quietly breaks two other things.**
+
+Replace the one-hot target with $y^{\text{LS}} = (1-\varepsilon)\,y + \varepsilon/K$ (typically $\varepsilon = 0.1$). Equivalently, the loss becomes $(1-\varepsilon)\,\text{CE}(\text{onehot}, q) + \varepsilon\,\text{CE}(\text{uniform}, q)$ — you're now minimizing KL to a softened target, so the model can no longer drive any logit to $\pm\infty$. Müller et al. (2019) showed this improves calibration and often generalization. The costs, which are the interesting part: it **collapses each class's penultimate representations into tight clusters**, which (1) **hurts knowledge distillation** — the "dark knowledge" in soft logits is erased, so a smoothed teacher makes worse students — and (2) can backfire under heavy label noise. Label smoothing is a *trade*, not a free win.
+
 ## Tradeoff matrix
 
 | Loss | Noise model | Predicts | Outlier sensitivity | Differentiable everywhere | Closed-form linear fit |
@@ -304,15 +433,32 @@ Read the right panel as the thesis of the lesson: **outlier sensitivity is just 
 | Pinball ($q$) | Asymmetric Laplace | Conditional $q$-quantile | Low | No (kink at 0) | No |
 | ε-insensitive | "Don't care" tube | Tube center | Low | No (kinks at $\pm \epsilon$) | No (SVR has its own optimizer) |
 
+| Loss | What it optimizes | Effect on calibration | Reach for it when |
+|---|---|---|---|
+| Cross-entropy | MLE / KL to labels | Overconfident on modern nets | Default for classification |
+| Weighted CE / `pos_weight` | Reweighted MLE | Distorts base rate → recalibrate | Moderate imbalance, cheap fix |
+| Focal | Down-weights easy examples | *Improves* it (confidence regularizer) | Extreme imbalance; dense detection |
+| Class-balanced | Inverse effective-number weighting | Distorts base rate | Long-tailed multiclass |
+| Label smoothing | KL to a softened target | *Improves* it | Want calibration/generalization; **not** if distilling |
+
 ## Worked decision walk-throughs
 
 **Scenario A: predicting house sale prices.** Labels in the long upper tail (mansions, luxury sales) skew the distribution. **MSE** would chase those mansions and inflate predictions on ordinary homes. **MAE** predicts the median sale price — much closer to what you actually want for typical valuations. Most production models in this domain use MAE or quantile loss (for confidence intervals).
 
 **Scenario B: forecasting daily ad revenue. Normal-day noise scale is about \$10k/day ($\sigma \approx 10$, in \$k); once a month there's a \$200k promotional spike.** Promotional spikes are real, not measurement errors — you don't want to entirely ignore them. **MSE** lets them dominate and biases the model. **MAE** treats them like normal residuals — under-fits them. **Huber** with $\delta \approx 15$ (i.e. \$15k): squared treatment on normal days, linear treatment on promotional days. The model fits the bulk well and tolerates spikes without chasing them.
 
-**Scenario C: tabular regression with XGBoost, you want MAE for outlier robustness.** (Gradient-boosted trees themselves — CART, bagging, boosting/GBDT — are the subject of **c1.5 (Trees & ensembles)**; here we only need the leaf-fitting step.) XGBoost's tree-fitting uses a second-order (Newton) step, and the leaf-value formula $v^\star = -\sum g_i / (\sum h_i + \lambda)$ divides by the summed Hessian. MAE's Hessian is zero everywhere, so a *naive* MAE objective (gradient $\pm 1$, Hessian $0$) gives the optimizer nothing to size its steps with — the denominator collapses to the regularizer $\lambda$ and leaf values are junk. Two fixes: (1) **modern XGBoost ($\ge$ 1.7) ships native `reg:absoluteerror`**, which sidesteps the problem with *adaptive leaf values* — it grows the tree structure with a placeholder Hessian, then overwrites each leaf with the **median** of its residuals (exactly Friedman's classic LAD-TreeBoost). (2) **pseudo-Huber loss**, $\mathcal{L}(r) = \delta^2\bigl(\sqrt{1 + (r/\delta)^2} - 1\bigr)$ — a smooth Huber approximation with a strictly positive Hessian, shipped as `reg:pseudohubererror`.
+**Scenario C: tabular regression with XGBoost, you want MAE for outlier robustness.** (Gradient-boosted trees themselves — CART, bagging, boosting/GBDT — are the subject of **c1.6 (Trees & ensembles)**; here we only need the leaf-fitting step.) XGBoost's tree-fitting uses a second-order (Newton) step, and the leaf-value formula $v^\star = -\sum g_i / (\sum h_i + \lambda)$ divides by the summed Hessian. MAE's Hessian is zero everywhere, so a *naive* MAE objective (gradient $\pm 1$, Hessian $0$) gives the optimizer nothing to size its steps with — the denominator collapses to the regularizer $\lambda$ and leaf values are junk. Two fixes: (1) **modern XGBoost ($\ge$ 1.7) ships native `reg:absoluteerror`**, which sidesteps the problem with *adaptive leaf values* — it grows the tree structure with a placeholder Hessian, then overwrites each leaf with the **median** of its residuals (exactly Friedman's classic LAD-TreeBoost). (2) **pseudo-Huber loss**, $\mathcal{L}(r) = \delta^2\bigl(\sqrt{1 + (r/\delta)^2} - 1\bigr)$ — a smooth Huber approximation with a strictly positive Hessian, shipped as `reg:pseudohubererror`.
 
 **Scenario D: latency prediction, you care about p99 not p50.** Use **pinball loss at $q = 0.99$**. Reports the conditional 99th-percentile latency, not the median.
+
+**Scenario A: balanced 10-class image classifier.** Cross-entropy. If you'll threshold or rank on the probabilities, add **temperature scaling** post-hoc (free calibration, no accuracy cost), and consider label smoothing $\varepsilon=0.1$ — *unless* this model is a distillation teacher, in which case skip it.
+
+**Scenario B: dense object detection, ~1:1000 fg/bg.** **Focal loss** ($\gamma=2$, $\alpha=0.25$), via `torchvision.ops.sigmoid_focal_loss`. This is the problem it was invented for.
+
+**Scenario C: 1:99 imbalanced tabular.** Start with `pos_weight ≈ 99` (or class weights) on BCE — cheapest lever. But before reaching for fancier losses, recall the decoupling result below: the loss may not be your bottleneck.
+
+**Scenario D: you need trustworthy probabilities for expected-value decisions.** Train with CE, then **temperature-scale** on a validation set and verify with a reliability diagram + ECE. Loss engineering is secondary to post-hoc calibration here.
+
 
 ## Production failure modes
 
@@ -322,6 +468,13 @@ Read the right panel as the thesis of the lesson: **outlier sensitivity is just 
 4. **Squared-error metric reported, MAE optimized.** Common when teams switch losses mid-project but keep reporting RMSE for legacy reasons. Reported metric stops corresponding to the model objective.
 5. **Predicting medians, downstream system expects means.** A pricing pipeline trained with MAE produces median price predictions; an aggregator multiplies by volume to estimate revenue, which is a mean operation. Result: systematically biased revenue estimates because $\sum \text{median}_i \ne \text{median}\sum$.
 
+6. **Double softmax / wrong loss input.** Applying softmax then passing to `CrossEntropyLoss` (which expects logits), or passing logits to `NLLLoss` (which expects log-probs). No error, just a quietly wrong model.
+7. **Shipping an uncalibrated model.** Offline accuracy looks great; the 0.9-confidence bucket is right 70% of the time; every downstream EV calculation is biased. Fix: temperature scaling + monitor ECE.
+8. **`pos_weight` cranked too high.** Recall climbs, precision collapses, the effective decision threshold drifts. Tune it against the actual cost ratio, not intuition.
+9. **Inverse-frequency reweighting overfits the tail.** $1/n$ over-weights ultra-rare classes (Cui's point); class-balanced $\beta=0.99$–$0.999$ is gentler. The right $\beta$ is dataset-dependent — it *hurt* on fine-grained CIFAR-100.
+10. **Loss-engineering when the classifier is the problem.** See below.
+
+
 ## Interview gotchas
 
 - "Which loss should I use for regression?" — interviewers want you to answer "what does the noise look like?" not "MSE because it's the default."
@@ -330,9 +483,12 @@ Read the right panel as the thesis of the lesson: **outlier sensitivity is just 
 - "Your custom XGBoost MAE objective isn't training — what's wrong?" — the Hessian is zero, so the Newton leaf-value step has nothing to divide by. Use native `reg:absoluteerror` (adaptive leaf values) or pseudo-Huber. Being able to explain *why* MAE has zero Hessian on the spot (because $\partial^2 |r| / \partial r^2 = 0$ everywhere except the kink) — and that modern XGBoost works around it by recomputing leaf values as residual medians — is the differentiator.
 - "When would you actively choose MSE despite outliers being present?" — when the outliers are real signal (e.g., financial returns: a 10% day matters disproportionately and you *want* the model to fit it).
 
-## Take the quiz
+- **"Why cross-entropy and not MSE for classification?"** — the gradient-saturation argument *and* the convexity argument. Bonus: CE is the MLE / a proper scoring rule.
+- **"Derive the softmax–CE gradient."** — $q - y$; be ready to show the Jacobian cancellation.
+- **"Is your model calibrated, and how would you check/fix it?"** — reliability diagram + ECE; temperature scaling (and that it doesn't change accuracy). This separates strong candidates.
+- **"What does $\gamma$ do in focal loss, and does focal only help with imbalance?"** — down-weights easy examples; **no** — Mukhoti et al. (2020) show it improves *calibration* on balanced data, because it implicitly regularizes confidence.
+- **"Reweighting vs. resampling vs. just fixing the classifier?"** — name the decoupling result: Kang et al. (2020) found imbalance barely hurts representation learning; retraining only the classifier (cRT / $\tau$-normalization) beats elaborate reweighted losses on long-tail benchmarks. Menon et al. (2021) **logit adjustment** ($z_y + \log \pi_y$) is the Bayes-consistent, theoretically-grounded alternative to heuristic reweighting. The sophisticated answer is that the loss is often *not* the best lever.
 
-Twelve conceptually difficult questions on regression-loss theory: derivations, gradient counter-examples, library-specific debugging. **[Take the quiz →](/c/c1/c1.2/quiz)**
 
 ## Cited references
 
@@ -343,3 +499,26 @@ Twelve conceptually difficult questions on regression-loss theory: derivations, 
 External works:
 - Huber, P. J. 1964. "Robust estimation of a location parameter." *Annals of Mathematical Statistics.* The original paper that introduced the Huber loss and the 95% asymptotic efficiency rule.
 - Koenker, R. and Bassett, G. 1978. "Regression quantiles." *Econometrica.* The foundation of quantile regression and the pinball loss.
+
+- Ref 11 — *Focal Loss for Dense Object Detection* (Lin et al., ICCV 2017) — `c1/references/11_focal_loss_paper.pdf`
+- Ref 10 — *Class-Balanced Loss Based on Effective Number of Samples* (Cui et al., CVPR 2019) — `c1/references/10_class_balanced_loss.pdf`
+- Ref 12 — *Focal loss explained* (Medium) — `c1/references/12_focal_loss_medium.html`
+- Ref 15 — *Cross-entropy* (Wikipedia) — `c1/references/15_cross_entropy.html`
+
+External works:
+- Lin, T.-Y. et al. 2017. "Focal Loss for Dense Object Detection." *ICCV.* Introduced focal loss; $\gamma=2$, $\alpha=0.25$; 36.0 AP on COCO.
+- Cui, Y. et al. 2019. "Class-Balanced Loss Based on Effective Number of Samples." *CVPR.* The $E_n = (1-\beta^n)/(1-\beta)$ effective-number reweighting.
+- Müller, R., Kornblith, S., Hinton, G. 2019. "When Does Label Smoothing Help?" *NeurIPS.* Calibration up, distillation down.
+- Guo, C. et al. 2017. "On Calibration of Modern Neural Networks." *ICML.* Temperature scaling, ECE, modern overconfidence.
+- Mukhoti, J. et al. 2020. "Calibrating Deep Neural Networks using Focal Loss." *NeurIPS.* Focal loss improves calibration on balanced data.
+- Kang, B. et al. 2020. "Decoupling Representation and Classifier for Long-Tailed Recognition." *ICLR.* The classifier, not the representation, is the bottleneck.
+- Menon, A. K. et al. 2021. "Long-tail learning via Logit Adjustment." *ICLR.* Bayes-consistent alternative to reweighting.
+
+
+## Take the quiz
+
+Twelve conceptually difficult questions on regression-loss theory: derivations, gradient counter-examples, library-specific debugging. 
+
+Twelve conceptually difficult questions on classification-loss theory — derivations, exact focal-loss computations, calibration, and the long-tail literature.
+
+**[Take the quiz →](/c/c1/c1.2/quiz)**

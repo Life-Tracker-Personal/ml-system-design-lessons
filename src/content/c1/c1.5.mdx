@@ -1,227 +1,361 @@
 ---
 id: c1.5
 chapter: 1
-title: Trees & ensembles
-subtitle: CART, bagging/random forests, boosting/GBDT, stacking — bias-variance engineering
-refs: [3, 4, 5, 7]
-estimatedMinutes: 105
+title: PCA & dimensionality reduction
+subtitle: Rotation, reconstruction error, and how the eigendecomposition is actually computed
+refs: []
+estimatedMinutes: 50
 ---
-
-## TL;DR
-
-Ensembles are **bias-variance engineering**. A single decision tree is a *low-bias, high-variance* learner — flexible enough to fit anything, unstable enough to fit noise. The two great ensemble families are the two ways to fix that, and they pull opposite levers. **Bagging / random forests** average many high-variance trees to crush **variance** — and the whole game is *decorrelating* the trees. **Boosting** adds many high-bias weak trees in sequence to crush **bias** — and the whole game is *fitting the negative gradient of the loss in function space*. Knowing which lever each pulls (and the one identity and one gradient that make each precise) is the single most-tested ensemble concept, and these models — gradient-boosted trees especially — still win most tabular problems.
 
 ## What you'll be able to do after this lesson
 
-- Compute the impurity decrease of a split (Gini, entropy, variance reduction) and explain why a single tree is low-bias/high-variance.
-- Derive the bagging **decorrelation identity** $\rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$ and explain what random forests do to $\rho$.
-- Derive the OOB $\sim37\%$ (the $1/e$ result).
-- Show AdaBoost is forward-stagewise minimization of **exponential loss** and derive its stagewise coefficient $\beta=\tfrac12\ln\frac{1-\text{err}}{\text{err}}$ (the classifier vote is $\alpha_m=2\beta$).
-- Explain gradient boosting as **functional gradient descent** (pseudo-residuals) and derive XGBoost's leaf weight $w^\star=-G/(H+\lambda)$.
-- Explain why stacking needs **out-of-fold** predictions, and diagnose feature-importance and calibration traps.
+- Relate PCA, principal-component regression, and ridge — and say when PCA helps a model and when it quietly hurts.
 
-## Why trees & ensembles deserve their own chapter
+## Part 5 — PCA and principal-component regression
 
-> **Goal — master the model family that actually wins on tabular data, and the bias-variance reasoning behind it.** Despite a decade of deep-learning hype, **gradient-boosted decision trees still beat tuned neural nets on most tabular problems** (Grinsztajn et al. 2022) — because trees handle uninformative features gracefully, match the axis-aligned structure of real tabular data, and fit irregular target functions that NN smoothness priors resist (the c1.1 "trees dominate tabular" claim, now with the citation). For interviews, ensembles are where you prove you understand bias-variance as an *engineering* discipline, not a slogan.
+> **Goal — see PCA first as a rotation that finds the data cloud's main axes, then connect variance, reconstruction, PCR, and ridge through SVD.**
 
-> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
->
-> - **Impurity** — how mixed a node's labels are (Gini, entropy for classification; variance for regression). Splits reduce it.
-> - **Base / weak learner** — the simple model an ensemble combines (here, a decision tree; "weak" = slightly better than chance).
-> - **Bagging** — bootstrap aggregating: fit base learners on bootstrap resamples and average them.
-> - **Boosting** — fit base learners *sequentially*, each correcting its predecessors' errors.
-> - **OOB (out-of-bag)** — the ~37% of rows a given bootstrap tree didn't see; free validation data.
-> - **Pseudo-residual** — the negative gradient of the loss w.r.t. the current prediction; what gradient boosting fits next.
+### The picture: rotate the coordinate system
 
-## Part 1 — Decision trees (CART)
+Imagine a two-dimensional cloud where height and weight rise together. The original horizontal and vertical axes are not aligned with the cloud. One diagonal direction captures most of its spread; the perpendicular direction captures the small remaining spread.
 
-> **Goal — understand the base learner: a greedy, axis-aligned partition that is flexible (low bias) but unstable (high variance) — exactly the raw material ensembles need.**
+PCA rotates to those directions:
 
-### A tree is a sequence of questions
+- **PC1** is the unit direction along which projected data have maximum variance.
+- **PC2** is the highest-variance unit direction orthogonal to PC1.
+- Later PCs continue the same rule, each orthogonal to those before it.
 
-Imagine deciding whether a loan will default. A tree might ask:
+PCA does not initially “delete features.” It creates a new orthogonal coordinate system. Dimensionality reduction happens only when we keep the first $m$ component scores and discard the rest.
 
-1. Is debt-to-income above 40%?
-2. If yes, has the borrower missed a payment before?
-3. If no, is income below $50,000?
+<PCARotation caption="A correlated 2D cloud with the two principal directions overlaid. PC1 points along the direction of largest projected variance; PC2 is orthogonal to it and captures what's left. Arrow lengths scale with the sample standard deviations along each axis, so the length ratio is the story: nearly all the spread lives on PC1. Keeping only PC1 replaces two correlated features with one uncorrelated summary — cheap compression, but 'high variance ≠ predictive of y', which is why PCR is target-blind." />
 
-Each internal node asks one yes/no question of the form $x_j\le s$. Each answer sends the row left or right. A **leaf** is the group of training rows that gave the same sequence of answers. For classification, the leaf predicts a class proportion; for regression, it predicts an average outcome.
+Why keep high-variance directions? For a fixed number of linear dimensions, they minimize squared reconstruction error. The discarded variance is exactly the information lost under that geometric criterion. But reconstruction of $X$ is not prediction of $y$—the crucial limitation.
 
-This makes a tree a piecewise-constant model. It does not learn one global equation. It divides feature space into rectangular regions and gives every point in a region the same prediction. That is why trees naturally capture thresholds and interactions: “high debt is risky *only when* prior delinquencies are present” is simply a branch.
+#### The two objectives are the same objective
 
-<TreePartition2D caption="A depth-3 tree carving 2D feature space into axis-aligned rectangles, each shaded by its majority class. Two split conditions are labeled. Every leaf is a rectangle; every rectangle predicts one constant value. That's the whole 'piecewise-constant, axis-aligned, thresholds and interactions for free' story in one picture — logistic regression can't draw this partition, but a depth-3 tree learns it in one greedy pass." />
+PCA gets described two different ways — "find the direction of maximum variance" and "find the line that the points are closest to" — and it is not obvious those are the same instruction. They are, and the reason is Pythagoras.
 
-### What makes one question better than another?
+Center the data so the centroid is the origin. Fix a unit direction $v$. Every point splits into a piece along $v$ and a piece perpendicular to it, and those two pieces are the legs of a right triangle with $x_i$ as the hypotenuse:
 
-A useful split creates children whose outcomes are more alike than the parent's. **Impurity** is just a numerical score for how mixed a node is.
+$$\lVert x_i\rVert^2=\underbrace{(v^\top x_i)^2}_{\text{along }v}+\underbrace{d_i^2}_{\text{perpendicular}}$$
 
-For a binary node that is 50% positive and 50% negative, Gini impurity is $0.5$—maximally mixed. For a pure node it is $0$. A split that turns one mixed group into two nearly pure groups has learned something useful. A split that produces two children with the same class proportions as the parent has learned nothing.
+Sum over all points. The left side, $\sum_i\lVert x_i\rVert^2$, does not depend on $v$ at all — it is a property of the data. So the two terms on the right trade off exactly: every unit of squared projection you gain is a unit of squared distance you lose.
 
-A CART tree greedily splits the data with axis-aligned cuts. At each node it searches over (feature $j$, threshold $s$) to maximize the impurity decrease
+$$\max_{\lVert v\rVert=1}\ \sum_i(v^\top x_i)^2\qquad\Longleftrightarrow\qquad \min_{\lVert v\rVert=1}\ \sum_id_i^2$$
 
-$$\Delta I = I(R) - \frac{N_L}{N}I(R_L) - \frac{N_R}{N}I(R_R)$$
+<PCAPointSpace caption="The same 70-point cloud, twice, with the same PC1 line drawn through the centroid (red dot). Left: each gray point drops to a blue dot on the line — that is its score vᵀxᵢ — and the blue double arrow spans ±2 standard deviations of those scores. PCA maximizes their spread. Right: the identical drops, drawn as the segments they are. PCA minimizes the sum of their squared lengths. The orange point is annotated in both panels: its score on the left, its perpendicular distance dᵢ on the right, with the right-angle marker showing the two are legs of one right triangle. The dashed gray segment is the vertical gap — that is the kind of distance OLS minimizes, to its own different line, which is why the OLS fit and PC1 are not the same line." />
 
-The child impurities are weighted by child size. Without the weights, a split could look excellent by creating one tiny pure leaf while leaving almost everyone in an unchanged mixed node.
+This is also the cleanest way to see why PCA is not regression. Both fit a line through a cloud, but they measure error along different directions: OLS measures **vertically**, because $y$ is special and $x$ is taken as given. PCA measures **perpendicularly**, because no variable is special — it is describing the cloud, not predicting one coordinate from the others. Swap $y$ and $x$ and the OLS line changes; the PCA line does not.
 
-**Classification impurities** (with class fractions $p_k$): **Gini** $G = \sum_k p_k(1-p_k) = 1 - \sum_k p_k^2$ and **entropy** $H = -\sum_k p_k\log_2 p_k$ (information gain $= \Delta H$). Both are concave, so a split never increases impurity, and both reward pure children; Gini is cheaper (no log) and the two rarely disagree on which split to pick. (Misclassification error $1-\max_k p_k$ is concave too but piecewise-linear and insensitive to changes in node probabilities, so it's a poor *growing* criterion — it, or the Gini/entropy used for growing, is what's typically used for cost-complexity *pruning*.) **Regression impurity** is the within-node variance/SSE; the variance-reducing split is the one that minimizes $\sum(y_i - \bar y_R)^2$, and the leaf prediction is the mean $\bar y_R$ (the median under MAE — a callback to c1.2's mean-vs-median).
+#### The dual picture: feature space
 
-Do not over-interpret the difference between Gini and entropy. Both ask almost the same practical question: “Did the split make the labels more predictable?” In an interview, being able to compute one candidate split and explain the weighting matters more than claiming one criterion universally wins.
+The scatter plot above is **point space** — $n$ points living in $\mathbb R^d$, one axis per feature. There is a second, less familiar picture that the same matrix supports, and it is worth carrying because some facts are obvious in it that are invisible in the scatter.
 
-**Why a single tree is low-bias/high-variance.** Grown deep, a tree interpolates the training data (bias $\to 0$), but the partition is a *discontinuous* function of the data — perturb a few points and a high split can flip, changing the entire downstream partition. That instability is precisely what makes trees the ideal base learner for **variance reduction by averaging**.
+Turn the matrix on its side. Instead of $n$ points in $d$ dimensions, look at $d$ vectors in $\mathbb R^n$ — one arrow per *column* of $X$, living in a space whose axes are the observations. This is **feature space** (classically, "variable space").
 
-The intuition is structural. If a few rows change which split wins at the root, every later question may be asked of a different subset of data. Two trees trained on nearly identical samples can therefore look entirely different. A deep tree can fit complicated truth (low bias), but we do not know which of many plausible trees a finite noisy sample will produce (high variance).
+Two facts make it readable. For centered columns,
 
-**Pruning.** A fully grown tree overfits, so prune by **cost-complexity**: minimize $R_\alpha(T) = R(T) + \alpha|T|$ over subtrees, trading fit $R(T)$ against the number of leaves $|T|$. As $\alpha$ grows from 0 there's a finite nested sequence of optimal subtrees (sklearn: `ccp_alpha`). The same $\alpha|T|$ regularization reappears inside XGBoost.
+$$\lVert x_j\rVert^2=\sum_i x_{ij}^2=(n-1)s_j^2,\qquad \cos\angle(x_j,x_k)=\frac{x_j^\top x_k}{\lVert x_j\rVert\,\lVert x_k\rVert}=r_{jk}$$
 
-*Why penalize $|T|$ rather than depth?* Because leaves are how many independent constant-value regions the tree carves — that's the true capacity. Two depth-5 trees can have wildly different leaf counts (one balanced 32-leaf full tree; one lopsided 6-leaf skinny tree), so depth alone doesn't cap what the tree can memorize. Leaf count does.
+So **length is standard deviation and angle is correlation**. Two strongly correlated features are two long arrows at a narrow angle. Two uncorrelated features are perpendicular. A feature with no variance is a point at the origin.
 
-## Part 2 — Bagging & random forests
+<PCAFeatureSpace caption="Two standardized features with correlation r = 0.8, drawn as vectors in observation space. Because they are standardized the arrows have equal length, so the correlation shows up purely as the angle between them: cos θ = 0.8, about 37°. PCA finds an orthogonal pair inside the plane they span. z₁ bisects them and is long; z₂ is perpendicular and short. For this matrix λ₁ = 1.8 and λ₂ = 0.2, so z₁ is exactly √(1.8/0.2) = 3 times the length of z₂ — the whole compression argument, visible as a length ratio." />
 
-> **Goal — turn one unstable tree into a low-variance committee, and see that the entire benefit is capped by how *correlated* the trees are.**
+Read the compression story off the picture. The two feature arrows nearly coincide, so almost everything they span is captured by one direction; $z_2$ is the small leftover. Push $r_{12}\to1$ and the arrows merge, $\lambda_2\to0$, and the second component vanishes — perfect collinearity is *literally* two arrows lying on top of each other, with a genuinely one-dimensional span. Push $r_{12}\to0$ and the arrows go perpendicular, $\lambda_1=\lambda_2=1$, and there is no preferred direction to find: PCA has nothing to compress.
 
-### Why averaging helps
+The final row of the figure is the conservation law that makes PCA a rotation rather than a reduction. Since $V$ is orthogonal it preserves total squared length,
 
-Suppose several analysts estimate the same quantity. If their errors point in different directions, averaging cancels much of the noise. If they all make the same mistake, averaging repeats it. Ensembles obey the same rule: averaging helps only to the extent that the trees' errors differ.
+$$\sum_j\lVert x_j\rVert^2=\sum_k\lVert z_k\rVert^2$$
 
-We need multiple plausible training sets but possess only one. The **bootstrap** creates them by drawing $n$ rows with replacement from the observed $n$ rows. Some rows appear multiple times and some are absent. Fit a deep tree to each resample, then average their predictions. This is **bootstrap aggregating**, shortened to **bagging**.
+so the components redistribute variance among directions without creating or destroying any of it. Reduction happens later, and only when you delete columns.
 
-**Bagging** (Breiman 1996): draw $B$ bootstrap samples (size $n$, with replacement), fit a tree on each, and average (regression) or vote (classification): $\hat f_{\text{bag}}(x) = \frac1B\sum_b \hat f^{*b}(x)$.
+### The mechanics: center, usually scale, then decompose
 
-**The decorrelation identity — the key result.** If each tree has variance $\sigma^2$ and pairwise correlation $\rho$, the average of $B$ trees has variance
+Center $X$, then take the **SVD**
 
-$$\operatorname{Var}\!\left(\frac1B\sum_b X_b\right) = \rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$$
+$$X=UDV^\top$$
 
-As $B\to\infty$ the second term vanishes, leaving a **floor of $\rho\sigma^2$**. So adding trees only helps until you hit $\rho\sigma^2$ — and **the correlation $\rho$ caps the whole benefit**. Identical trees ($\rho=1$) give no gain; independent trees ($\rho=0$) give $\sigma^2/B$. *This single inequality is the entire motivation for random forests.*
+Equivalently, eigendecompose the sample covariance:
 
-Read the formula in two pieces. $(1-\rho)\sigma^2/B$ is the independent part of the noise, which averaging removes as $B$ grows. $\rho\sigma^2$ is the shared mistake, which survives forever. More trees reduce the first term; only more diverse trees reduce the floor.
+$$\frac{1}{n-1}X^\top X=V\Lambda V^\top$$
 
-<DecorrelationVarianceFloor caption="Ensemble variance as a function of number of trees B, for four correlation values ρ ∈ {0, 0.2, 0.5, 0.9} — the decorrelation identity ρσ² + (1−ρ)σ²/B, made a floor you can point at. Every curve is dropping the second term as B grows, and every curve hits ρσ² and stops. Bagged trees (ρ ≈ 0.9) plateau near 0.9 — most of a single tree's variance survives no matter how many you average. Random forests (ρ ≈ 0.3) plateau much lower — the whole reason RF exists is to lower ρ by hiding features at each split." />
+The columns $v_j$ of $V$ are the **loadings** or principal directions. The new feature values are the **scores** $z_j=Xv_j=d_ju_j$. The eigenvalue $\lambda_j=d_j^2/(n-1)$ is the variance captured by component $j$, so its explained-variance ratio is
 
-**Random forests** (Breiman 2001) = bagging **+ a random subset of $m \le p$ features considered at each split**. Forcing each split to choose among different features makes the trees disagree more → **lowers $\rho$** → lowers the $\rho\sigma^2$ floor. The trade: smaller $m$ lowers $\rho$ (good) but weakens each tree (raises its bias) — so there's a sweet spot, classically $m=\sqrt p$ (classification) or $p/3$ (regression). Breiman proved that as $B\to\infty$ the generalization error *converges* (a law-of-large-numbers result over the tree randomness) — **adding more trees does not overfit a random forest**; it just converges.
+$$\frac{d_j^2}{\sum_kd_k^2}$$
 
-Why randomly hide features? If one predictor is overwhelmingly strong, ordinary bagged trees will choose it near the top again and again. The trees then inherit nearly the same structure and make correlated mistakes. Feature subsampling occasionally forces a tree to discover a different but useful route. The resulting individual tree may be slightly worse, yet the committee can be better because its members disagree productively.
+Centering is mandatory because PCA describes variation around the mean. Scaling is a modeling choice but usually essential when units differ: without standardization, a feature measured in dollars can dominate one measured in percentages simply because its numerical variance is larger. Fit the scaler and PCA on training data only; fitting them before a split leaks validation/test distribution information.
 
-**OOB error and the $1/e$ result.** The probability a given row is missed by one bootstrap draw is $(1-\tfrac1n)^n \to e^{-1} \approx 0.368$, so **each tree leaves out ~37% of rows** (~63% in-bag). Scoring each row using only the trees that didn't see it yields a near-free, cross-validation-quality error estimate — the OOB error.
+The sign of a component is arbitrary: $v_j$ and $-v_j$ describe the same axis. Interpret relative loading magnitudes and directions, not the sign in isolation.
 
-The same row is eligible to be drawn $n$ times, so “a bootstrap sample has $n$ rows” does not mean it contains $n$ distinct observations. Roughly 63.2% are distinct; the rest are duplicates. For each training row, the trees that omitted it form a temporary validation ensemble. OOB scoring combines those honest predictions across rows.
+### How the decomposition is actually computed
 
-> **Stop and think.** You add 5,000 trees to a random forest *and* to a gradient-boosted model. One degrades on the test set; one doesn't. Which, and why? *Hint: RF averages i.i.d.-randomized trees, so by the decorrelation identity / LLN it converges to a floor — more trees never hurt. Boosting fits the loss sequentially, so each added round further reduces bias and eventually fits noise — more rounds DO overfit. That's why RF needs no early stopping and GBDT does.*
+"Eigendecompose the covariance matrix" hides the part that matters. You do **not** solve the eigenvalue equation symbolically. You turn it into an iterative optimization problem. Because the covariance matrix is symmetric positive semidefinite, that turns out to be especially clean.
 
-<RFvsGBDTErrorCurves caption="Train and test error as you add trees to RF (blue) vs GBDT (red). RF's test error drops fast, plateaus, and stays there — more trees only ever help (they push down the (1−ρ)σ²/B term of the variance identity). GBDT's train error keeps falling toward zero, but test error dips to a minimum and then rises — because each round is a bias-reducing gradient step that eventually fits noise. The dashed vertical is where early stopping catches it. RF ships with no early-stop knob because it doesn't need one; GBDT ships with one because it does." />
+The whole hierarchy below comes from one idea: **repeated linear transformations reveal invariant directions.** Everything else is bookkeeping to make that idea fast and to stop the directions collapsing onto each other.
 
-**Feature importance — a trap (ties to c1.1 / c1.4).** Default **impurity (Gini/MDI) importance is biased toward high-cardinality and continuous features** (more candidate cut-points → more chances to look good by chance — Strobl et al. 2007) and is inflated by overfitting (it's computed on training data). Worse, **correlated features split their importance** (two collinear predictors each get ~half), so low importance ≠ irrelevant — the same redundancy that defeats drop-column leakage detection (c1.1) and inflates VIF (c1.4). Prefer **permutation importance on held-out data** — but note it too is distorted by collinearity (permuting one of two collinear features barely hurts), so cluster correlated features and permute jointly.
+#### PCA is the maximizer of a quadratic form
 
-## Part 3 — Boosting
+Let
 
-> **Goal — drive down *bias* by adding weak trees in sequence, each fitting what the ensemble so far gets wrong — which, made precise, is gradient descent in function space.**
+$$C=\frac{1}{n}X^\top X$$
 
-### From a committee to a correction chain
+be the covariance matrix. The first principal component solves
 
-Bagging trains trees independently and averages them. Boosting trains trees sequentially. The first tree makes a rough prediction. The second focuses on what the current ensemble still gets wrong. The third corrects the remaining error, and so on.
+$$\max_{\lVert v\rVert=1} v^\top Cv$$
 
-Think of writing an estimate in pencil and repeatedly adding small corrections rather than replacing the whole answer. Each shallow tree is intentionally limited: it contributes one modest pattern. The sum of many simple corrections can represent a complicated function while the learning rate controls how aggressively each correction is trusted.
+Theory says the answer is the eigenvector with the largest eigenvalue. But suppose you do not know the eigenvectors. How do you find it numerically?
 
-**AdaBoost** (Freund & Schapire 1997). Start with uniform weights. Each round: fit a classifier $G_m$ to the weighted data, compute its weighted error $\text{err}_m$, give it vote
+Because $C$ is symmetric it has an orthonormal eigenbasis,
 
-$$\alpha_m = \ln\frac{1-\text{err}_m}{\text{err}_m}$$
+$$C=V\Lambda V^\top,\qquad \lambda_1\ge\lambda_2\ge\cdots\ge\lambda_d\ge0$$
 
-then up-weight the misclassified points and repeat; predict $\text{sign}(\sum_m \alpha_m G_m)$. A classifier at chance ($\text{err}=0.5$) gets weight 0; a perfect one gets $\infty$. The statistical view (Friedman, Hastie, Tibshirani 2000): **AdaBoost is forward-stagewise additive modeling under exponential loss** $L(y,f)=e^{-yf}$ — which is why it's fragile to label noise (a mislabeled point gets exponentially up-weighted).
+Take literally any starting vector $q_0$. The eigenvectors form a basis, so
 
-**Gradient boosting** (Friedman 2001) generalizes this to *any* differentiable loss by reframing boosting as **gradient descent in function space**. At round $m$, compute the **pseudo-residual** (negative functional gradient) for each point,
+$$q_0=c_1v_1+c_2v_2+\cdots+c_dv_d$$
 
-$$r_{im} = -\left[\frac{\partial L(y_i, f(x_i))}{\partial f(x_i)}\right]_{f=f_{m-1}}$$
+Multiply by $C$. Each eigenvector is just scaled by its own eigenvalue:
 
-fit a regression tree to the $\{(x_i, r_{im})\}$, and add it with a **shrinkage / learning rate** $\nu$: $f_m = f_{m-1} + \nu\, h_m$. For squared loss the pseudo-residual is just the ordinary residual $y - f$ (so "plain GB" = "fit the residuals"); for log loss it's $y - p$; for MAE it's $\text{sign}(y-f)$. Smaller $\nu$ with more rounds generalizes better (regularization), and **stochastic GB** (Friedman 2002) subsamples rows per round for extra variance reduction.
+$$Cq_0=c_1\lambda_1v_1+c_2\lambda_2v_2+\cdots+c_d\lambda_dv_d$$
 
-“Gradient descent in function space” sounds more exotic than it is. Ordinary gradient descent asks which direction to move each parameter. Gradient boosting asks which change to the current *prediction function* would decrease loss fastest on the training points. The pseudo-residual is that desired change evaluated row by row; the new tree approximates it using patterns in $X$.
+Multiply again:
 
-- Under squared loss, a prediction 3 units too low requests a correction of $+3$.
-- Under log loss, the correction is $y-p$: a positive example predicted at $0.1$ requests a much larger upward move than one predicted at $0.9$.
-- Under MAE, only the direction of the error matters, not its magnitude, which is why MAE is more resistant to outliers.
+$$C^2q_0=c_1\lambda_1^2v_1+c_2\lambda_2^2v_2+\cdots+c_d\lambda_d^2v_d$$
 
-**XGBoost** (Chen & Guestrin 2016) uses a **second-order (Newton)** objective — gradient *and* Hessian — plus explicit regularization $\Omega(f)=\gamma T + \tfrac12\lambda\|w\|^2$. A 2nd-order Taylor expansion (with $g_i, h_i$ the first/second derivatives of the loss) makes each leaf a quadratic in its weight, so the **optimal leaf weight** and **split gain** are closed-form:
+After $t$ multiplications:
 
-$$w_j^\star = -\frac{G_j}{H_j + \lambda}, \qquad \text{Gain} = \tfrac12\!\left[\frac{G_L^2}{H_L+\lambda} + \frac{G_R^2}{H_R+\lambda} - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right] - \gamma$$
+$$C^tq_0=c_1\lambda_1^tv_1+c_2\lambda_2^tv_2+\cdots+c_d\lambda_d^tv_d$$
 
-where $G_j=\sum_{i\in I_j} g_i$, $H_j=\sum_{i\in I_j} h_i$. **This is exactly the c1.2 connection:** for squared loss $h_i=1$, so $w_j^\star$ is the (shrunk) mean residual — recovering plain GB; for **MAE the Hessian is zero**, so $w^\star=-G/\lambda$ is degenerate, which is why naive MAE breaks XGBoost and you reach for `reg:pseudohubererror` or the special-cased `reg:absoluteerror`. **LightGBM** (Ke et al. 2017) speeds this up with leaf-wise (best-first) growth, histogram binning, and gradient-based sampling (GOSS); **CatBoost** (Prokhorenkova et al. 2018) adds ordered boosting (to remove a target-leakage "prediction shift") and native categorical handling.
+Factor out $\lambda_1^t$:
 
-The Hessian measures curvature: how quickly the gradient itself changes. XGBoost uses that information to scale corrections. A large aggregate Hessian means the local quadratic approximation has strong curvature, so a given gradient implies a smaller, more cautious step. The denominator $H_j+\lambda$ also shows regularization directly: larger $\lambda$ shrinks every leaf value toward zero.
+$$C^tq_0=\lambda_1^t\left[c_1v_1+c_2\left(\frac{\lambda_2}{\lambda_1}\right)^tv_2+\cdots\right]$$
 
-## Part 4 — Stacking
+If $\lambda_1>\lambda_2$ then every ratio $(\lambda_j/\lambda_1)^t\to0$. So after normalizing,
 
-> **Goal — combine *different* model families with a learned meta-model — without leaking.** Train diverse level-0 base learners, then a level-1 meta-learner on their predictions (Wolpert 1992). The non-negotiable detail: the meta-learner must train on **out-of-fold (OOF)** predictions — for each base model, each row's meta-feature comes from a fold that did *not* train on that row. Otherwise an overfit base model (imagine a 1-NN with zero training error) looks perfect in-sample, the meta-learner over-weights it, and the stack collapses at test time. That's pure train/test leakage (c1.1), and OOF prediction is the fix.
+$$\boxed{\ \frac{C^tq_0}{\lVert C^tq_0\rVert}\longrightarrow\pm v_1\ }$$
 
-The intuition is “learn whom to trust, and when.” A linear model may be reliable in smooth regions, while a tree catches threshold interactions. Their predictions become features for a simple meta-model. But the meta-model must see each base learner as it behaves on unseen data. Training predictions answer the wrong question—“how well can this model remember?”—and make the most overfit base learner look like the best expert.
+provided $c_1\neq0$. That is **power iteration**. There is no determinant anywhere.
 
-The honest recipe is: split into folds; for each fold, fit every base model on the other folds and predict the held-out fold; stitch those held-out predictions into a complete OOF matrix; train the meta-model on that matrix; finally refit base models on all training data for deployment. Any preprocessing and target encoding must live inside the fold loop too.
+#### The algorithm for the top direction
 
-## The stats / quant-research lens
+Start with any unit vector $q$. Repeat:
 
-> **Goal — the lens a quant interviewer applies: which lever each family pulls, and where calibration and monotonicity bite.**
+$$z=Cq,\qquad q\leftarrow\frac{z}{\lVert z\rVert}$$
 
-- **The dichotomy to memorize:** **bagging/RF reduce variance** (average low-bias/high-variance trees; bias ≈ a single tree's), **boosting reduces bias** (sequentially fit the loss; variance can creep up → can overfit). This is the single most-asked ensemble idea.
-- **Boosting = functional gradient descent / forward stagewise additive modeling** — the unifying frame; XGBoost is Newton's method in function space (it uses curvature $h_i$).
-- **Calibration (c1.3 tie):** trees/RF/GBDT are **not calibrated** out of the box. Both RF and boosting are *sigmoid-distorted* — their probabilities get pushed *toward* 0.5, so both are **under-confident at the extremes** (Niculescu-Mizil & Caruana 2005): RF because averaging bounded tree votes compresses toward the middle, AdaBoost because margin maximization pushes the mapped scores away from 0/1. A *sigmoid* (Platt) calibrator fits both (isotonic is the alternative), via `CalibratedClassifierCV` on held-out data. Contrast modern deep nets, which are *over*-confident (c1.3).
-- **Monotonic constraints** (quant favorite): enforce e.g. "default probability increases in leverage" via `monotone_constraints` (XGBoost/LightGBM/CatBoost) or `monotonic_cst` (sklearn HistGB).
-- **Why GBDT dominates tabular:** Grinsztajn et al. 2022 — robustness to uninformative features, rotational non-invariance matching tabular structure, and the ability to fit non-smooth targets.
+Eventually $q\approx v_1$.
 
-## Tradeoff matrix
+How do you get the eigenvalue? Once $q\approx v_1$ we have $Cq\approx\lambda_1q$. Left-multiply by $q^\top$:
 
-| Method | Pulls down | Base trees | More estimators overfit? | Tuning burden | Reach for it when |
-|---|---|---|---|---|---|
-| Single tree | — (interpretable) | one, pruned | n/a | low | You need a human-readable model |
-| Bagging / RF | **Variance** | many, deep | **No** (converges) | low (near zero) | Robust default; noisy labels; parallel |
-| Boosting / GBDT | **Bias** | many, shallow | **Yes** (early-stop) | higher | Max accuracy on clean tabular data |
-| Stacking | Both (via diversity) | heterogeneous | — | high | Squeezing the last % (competitions) |
+$$q^\top Cq\approx\lambda_1q^\top q=\lambda_1$$
+
+because $q$ is normalized. So
+
+$$\boxed{\ \lambda_1\approx q^\top Cq\ }$$
+
+This is the **Rayleigh quotient**. The whole top eigenpair falls out of *multiply, normalize, repeat*.
+
+The convergence rate is $\lvert\lambda_2/\lambda_1\rvert$ per step, which tells you exactly when this is slow: when the top two eigenvalues are close, the second term dies slowly and you need many iterations to separate the directions.
+
+#### A concrete run
+
+Take
+
+$$C=\begin{bmatrix}3&1\\1&3\end{bmatrix}$$
+
+and pretend you know nothing about its eigenvalues. Start from $q_0=\begin{bmatrix}1\\0\end{bmatrix}$.
+
+$$Cq_0=\begin{bmatrix}3\\1\end{bmatrix}\quad\Rightarrow\quad q_1=\frac{1}{\sqrt{10}}\begin{bmatrix}3\\1\end{bmatrix}$$
+
+Keep multiplying, ignoring normalization for a moment since it does not change direction:
+
+$$C\begin{bmatrix}3\\1\end{bmatrix}=\begin{bmatrix}10\\6\end{bmatrix},\qquad C\begin{bmatrix}10\\6\end{bmatrix}=\begin{bmatrix}36\\28\end{bmatrix},\qquad C\begin{bmatrix}36\\28\end{bmatrix}=\begin{bmatrix}136\\120\end{bmatrix}$$
+
+Watch the ratio of the two entries: $1/3$, then $0.6$, then $0.78$, then $120/136\approx0.88$. It is heading to $1$, so the direction is heading to $\begin{bmatrix}1\\1\end{bmatrix}$. Normalized,
+
+$$v_1=\frac{1}{\sqrt2}\begin{bmatrix}1\\1\end{bmatrix},\qquad v_1^\top Cv_1=4$$
+
+The top eigenpair, found numerically, with no polynomial solved. (The other eigenpair here is $\lambda_2=2$ at $\tfrac1{\sqrt2}[1,-1]^\top$, so the convergence rate was $\lambda_2/\lambda_1=0.5$ — the error halves each step, which is what the table of ratios shows.)
+
+#### PCA needs several eigenvectors, so stop them collapsing
+
+Power-iterate several vectors independently and they all converge to $v_1$. You need something that stops them landing on the same direction.
+
+Say you want $k$ components. Instead of one vector, keep a matrix of $k$ orthonormal columns:
+
+$$Q=\begin{bmatrix}q_1&q_2&\cdots&q_k\end{bmatrix}$$
+
+Multiply all of them at once, $Z=CQ$. Every column starts drifting toward $v_1$, so immediately re-orthogonalize the columns by taking a QR decomposition $Z=QR$, throwing away $R$ and keeping the new orthonormal $Q$. Repeat:
+
+$$\boxed{\ Z_t=CQ_t,\qquad Q_{t+1}=\operatorname{orth}(Z_t)\ }$$
+
+This is **orthogonal iteration**, also called simultaneous power iteration. Why does it work? If the starting block is $Q_0=VA$ — its columns are combinations of eigenvectors — then
+
+$$C^tQ_0=V\Lambda^tA$$
+
+and because $\lambda_1^t,\ldots,\lambda_k^t$ dominate the smaller powers, the *subspace* spanned by those columns converges to $\operatorname{span}(v_1,\ldots,v_k)$. The QR step is what keeps the individual columns from all becoming the same vector.
+
+That is already a working algorithm for PCA's top $k$ directions.
+
+#### The same idea, rewritten, is the QR eigensolver
+
+Now suppose you want *all* eigenvalues. Start with $A_0=C$, factor it, then multiply the factors back in the opposite order:
+
+$$A_0=Q_0R_0,\qquad A_1=R_0Q_0$$
+
+Why would reversing the factors help? Because $A_0=Q_0R_0$ implies $R_0=Q_0^\top A_0$, and therefore
+
+$$\boxed{\ A_1=R_0Q_0=Q_0^\top A_0Q_0\ }$$
+
+That is a **similarity transformation**, and similarity transformations preserve eigenvalues. The one-line proof: if $Av=\lambda v$ and $B=Q^\top AQ$, set $w=Q^\top v$. Then
+
+$$Bw=Q^\top AQQ^\top v=Q^\top Av=\lambda Q^\top v=\lambda w$$
+
+so $A$ and $B$ have exactly the same eigenvalues. Repeat the step:
+
+$$A_t=Q_tR_t,\qquad A_{t+1}=R_tQ_t$$
+
+For a symmetric matrix the result is remarkable — the iterates converge to
+
+$$A_t\longrightarrow\begin{bmatrix}\lambda_1&&0\\&\ddots&\\0&&\lambda_d\end{bmatrix}$$
+
+The eigenvalues literally appear on the diagonal. That is the **QR algorithm**.
+
+#### Why it drives toward diagonal form
+
+Repeated QR iteration is closely related to running simultaneous power iteration on all the basis vectors at once. In simultaneous power iteration, $C^tQ_0$ becomes dominated by the eigenvectors of the largest eigenvalues; QR repeatedly extracts an orthonormal basis for those increasingly eigenvector-aligned directions.
+
+If you accumulate the rotations,
+
+$$\bar Q_t=Q_0Q_1\cdots Q_t$$
+
+then the algorithm is effectively driving $\bar Q_t\to V$, the eigenvector matrix. So
+
+$$\bar Q_t^\top C\bar Q_t\longrightarrow V^\top CV$$
+
+and since $CV=V\Lambda$,
+
+$$V^\top CV=V^\top V\Lambda=\Lambda$$
+
+giving
+
+$$\boxed{\ \bar Q_t^\top C\bar Q_t\longrightarrow\Lambda\ }$$
+
+The QR algorithm is iteratively rotating the coordinate system until the matrix becomes diagonal. That is the entire idea.
+
+#### The cost problem, and how symmetry fixes it
+
+A dense $d\times d$ QR decomposition costs about $O(d^3)$. Doing that at every iteration would be wasteful. But covariance matrices are symmetric, and you can exploit that *before* iterating.
+
+Transform $C$ into a **tridiagonal** matrix
+
+$$T=\begin{bmatrix}a_1&b_1&0&\cdots\\b_1&a_2&b_2&\cdots\\0&b_2&a_3&\cdots\\\vdots&&&\ddots\end{bmatrix}$$
+
+built so that $T=Q^\top CQ$ — again a similarity transformation, so $T$ has exactly the same eigenvalues as $C$.
+
+#### Householder reflections do the tridiagonalization
+
+Suppose the first column of $C$ is $[c_{11},x_1,x_2,x_3,\ldots]^\top$. You want to reflect the lower piece $x=[x_1,x_2,x_3,\ldots]^\top$ onto the first coordinate direction:
+
+$$Hx=\begin{bmatrix}\pm\lVert x\rVert\\0\\0\\\vdots\end{bmatrix}$$
+
+Construct $u=x\pm\lVert x\rVert e_1$, normalize to $v=u/\lVert u\rVert$, and define
+
+$$H=I-2vv^\top$$
+
+Why is that a reflection? Split any vector into parts parallel and perpendicular to $v$: $x=x_\perp+\alpha v$. Then since $v^\top x_\perp=0$ and $\lVert v\rVert=1$,
+
+$$Hx=(I-2vv^\top)(x_\perp+\alpha v)=x_\perp+\alpha v-2\alpha v=x_\perp-\alpha v$$
+
+It leaves the perpendicular component alone and flips the parallel one. Choose $v$ and you can zero every entry below whichever entry you want to keep.
+
+Apply the reflection on both sides. Since $H^\top=H$,
+
+$$C_1=H^\top CH=HCH$$
+
+which is a similarity transformation, so eigenvalues are preserved. Work column by column, $C\to C_1\to C_2\to\cdots\to T$. Because the matrix is symmetric, killing the entries below the subdiagonal simultaneously kills the matching entries above the superdiagonal:
+
+$$\boxed{\ \text{symmetric dense matrix}\longrightarrow\text{symmetric tridiagonal matrix}\ }$$
+
+#### Why tridiagonal is such a big win
+
+A dense matrix has roughly $d^2$ nonzero entries. A tridiagonal one has about $3d$. Matrix-vector multiplication drops from $O(d^2)$ to $O(d)$, and the QR steps exploit the same sparsity.
+
+So the expensive part of a full dense eigendecomposition is the **one-time** reduction $C\to T$ at $O(d^3)$. Everything after that is vastly cheaper. This is why the standard symmetric eigensolver is "reduce, then iterate" rather than "iterate on the dense matrix."
+
+#### PCA usually does not want all the eigenvectors
+
+Usually $k\ll d$. You might have $10{,}000$ features and want $50$ components. Computing all $10{,}000$ eigenvectors to throw away $9{,}950$ of them is wasteful. You only want the subspace $\operatorname{span}(v_1,\ldots,v_k)$.
+
+Power iteration already told you something useful: the sequence $q,\ Cq,\ C^2q,\ C^3q,\ldots$ carries progressively more information about the dominant eigenvectors. So keep all of it. Form the **Krylov subspace**
+
+$$\boxed{\ \mathcal K_m(C,q)=\operatorname{span}\lbrace q,Cq,C^2q,\ldots,C^{m-1}q\rbrace\ }$$
+
+Instead of solving a $d\times d$ eigenproblem, find an orthonormal basis $Q_m$ for this much smaller $m$-dimensional space and project $C$ into it:
+
+$$T_m=Q_m^\top CQ_m$$
+
+Now $T_m$ is only $m\times m$. Solve the small problem $T_my=\theta y$, then lift the answer back:
+
+$$v\approx Q_my$$
+
+That is the core of **Lanczos**: use repeated $Cq$ operations to discover the small subspace containing the dominant eigenvectors, then solve the eigenproblem only inside that subspace. Because $C$ is symmetric, the orthogonalization simplifies dramatically and $T_m$ comes out tridiagonal on its own.
+
+#### PCA lets you skip building $C$ entirely
+
+Recall $C=\frac1nX^\top X$. Lanczos only ever needs the *action* of $C$ on a vector, never $C$ itself. And
+
+$$Cv=\frac1nX^\top Xv=\frac1nX^\top(Xv)$$
+
+So you can go $v\xrightarrow{\ X\ }Xv\xrightarrow{\ X^\top\ }X^\top Xv$ without ever forming the $d\times d$ covariance matrix.
+
+This is a large practical win. If $d$ is $10{,}000$, then $C$ is a hundred million entries you never have to store. It is also more numerically accurate: forming $X^\top X$ squares the condition number, so you lose roughly half your significant digits before you start. This is exactly why PCA implementations run SVD on $X$ directly rather than eigendecomposing $X^\top X$, and it is what truncated and randomized SVD solvers are built on.
+
+#### The hierarchy to keep in your head
+
+PCA asks for $\max_{\lVert v\rVert=1}v^\top Cv$, which is an eigenvector problem. But numerically you never solve $\det(C-\lambda I)=0$. Instead:
+
+| Goal | Method | Idea |
+|---|---|---|
+| Top eigenpair | Power iteration | Repeated multiplication amplifies the dominant eigendirection |
+| Top $k$ | Orthogonal iteration | Power iteration on a block, plus QR to stop columns collapsing |
+| All eigenvalues | QR algorithm | Write that iteration as repeated similarity transforms |
+| Full symmetric problem | Householder $\to$ tridiagonal, then QR | Pay $O(d^3)$ once so every iteration is cheap |
+| Top $k$, $d$ huge | Krylov / Lanczos | Solve the eigenproblem inside a small subspace |
+| PCA specifically | Apply it to $X$, not $X^\top X$ | Only $Xv$ and $X^\top u$ are ever needed |
+
+The deepest idea is not "find the roots of the characteristic polynomial." It is that **repeated linear transformations reveal invariant directions**, and every algorithm above is a way of exploiting that without letting the directions collapse or the cost explode.
+
+### PCA versus feature selection
+
+Feature selection keeps original columns; PCA replaces them with mixtures. Ten correlated measurements may compress into one stable component, but “PC1 increased” is harder to explain than “revenue increased.” PCA is attractive for compression, visualization, de-noising, and conditioning; it is costly when original-variable interpretation matters.
+
+### Principal-component regression: predict after rotating
+
+**PCR** performs PCA on $X$, keeps the top $m$ scores, then regresses $y$ on those scores. Orthogonality removes collinearity, and choosing $m<p$ reduces variance. It is a hard decision: directions $1$ through $m$ get full access to the fit; directions after $m$ get none.
+
+The number of components is a supervised hyperparameter even though the PCA transformation is unsupervised. Choose $m$ by cross-validation on the full pipeline, not solely by a “95% explained variance” rule. Explained variance concerns reconstruction of $X$, not predictive information about $y$.
+
+**Ridge is "soft PCR."** With $X=UDV^\top$, the ridge fit is
+
+$$\hat y_{\text{ridge}} = \sum_{j=1}^p u_j\,\frac{d_j^2}{d_j^2+\lambda}\,u_j^\top y$$
+
+OLS uses shrinkage factor $1$ on every principal direction; ridge multiplies direction $j$ by $\frac{d_j^2}{d_j^2+\lambda}\in(0,1)$ — so it **shrinks most along the low-variance (small $d_j$) directions**, which are exactly the unstable, collinear ones. **Principal-component regression (PCR)** is the hard-threshold version: keep the top $m$ components fully, drop the rest. This is the exact sense in which "ridge ≈ smooth PCR."
+
+This spectral view explains regularization at a deeper level. OLS divides by singular values; a very small $d_j$ can amplify noise enormously. Ridge replaces the dangerous inversion with a shrinkage factor that approaches 0 for weak directions and 1 for strong directions. PCR uses a step function; ridge uses a smooth dial. Neither asks whether the direction predicts $y$ before deciding how strongly to retain it, although ridge's $\lambda$ is chosen using predictive validation.
+
+**When PCA hurts.** PCA is **unsupervised — target-blind**. It keeps high-*variance* directions, which may be exactly the *irrelevant* ones; the predictive signal can live in a low-variance component that PCA discards. It also assumes linearity and "variance = importance," and destroys interpretability (components are blends of features). It helps when collinearity/dimensionality is the problem *and* signal aligns with high-variance directions; otherwise supervised methods (PLS, or just ridge) are better.
+
+An interview-quality counterexample: let a nuisance feature vary wildly while a low-variance sensor almost perfectly determines the target. PC1 follows the nuisance variance; truncating to PC1 destroys the signal. PCA worked perfectly at its stated job—reconstructing $X$—and failed at the different job we cared about.
+
+PCA also captures only linear directions, can be dominated by outliers, and makes components dependent on the training distribution. When feature covariance shifts, old loadings may no longer summarize the new population well.
 
 ## Worked decision walk-throughs
 
-**Scenario A: a fresh tabular prediction problem, accuracy matters.** Start with **gradient-boosted trees** — `HistGradientBoostingClassifier`, XGBoost, or LightGBM. They're the tabular default; tune learning rate, depth/leaves, and use **early stopping**.
-
-**Scenario B: noisy labels, little time to tune, want robustness.** **Random forest.** Near-zero tuning, robust to label noise (unlike AdaBoost's exp-loss), parallelizes trivially, and more trees never hurt.
-
-**Scenario C: you need trustworthy probabilities (expected-value decisions).** Whatever the model, **calibrate** it — RF/GBDT are not calibrated out of the box; fit Platt/isotonic on a held-out set and check a reliability diagram (c1.3).
-
-**Scenario D: a competition, chasing the last 0.5%.** **Stacking** diverse base models (GBDT + RF + linear + kNN) with a simple meta-learner — using OOF predictions to avoid leakage.
-
-## Production failure modes
-
-1. **`RandomForestRegressor()` isn't a random forest by default.** In modern scikit-learn its `max_features=1.0` means *every* feature is considered at each split — that's **bagged trees** ($\rho$ high, variance floor high), not the textbook RF. Set `max_features="sqrt"` or `1/3` to actually decorrelate.
-2. **GBDT with no early stopping.** More boosting rounds reduce bias and then fit noise — train loss keeps dropping while validation loss turns up. Always early-stop on a validation set.
-3. **Trusting MDI feature importance.** It's biased toward high-cardinality features and split across correlated ones — use permutation importance on held-out data (with the collinearity caveat).
-4. **Shipping uncalibrated tree probabilities.** Downstream EV math is biased; calibrate.
-5. **AdaBoost on noisy/mislabeled data.** Exponential loss exponentially up-weights mislabeled points and chases them; prefer RF or gradient boosting with a robust loss.
-6. **Naive MAE in XGBoost.** Zero Hessian breaks the Newton leaf step (c1.2); use `reg:pseudohubererror` or `reg:absoluteerror`.
+**Scenario D: high-dimensional correlated features, mostly nuisance variance.** Consider **PCA/PCR** — but verify the target correlates with the top components (it's target-blind); ridge is often the safer "soft PCR."
 
 ## Interview gotchas
 
-- **"Bagging vs boosting — what does each reduce?"** Bagging/RF → variance; boosting → bias. Be ready to justify with the decorrelation identity and the stagewise-bias-reduction argument.
-- **"Why random feature subsampling in a forest?"** To lower the inter-tree correlation $\rho$, which caps the variance reduction ($\rho\sigma^2$ floor).
-- **"Do more trees overfit?"** RF: no (converges); GBDT: yes (early-stop). Know *why* (LLN vs sequential bias reduction).
-- **"What loss does AdaBoost minimize?"** Exponential loss, forward-stagewise; derive the stagewise coefficient $\beta=\tfrac12\ln\frac{1-\text{err}}{\text{err}}$ (vote $\alpha_m=2\beta=\ln\frac{1-\text{err}}{\text{err}}$).
-- **"What does gradient boosting fit at each step?"** The negative gradient (pseudo-residual); for squared loss that's the residual.
-- **"Derive XGBoost's leaf weight."** $w^\star=-G/(H+\lambda)$ from the 2nd-order objective; note MAE's zero Hessian breaks it (c1.2).
-- **"Why can feature importance mislead?"** Gini cardinality bias + correlated-feature splitting (c1.1/c1.4).
+- **"How does ridge relate to PCA?"** — ridge is soft PCR: it shrinks most along low-variance principal directions; PCR hard-drops them.
 
 ## Take the quiz
 
-Twelve conceptually difficult questions — impurity arithmetic, the decorrelation derivation, the OOB $1/e$, AdaBoost's weight, XGBoost's leaf formula, and the RF-vs-GBDT overfitting contrast. **[Take the quiz →](/c/c1/c1.5/quiz)**
-
-## Cited references
-
-- Ref 3 — *Bootstrap aggregating (bagging)* (Wikipedia) — `c1/references/03_bagging.html`
-- Ref 4 — *What is boosting?* (AWS) — `c1/references/04_boosting.html` (overview only; no math)
-- Ref 5 — *Stacking ensemble* (Machine Learning Mastery) — `c1/references/05_stacking.html`
-- Ref 7 — *A Tour of Machine Learning Algorithms* (Machine Learning Mastery) — `c1/references/07_traditional_ml_algos.html` (taxonomy only)
-
-External works (the real sources for the math):
-- Breiman, L. 1996. "Bagging Predictors." *Machine Learning* 24(2). And 2001. "Random Forests." *Machine Learning* 45(1) — decorrelation, convergence.
-- Freund, Y., Schapire, R. 1997. "A Decision-Theoretic Generalization of On-Line Learning…" *JCSS* 55(1) — AdaBoost.
-- Friedman, Hastie, Tibshirani. 2000. "Additive Logistic Regression: A Statistical View of Boosting." *Annals of Statistics* 28(2) — AdaBoost = exponential-loss stagewise.
-- Friedman, J. 2001. "Greedy Function Approximation: A Gradient Boosting Machine." *Annals of Statistics* 29(5); and 2002. "Stochastic Gradient Boosting." — gradient boosting.
-- Chen, T., Guestrin, C. 2016. "XGBoost: A Scalable Tree Boosting System." *KDD.* — second-order objective, $w^\star=-G/(H+\lambda)$.
-- Ke, G. et al. 2017. "LightGBM." *NeurIPS.* / Prokhorenkova, L. et al. 2018. "CatBoost." *NeurIPS.*
-- Wolpert, D. 1992. "Stacked Generalization." *Neural Networks* 5(2).
-- Strobl, C. et al. 2007. "Bias in random forest variable importance measures." *BMC Bioinformatics* 8:25.
-- Grinsztajn, L. et al. 2022. "Why do tree-based models still outperform deep learning on typical tabular data?" *NeurIPS Datasets & Benchmarks.*
-- Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., Ch. 9, 10, 15.
+**[Take the quiz →](/c/c1/c1.5/quiz)**

@@ -1,42 +1,37 @@
 ---
 lessonId: c1.3
 chapter: 1
-title: Quiz — Classification losses
-description: 12 conceptually difficult questions on cross-entropy, focal loss, class-balanced loss, and calibration.
+title: Quiz — Linear regression
+description: Conceptually difficult questions on OLS, MLE, Gauss-Markov, regularization, VIF and errors-in-variables.
 estimatedMinutes: 45
 ---
 
-These 12 questions probe whether you understand classification losses as maximum likelihood / KL minimization, and whether you can reason about *calibration* — not whether you can name them. Try to answer before revealing.
+These 14 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
 
 <Quiz id="1">
 
-**Q1.** Derive the gradient of softmax cross-entropy with respect to the logits, $\partial \mathcal{L}/\partial z_j$, starting from the softmax Jacobian. State the binary (sigmoid) analogue. Which specific cancellation makes the result clean, and why does it mean cross-entropy is the "natural" partner of softmax?
+**Q1. From “closest line” to the OLS formula.** OLS chooses the prediction vector $X\hat\beta$ closest to $y$. Show that statement algebraically in two ways: minimize RSS with calculus, then view $X\hat\beta$ as the orthogonal projection of $y$ onto the space spanned by $X$. Use the projection picture to decide whether the hat matrix is symmetric, idempotent, invertible, has trace $p$, and has eigenvalues in $\{0,1\}$. Finally, explain what must be true of the feature columns for the usual closed form to exist.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Setup.** $q = \text{softmax}(z)$, one-hot label $y$, loss $\mathcal{L} = -\sum_i y_i \log q_i$.
+**Calculus.** $\text{RSS}(\beta)=\|y-X\beta\|^2$; $\nabla_\beta\text{RSS}=-2X^\top(y-X\beta)=0 \Rightarrow X^\top X\hat\beta = X^\top y \Rightarrow \hat\beta=(X^\top X)^{-1}X^\top y$. Hessian $2X^\top X\succeq 0$ ⇒ convex ⇒ global min.
 
-**Softmax Jacobian.** $\dfrac{\partial q_i}{\partial z_j} = q_i(\delta_{ij} - q_j)$, where $\delta_{ij}$ is the Kronecker delta. (Derive: for $i=j$, $\partial q_i/\partial z_i = q_i(1-q_i)$; for $i\neq j$, $-q_i q_j$.)
+**Projection.** Minimizing $\|y-X\beta\|$ means $X\hat\beta$ is the orthogonal projection of $y$ onto $\text{col}(X)$, so the residual $e=y-X\hat\beta \perp \text{col}(X)$: $X^\top e=0 \Rightarrow X^\top X\hat\beta=X^\top y$. Same equations, no calculus.
 
-**Chain rule.**
+**Hat matrix** $H=X(X^\top X)^{-1}X^\top$, the projector onto $\text{col}(X)$:
+- **Symmetric** ✓ ($H^\top=H$ by inspection).
+- **Idempotent** ✓ ($H^2=X(X^\top X)^{-1}X^\top X(X^\top X)^{-1}X^\top=H$) — projecting twice = once.
+- **Invertible** ✗ — $H$ is $n\times n$ but has rank $p<n$, so it's singular (it collapses the residual space to 0).
+- **$\text{trace}=p$** ✓ ($\text{trace}(H)=\text{trace}((X^\top X)^{-1}X^\top X)=\text{trace}(I_p)=p$) — equals the effective degrees of freedom of the fit.
+- **Eigenvalues in $\{0,1\}$** ✓ — a projector satisfies $H^2=H$, so each eigenvalue $\lambda$ obeys $\lambda^2=\lambda$.
 
-$$\frac{\partial \mathcal{L}}{\partial z_j} = \sum_i \frac{\partial \mathcal{L}}{\partial q_i}\frac{\partial q_i}{\partial z_j} = \sum_i \left(-\frac{y_i}{q_i}\right) q_i(\delta_{ij} - q_j) = -\sum_i y_i(\delta_{ij} - q_j)$$
-
-$$= -y_j + q_j \sum_i y_i = q_j - y_j$$
-
-using $\sum_i y_i = 1$. So $\nabla_z \mathcal{L} = q - y$.
-
-**Binary analogue.** With $q = \sigma(z)$ and $\mathcal{L}_{\text{BCE}} = -[y\log q + (1-y)\log(1-q)]$: $\partial \mathcal{L}/\partial z = \sigma(z) - y$. (Uses $\sigma'(z) = \sigma(1-\sigma)$, which cancels the $1/q$ and $1/(1-q)$ terms.)
-
-**The cancellation.** The $-y_i/q_i$ from differentiating $\log q_i$ has a $1/q_i$ that exactly cancels the $q_i$ factor in the softmax Jacobian. This cancellation is *specific to pairing the log loss with softmax* (and sigmoid): it's why the gradient is the simple "prediction minus target" with no $q(1-q)$ saturation factor. Pair cross-entropy with a different output nonlinearity, or squared error with softmax, and you reintroduce a multiplicative derivative term that can vanish.
+**Existence.** The closed form needs $X^\top X$ invertible ⇔ $X$ has **full column rank** ($p$ linearly independent columns; requires $n\ge p$ and no perfect collinearity). Otherwise use the pseudoinverse or regularize (ridge).
 
 **Rubric:**
-- State the softmax Jacobian $q_i(\delta_{ij}-q_j)$
-- Chain-rule correctly to $q_j - y_j$, using $\sum y_i = 1$
-- Give the binary form $\sigma(z) - y$
-- Identify the $1/q_i$ ↔ $q_i$ cancellation as the reason
-- Conclude: this is why CE is softmax's natural partner (no saturation factor)
+- Both derivations land on $X^\top X\hat\beta=X^\top y$
+- Symmetric ✓, idempotent ✓, invertible ✗ (rank $p<n$), trace $=p$ ✓, eigenvalues $\{0,1\}$ ✓ — with reasons
+- Closed form needs full column rank / $X^\top X$ invertible
 
 </details>
 
@@ -44,29 +39,28 @@ using $\sum_i y_i = 1$. So $\nabla_z \mathcal{L} = q - y$.
 
 <Quiz id="2">
 
-**Q2.** Show that cross-entropy is the maximum-likelihood objective under a Categorical model, and separately that $\text{CE}(p,q) = H(p) + \text{KL}(p\,\|\,q)$. What does each decomposition tell you about *what minimizing CE actually does*, and why does CE collapse to KL (and to NLL) under one-hot labels?
+**Q2. Why does squared error appear?** Begin with the assumption that outcomes equal a linear signal plus independent Gaussian noise. Write the likelihood and show why maximizing it chooses the same $\hat\beta$ as minimizing RSS. Then replace Gaussian noise with Laplace noise and show why absolute error appears instead. Finish by explaining, in words, how a noise model determines a loss and why the unbiased estimate of $\sigma^2$ divides RSS by $n-p$ rather than $n$.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**MLE view.** Model the label as Categorical with parameters $q = \text{softmax}(z)$. The likelihood of one one-hot observation $y$ is $\prod_k q_k^{y_k}$, so its log-likelihood is $\sum_k y_k \log q_k$. Maximizing the dataset log-likelihood $\Leftrightarrow$ minimizing $-\sum_k y_k \log q_k$ = cross-entropy. **So CE is MLE under a Categorical noise model** — the discrete analogue of "MSE is MLE under Gaussian noise" (c1.2).
+**OLS = Gaussian MLE.** Assume $\varepsilon_i\overset{\text{iid}}\sim\mathcal{N}(0,\sigma^2)$, so $y_i\mid x_i\sim\mathcal{N}(x_i^\top\beta,\sigma^2)$. The log-likelihood is
 
-**KL decomposition.**
+$$\log L = -\tfrac n2\log(2\pi\sigma^2) - \frac{1}{2\sigma^2}\sum_i(y_i-x_i^\top\beta)^2.$$
 
-$$\text{CE}(p,q) = -\sum_k p_k \log q_k = \underbrace{-\sum_k p_k \log p_k}_{H(p)} + \underbrace{\sum_k p_k \log \frac{p_k}{q_k}}_{\text{KL}(p\,\|\,q)}$$
+Only the second term depends on $\beta$, and the positive constant $1/(2\sigma^2)$ doesn't change the argmin, so maximizing over $\beta$ ⇔ minimizing $\sum_i(y_i-x_i^\top\beta)^2=\text{RSS}$ = OLS.
 
-Since $H(p)$ doesn't depend on $q$, **minimizing CE over $q$ is exactly minimizing $\text{KL}(p\,\|\,q)$** — dragging the prediction onto the label distribution.
+**Laplace → LAD.** If $\varepsilon_i\sim\text{Laplace}(0,b)$, the log-likelihood contributes $-\frac1b\sum_i|y_i-x_i^\top\beta|$, so MLE minimizes $\sum|r_i|$ — least-absolute-deviations (the conditional-median fit, exactly MAE from c1.2).
 
-**One-hot collapse.** If $p$ is one-hot, $H(p) = 0$ (a degenerate distribution has zero entropy), so $\text{CE} = \text{KL}(p\,\|\,q) = -\log q_{c}$ where $c$ is the true class — which is also the per-example NLL. So all three coincide.
+**General principle (c1.2).** The loss you minimize is the negative log-likelihood of an assumed noise model: Gaussian → squared loss (OLS, conditional mean); Laplace → absolute loss (LAD, conditional median); Student-$t$ → a robust, Huber-like loss. Choosing a loss is choosing a noise model.
 
-**Why it matters.** The MLE view says the loss isn't arbitrary; it's the likelihood of an assumed label model. The KL view explains *the levers*: label smoothing and distillation work by changing the **target** $p$ (smoothed/soft), not the loss form.
+**Unbiased $\sigma^2$.** The MLE is $\hat\sigma^2_{\text{MLE}}=\text{RSS}/n$ (biased downward). The unbiased estimator divides by the degrees of freedom: $\hat\sigma^2=\text{RSS}/(n-p)$.
 
 **Rubric:**
-- Categorical likelihood → CE is its NLL (MLE)
-- Algebraically split CE into $H(p) + \text{KL}$
-- State that minimizing CE ⇔ minimizing KL (since $H(p)$ fixed)
-- One-hot ⇒ $H(p)=0$ ⇒ CE = KL = NLL
-- Note the consequence: smoothing/distillation act on the target $p$
+- Write Gaussian log-likelihood; drop $\beta$-independent terms and the positive constant → minimize RSS
+- Laplace noise → MLE = LAD (sum of absolute residuals)
+- State the noise-model ↔ loss principle (Gaussian/squared, Laplace/absolute)
+- Unbiased $\sigma^2 = \text{RSS}/(n-p)$ vs MLE $\text{RSS}/n$
 
 </details>
 
@@ -74,30 +68,23 @@ Since $H(p)$ doesn't depend on $q$, **minimizing CE over $q$ is exactly minimizi
 
 <Quiz id="3">
 
-**Q3.** Give two independent reasons cross-entropy is preferred over mean squared error for classification. For a binary example that is *confidently wrong* ($z = -10$, true label $y = 1$), compute the approximate gradient magnitude w.r.t. the logit under both losses and interpret.
+**Q3. Why can a useless feature improve $R^2$?** Add a pure-noise column, independent of $y$, to an OLS model. Reason from the enlarged set of possible fits—not from memorized rules—to determine what happens to training RSS and $R^2$. Then explain how adjusted $R^2$ charges for the added flexibility and what the new coefficient's $t$-statistic and $p$-value should look like across repeated samples.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Reason 1 — gradient saturation.** With sigmoid + MSE, $\mathcal{L} = \tfrac12(\sigma(z) - y)^2$, so
+- **(a) Training RSS: can only decrease (or stay equal).** OLS now minimizes over a larger column space (the old space is a subspace), so the achievable minimum RSS cannot increase. In finite samples the noise feature picks up some spurious correlation, so RSS strictly decreases almost surely.
+- **(b) $R^2 = 1-\text{RSS}/\text{TSS}$: can only increase.** Directly follows from (a) since TSS is fixed. **This is why $R^2$ is not a model-quality metric** — adding junk raises it.
+- **(c) Adjusted $R^2 = 1-\frac{\text{RSS}/(n-p)}{\text{TSS}/(n-1)}$: usually decreases.** The denominator's $n-p$ shrinks as $p$ grows, penalizing the added parameter. Unless the noise feature reduces RSS by more than the degrees-of-freedom penalty (rare for true noise), adjusted $R^2$ falls.
+- **(d) $t$-stat / $p$-value: usually non-significant.** For a feature truly independent of $y$, $\hat\beta_{\text{new}}$ is centered at 0 with its sampling SE, so $|t|$ is small and the $p$-value is large — by construction it'll exceed 0.05 about 95% of the time. (The ~5% false positives are the multiple-comparisons trap.)
 
-$$\frac{\partial \mathcal{L}_{\text{MSE}}}{\partial z} = (\sigma(z) - y)\,\sigma'(z), \qquad \sigma'(z) = \sigma(z)(1-\sigma(z))$$
-
-The $\sigma'(z)$ factor $\to 0$ as the unit saturates. With BCE, $\partial \mathcal{L}/\partial z = \sigma(z) - y$ — no saturation factor.
-
-**Compute at $z=-10$, $y=1$:** $\sigma(-10) \approx 4.54\times10^{-5}$.
-- **MSE:** $(\sigma - 1)\,\sigma(1-\sigma) \approx (-1)(4.54\times10^{-5})(1) \approx -4.5\times10^{-5}$. Essentially zero — the most-wrong example produces almost no learning signal.
-- **BCE:** $\sigma - 1 \approx -1$. Maximal push, exactly when the model is most wrong.
-
-So under MSE the model that most needs to update barely moves; under CE it moves hardest.
-
-**Reason 2 — convexity.** For a linear model, BCE is convex in the weights (composition of a convex function with an affine map), so gradient methods reach the global optimum. Sigmoid + MSE is *non-convex* in the weights (a sigmoid composed inside a quadratic), admitting bad local minima even in the simplest setting.
+**Asymmetry.** $R^2$ rewards in-sample fit only; adjusted $R^2$ charges a price per parameter, so it can fall — making it the honest summary when comparing models with different $p$.
 
 **Rubric:**
-- Write both gradients; identify the $\sigma'(z)$ saturation factor in MSE
-- Compute $\sigma(-10)\approx 4.5\times10^{-5}$ and both gradient magnitudes ($\sim10^{-5}$ vs $\sim1$)
-- Interpret: confidently-wrong example learns under CE, not under MSE
-- Second reason: BCE convex, sigmoid+MSE non-convex in the weights
+- RSS ↓, $R^2$ ↑ (larger column space)
+- Adjusted $R^2$ usually ↓ (dof penalty)
+- New coefficient usually non-significant (centered at 0), ~5% spurious hits
+- Articulate why $R^2$ is gameable and adjusted $R^2$ isn't
 
 </details>
 
@@ -105,27 +92,24 @@ So under MSE the model that most needs to update barely moves; under CE it moves
 
 <Quiz id="4">
 
-**Q4.** Prove that log loss is a *strictly proper scoring rule*: that the expected loss $\mathbb{E}_{y\sim p}[-\log q_y]$ is uniquely minimized at $q = p$. Then explain precisely why this disqualifies classification accuracy as a *training* loss.
+**Q4. What does “best” in BLUE actually promise?** Evaluate this claim: *“OLS is the minimum-variance unbiased estimator, and this guarantee requires Gaussian errors.”* Unpack every qualifier in BLUE, identify the restricted class within which OLS is best, list the assumptions that buy the result, and separate the role of Gaussianity in estimation from its role in exact small-sample inference.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Proof.** Fix the true distribution $p$ and minimize over the forecast $q$ (a valid distribution):
+**Both clauses are wrong as stated.**
 
-$$\mathbb{E}_{y\sim p}[-\log q_y] = -\sum_k p_k \log q_k = \text{CE}(p,q) = H(p) + \text{KL}(p\,\|\,q)$$
+**Clause 1 — "minimum-variance unbiased."** Gauss–Markov says OLS is **BLUE — best *linear* unbiased estimator**: minimum variance *within the class of linear unbiased estimators*. It is **not** necessarily the minimum-variance estimator among *all* unbiased estimators (that stronger property — MVUE / attaining the Cramér–Rao bound — does hold for OLS under added Gaussianity, but Gauss–Markov alone gives only the "linear" qualifier). And it's certainly not best among *all* estimators: biased estimators (ridge, James–Stein) can have lower MSE.
 
-$H(p)$ is constant in $q$, and by Gibbs' inequality $\text{KL}(p\,\|\,q) \ge 0$ with **equality iff $q = p$**. So the expected log loss is minimized uniquely at $q = p$. That's the definition of a strictly proper scoring rule: truthful reporting of the probabilities is the unique optimum.
+**Clause 2 — "requires Gaussian errors."** Gauss–Markov needs only: linearity, strict exogeneity $\mathbb{E}[\varepsilon\mid X]=0$, homoskedasticity $\text{Var}(\varepsilon\mid X)=\sigma^2I$, and no perfect collinearity. **Normality is not among them.** Normality is needed only for the *finite-sample* $t$/$F$ distributions and exact confidence intervals; without it, inference holds asymptotically via the CLT, but BLUE still stands.
 
-(One can prove $\text{KL}\ge 0$ directly via Jensen: $-\sum p_k \log(q_k/p_k) \ge -\log\sum p_k (q_k/p_k) = -\log 1 = 0$.)
-
-**Why accuracy fails as a training loss.** Accuracy / 0-1 loss is **not proper**: many different forecasts $q$ yield identical accuracy (only the argmax matters), so optimizing accuracy does *not* identify the true probabilities — it's insensitive to calibration. Worse for optimization, 0-1 loss is **piecewise constant**, so its gradient is zero almost everywhere and undefined at the jumps — there is no descent signal for SGD. Cross-entropy is smooth, strictly proper (unique minimizer = true posterior), and convex for linear models. Hence: train on CE, *report* accuracy.
+**Correct statement:** "Under the Gauss–Markov assumptions (which do not include normality), OLS is the best *linear* unbiased estimator."
 
 **Rubric:**
-- Reduce expected log loss to $H(p) + \text{KL}(p\|q)$
-- Invoke $\text{KL}\ge0$ with equality iff $q=p$ (Gibbs / Jensen)
-- Conclude unique minimizer at $q=p$ → strictly proper
-- Accuracy not proper (insensitive to probabilities) AND zero-gradient-a.e.
-- Therefore unusable as a training objective
+- "Minimum-variance unbiased" → should be "best *linear* unbiased" (BLUE)
+- Note biased estimators can beat OLS in MSE
+- Normality NOT required for BLUE; only for finite-sample inference
+- List the actual Gauss–Markov assumptions
 
 </details>
 
@@ -133,30 +117,40 @@ $H(p)$ is constant in $q$, and by Gibbs' inequality $\text{KL}(p\,\|\,q) \ge 0$ 
 
 <Quiz id="5">
 
-**Q5.** Focal loss is $\text{FL}(p_t) = -\alpha_t(1-p_t)^\gamma \log(p_t)$. With $\gamma = 2$, compute the factor by which the modulating term down-weights an example at (a) $p_t = 0.9$, (b) $p_t = 0.99$, (c) a hard example at $p_t = 0.1$, relative to plain cross-entropy. What $p_t$ yields exactly a $1000\times$ down-weight? What does focal loss reduce to at $\gamma = 0$?
+**Q5.** Ridge regression is $\hat\beta=(X^\top X+\lambda I)^{-1}X^\top y$. (a) Why is $X^\top X+\lambda I$ invertible even when $p>n$ or $X$ is collinear? (b) Ridge is a *biased* estimator. State the bias–variance decomposition first for one coefficient and then for the full coefficient vector. Use the vector decomposition to explain why ridge can have lower total mean squared error than OLS, and name the classical result behind the argument.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-The modulating factor relative to CE is $(1-p_t)^\gamma$ (focal loss is CE times this factor, ignoring $\alpha$).
+**(a) Invertibility.** $X^\top X$ is symmetric positive-*semi*definite (eigenvalues $\ge 0$); adding $\lambda I$ with $\lambda>0$ shifts every eigenvalue up by $\lambda$, making them all $\ge\lambda>0$, so $X^\top X+\lambda I$ is positive-*definite* and hence invertible — **regardless of rank**, even when $p>n$ (where $X^\top X$ is singular) or columns are collinear (near-zero eigenvalues). This is ridge's structural advantage: it always has a unique solution.
 
-**With $\gamma = 2$:**
-- (a) $p_t = 0.9$: $(1-0.9)^2 = (0.1)^2 = 0.01$ → **100× down-weight**.
-- (b) $p_t = 0.99$: $(0.01)^2 = 10^{-4}$ → **10,000× down-weight**.
-- (c) $p_t = 0.1$ (hard): $(0.9)^2 = 0.81$ → barely touched (~1.23× reduction). 
+**(b) Bias–variance.** For a single coefficient, MSE is a scalar and decomposes as
 
-So focal loss leaves hard examples almost at full CE weight while crushing easy ones — that's the "focusing."
+$$
+\mathbb E\left[(\hat\beta_j-\beta_j)^2\right]
+=\left(\mathbb E[\hat\beta_j]-\beta_j\right)^2
++\operatorname{Var}(\hat\beta_j).
+$$
 
-**1000× down-weight:** solve $(1-p_t)^2 = 10^{-3} \Rightarrow 1-p_t = \sqrt{10^{-3}} \approx 0.0316 \Rightarrow p_t \approx 0.9684$.
+For the full coefficient vector, $\operatorname{Cov}(\hat\beta)$ is a matrix, so it cannot be added directly to a scalar squared bias. Under squared Euclidean error, the correct total-MSE decomposition is
 
-**At $\gamma = 0$:** $(1-p_t)^0 = 1$, so $\text{FL} = -\alpha_t \log(p_t)$ — i.e. ($\alpha$-balanced) cross-entropy. Focal loss is a strict generalization of CE.
+$$
+\mathbb E\left[\lVert\hat\beta-\beta\rVert_2^2\right]
+=\left\lVert\mathbb E[\hat\beta]-\beta\right\rVert_2^2
++\operatorname{tr}\!\left(\operatorname{Cov}(\hat\beta)\right).
+$$
+
+The trace sums the component variances. OLS is unbiased, but when $X^\top X$ has small eigenvalues, $\operatorname{Cov}(\hat\beta_{\text{OLS}})=\sigma^2(X^\top X)^{-1}$ can have a very large trace. Ridge shrinks coefficients toward zero, creating bias, while sharply reducing variance along those poorly identified directions. For an appropriate $\lambda>0$, the reduction in $\operatorname{tr}(\operatorname{Cov}(\hat\beta))$ can exceed the increase in squared bias, giving ridge lower total coefficient MSE. OLS minimizes variance only within the class of linear unbiased estimators.
+
+**The intuition (skip the theorem).** With many noisy coefficients, shrinking them all toward zero gives up a little bias to buy a large cut in variance — so on *total* MSE the shrunk estimate can beat the unbiased one. That is the whole reason ridge is principled and not a hack. There is a celebrated formal result making this precise for a high-dimensional Gaussian mean, but no interviewer will ask you to reproduce it — if you want the exact statement and proof, ask an AI assistant (Claude or ChatGPT) to walk you through it.
 
 **Rubric:**
-- Identify $(1-p_t)^\gamma$ as the factor relative to CE
-- 100×, 10,000×, ~1.23× for the three cases
-- Solve $(1-p_t)^2 = 10^{-3}$ → $p_t \approx 0.968$
-- $\gamma=0$ → $\alpha$-balanced CE
-- Interpret: down-weights easy, preserves hard
+- $X^\top X$ PSD; $+\lambda I$ shifts eigenvalues to $\ge\lambda>0$ → positive-definite → always invertible (even $p>n$)
+- Scalar decomposition: coefficient MSE = squared bias + variance
+- Vector decomposition: total MSE = squared bias norm + $\operatorname{tr}(\operatorname{Cov}(\hat\beta))$
+- Explain why covariance itself cannot be added to scalar squared bias; ridge accepts bias to cut total variance
+- Collinearity → huge OLS variance, so ridge wins for some $\lambda$
+- Intuition: shrinkage trades a little bias for a big variance cut → can beat OLS on total MSE (no need to quote the formal theorem)
 
 </details>
 
@@ -164,31 +158,91 @@ So focal loss leaves hard examples almost at full CE weight while crushing easy 
 
 <Quiz id="6">
 
-**Q6.** Class-balanced loss reweights by the inverse *effective number* $E_n = (1-\beta^n)/(1-\beta)$. Compute $E_n$ for $n = 1000$, $\beta = 0.999$. Show the $\beta \to 0$ and $\beta \to 1$ limits and interpret each. Why is inverse-frequency weighting the $\beta \to 1$ limit, and why can it overfit the tail?
+**Q6.** A coefficient equal to zero means the fitted model does not use that feature: its contribution $x_j\hat\beta_j$ is identically zero. Lasso can set some estimated coefficients **exactly equal to $0$**; ridge usually makes coefficients smaller without making them equal to $0$.
+
+To see why, assume the feature columns are orthonormal, $X^\top X=I$, and compare these precisely scaled objectives:
+
+$$
+\text{ridge: }\frac12\lVert y-X\beta\rVert_2^2+\frac\lambda2\lVert\beta\rVert_2^2,
+\qquad
+\text{lasso: }\frac12\lVert y-X\beta\rVert_2^2+\lambda\lVert\beta\rVert_1.
+$$
+
+Derive each solution from $\hat\beta^{\text{OLS}}=X^\top y$. Which OLS coefficient values does lasso map to exactly zero? Then answer three follow-ups: **(i) why do we start orthonormal at all — what breaks in the general case?** **(ii) does lasso's ability to produce zeros depend on orthonormality?** Give the general KKT/subgradient condition. **(iii)** Contrast with the precise—not absolute—claim we should make about ridge and feature selection.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Compute.** $\beta = 0.999$, $n = 1000$: $\beta^n = 0.999^{1000} \approx e^{-1} \approx 0.368$. So
+With $X^\top X=I$, the OLS solution is $\hat\beta^{\text{OLS}}=X^\top y$. Completing the square gives
 
-$$E_n = \frac{1 - 0.368}{1 - 0.999} = \frac{0.632}{0.001} = 632.$$
+$$
+\frac12\lVert y-X\beta\rVert_2^2
+=\frac12\lVert\beta-\hat\beta^{\text{OLS}}\rVert_2^2+C,
+$$
 
-The 1000 samples are worth an "effective" ~632 — diminishing returns from overlap.
+where $C$ does not depend on $\beta$. This is not a different definition of ridge or lasso. It is the original RSS term rewritten under the special condition $X^\top X=I$. Because the squared norm is a sum over $j$, each coefficient can now be minimized separately.
 
-**Limits.**
-- $\beta \to 0$: $E_n = (1 - 0)/(1 - 0) = 1$ for all $n$. Every class weighted equally → **no reweighting**.
-- $\beta \to 1$: write $\beta = 1-\epsilon$. $E_n = (1-(1-\epsilon)^n)/\epsilon \to n$ as $\epsilon\to0$ (since $1-(1-\epsilon)^n \approx n\epsilon$). So $E_n \to n$, and the weight $1/E_n \to 1/n$ — **inverse-frequency weighting**.
+**Ridge.** For coordinate $j$, minimize
 
-So class-balanced loss *interpolates* between no reweighting ($\beta=0$) and inverse-frequency ($\beta\to1$).
+$$
+\frac12(\beta_j-\hat\beta_j^{\text{OLS}})^2+\frac\lambda2\beta_j^2.
+$$
 
-**Why inverse-frequency can overfit the tail.** $1/n$ gives an ultra-rare class (say $n=5$) a weight $\sim 200\times$ a class with $n=1000$. The model is then pushed to fit a handful of tail examples extremely hard, overfitting their noise. The effective-number view says the *true* marginal value of samples saturates (they cover overlapping feature volume), so $1/n$ over-rewards the tail; $\beta = 0.99$–$0.999$ is a gentler reweighting. Empirically the best $\beta$ is dataset-dependent — it *hurt* on fine-grained CIFAR-100.
+Differentiate and set the derivative to zero:
+
+$$
+(\beta_j-\hat\beta_j^{\text{OLS}})+\lambda\beta_j=0.
+$$
+
+Therefore
+
+$$\hat\beta_j^{\text{ridge}}=\frac{\hat\beta_j^{\text{OLS}}}{1+\lambda}.$$
+
+Ridge multiplies every OLS coefficient by the positive number $1/(1+\lambda)$. For example, if $\hat\beta_j^{\text{OLS}}=0.02$, ridge might turn it into $0.01$ or $0.002$, but not exactly $0$. In this orthonormal case and for finite $\lambda$, the ridge estimate equals zero only if the OLS estimate was already zero.
+
+**Lasso.** For coordinate $j$, minimize
+
+$$
+\frac12(\beta_j-\hat\beta_j^{\text{OLS}})^2+\lambda|\beta_j|.
+$$
+
+Consider three cases. If $\beta_j>0$, the derivative gives $\beta_j=\hat\beta_j^{\text{OLS}}-\lambda$, which is valid only when $\hat\beta_j^{\text{OLS}}>\lambda$. If $\beta_j<0$, it gives $\beta_j=\hat\beta_j^{\text{OLS}}+\lambda$, valid only when $\hat\beta_j^{\text{OLS}}<-\lambda$. If $|\hat\beta_j^{\text{OLS}}|\le\lambda$, neither nonzero candidate has the required sign, and the minimum is at the kink $\beta_j=0$.
+
+Combining the cases gives **soft-thresholding**:
+
+$$\hat\beta_j^{\text{lasso}}=\text{sign}(\hat\beta_j^{\text{OLS}})\max\!\bigl(|\hat\beta_j^{\text{OLS}}|-\lambda,\ 0\bigr).$$
+
+Thus every OLS coefficient in the interval $[-\lambda,\lambda]$ is mapped to the number $0$—not merely to a small number. For example, with $\lambda=0.1$, OLS coefficients $0.06$ and $-0.08$ both become exactly $0$, while $0.35$ becomes $0.25$. A zero coefficient removes that feature from the fitted linear predictor, which is why lasso is described as performing feature selection.
+
+**Why start orthonormal?** Not as a modelling assumption — as an algebraic device to expose the mechanism. Under a general $X$, the quadratic $\tfrac12\lVert y-X\beta\rVert^2$ has the Hessian $X^\top X$, which is a full (non-diagonal) matrix; the RSS contours in $\beta$-space are stretched, tilted ellipses (see the figure in the lesson), and the coefficients are *coupled* — changing $\beta_j$ changes the optimal $\beta_k$. Orthonormality (or any other assumption that makes $X^\top X$ a positive multiple of the identity) diagonalizes that quadratic, so the objective decouples into $p$ independent scalar problems in $(\beta_j - \hat\beta_j^{\text{OLS}})^2$. Each 1D subproblem has a closed form, and it's from those closed forms — $\hat\beta_j^{\text{OLS}}/(1+\lambda)$ and soft-thresholding — that the ridge/lasso contrast becomes visible on a page. In the general case the *geometric* story (corner-touching, dead zones) still holds, but no per-coordinate formula exists because the coordinates are coupled through the residual.
+
+<RegularizationBalls caption="The geometry that survives without orthonormality. Ellipses (blue) are RSS contours around β̂ᴼᴸˢ — round only under orthonormal design, tilted otherwise. Orange: the L1 diamond has corners on the axes; a typical ellipse hits a corner, so β₂ = 0. The L2 disc is smooth; a typical ellipse touches at a generic interior direction, so both coefficients stay nonzero. The corner-touching mechanism is fully general — orthonormality is only what makes the closed form clean." />
+
+**The zero-producing mechanism is general.** Orthonormality gives the simple soft-threshold formula; it is not required for sparsity. For a general $X$, let $r=y-X\hat\beta$ at the lasso solution. The KKT/subgradient condition is
+
+$$
+x_j^\top r=
+\begin{cases}
+\lambda, & \hat\beta_j>0,\\
+-\lambda, & \hat\beta_j<0,\\
+\text{some value in }[-\lambda,\lambda], & \hat\beta_j=0.
+\end{cases}
+$$
+
+So if feature $j$'s remaining correlation with the residual is not strong enough to overcome the penalty, $|x_j^\top r|\le\lambda$, zero satisfies the optimality condition. With correlated columns the coefficients are coupled through $r$, so we cannot threshold each OLS coefficient independently; lasso may choose one correlated feature and zero another.
+
+**Why ridge is different.** The L1 penalty has a constant-magnitude subgradient away from zero and a kink at zero, allowing an interval of data signals to share the same optimum $\hat\beta_j=0$. With the scaling used here, the L2 penalty's gradient is $\lambda\beta_j$ and vanishes smoothly as $\beta_j\to0$. Ridge therefore has no built-in sparsity or feature-selection mechanism and its solution is generally dense. A ridge coefficient can still be zero accidentally through symmetry or cancellation, so “ridge never produces zeros” is only true for a nonzero OLS coefficient in this orthonormal derivation—not as a universal statement.
 
 **Rubric:**
-- $0.999^{1000}\approx e^{-1}$, so $E_{1000}\approx 632$
-- $\beta\to0 \Rightarrow E_n=1$ (no reweighting)
-- $\beta\to1 \Rightarrow E_n\to n$, weight $\to 1/n$ (inverse frequency)
-- Inverse-frequency over-weights ultra-rare classes → tail overfitting
-- Effective number is less than $n$ because samples overlap
+- Explain “exact zero”: $\hat\beta_j=0$, so feature $j$ contributes nothing to predictions
+- Show why RSS rewrites as distance from OLS only under $X^\top X=I$
+- Ridge: $\hat\beta_j^{\text{OLS}}/(1+\lambda)$ (proportional shrinkage; nonzero input stays nonzero)
+- Lasso: soft-threshold $\text{sign}\cdot\max(|\cdot|-\lambda,0)$; the entire interval $[-\lambda,\lambda]$ maps to 0
+- **Why orthonormal:** decouples $X^\top X$ so the quadratic separates into per-coordinate problems; the general case is coupled through the residual and has no per-coordinate closed form
+- Orthonormality gives the closed form but is not required for lasso sparsity
+- General KKT condition: zero is optimal when $|x_j^\top r|\le\lambda$, jointly with the other coefficients
+- Precise ridge claim: smooth L2 has no sparsity mechanism and is generally dense, though accidental zeros are possible
+- L1-ball corners vs round L2-ball geometry (see the figure)
 
 </details>
 
@@ -196,37 +250,25 @@ So class-balanced loss *interpolates* between no reweighting ($\beta=0$) and inv
 
 <Quiz id="7">
 
-**Q7.** Construct two probability forecasts for the same binary dataset that achieve *identical accuracy* but very different cross-entropy and Brier scores. Explain which is better calibrated and what this shows about accuracy as a metric.
+**Q7. How does a penalty encode prior skepticism?** Starting from MAP estimation, show how a Gaussian prior on coefficients creates ridge and a Laplace prior creates lasso. Explain why the L1 kink—not positive probability mass at exactly zero—allows a MAP estimate to land at zero. Connect this to the broader rule: the data loss is a negative log-likelihood, while the regularization penalty is a negative log-prior.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Construction.** Take 10 examples, all with true label $y = 1$. Consider two models that both predict the positive class for all 10 (so both have **100% accuracy**):
+**MAP setup.** With a Gaussian likelihood (squared-error data term), the MAP estimate maximizes $\log p(y\mid\beta)+\log p(\beta)$ — equivalently minimizes $\|y-X\beta\|^2 - 2\sigma^2\log p(\beta)$. The **negative log-prior is the penalty**.
 
-- **Model A** outputs $q = 0.6$ on every example.
-- **Model B** outputs $q = 0.99$ on every example.
+- **Gaussian prior** $\beta_j\sim\mathcal{N}(0,\tau^2)$: $-\log p(\beta)\propto\sum_j\beta_j^2$ → **ridge** (L2), with $\lambda=\sigma^2/\tau^2$.
+- **Laplace prior** $\beta_j\sim\text{Laplace}(0,b)$: $-\log p(\beta)\propto\sum_j|\beta_j|$ → **lasso** (L1).
 
-Both threshold to "predict 1" → identical accuracy (10/10).
+**Why Laplace → sparsity.** The Laplace density $\propto e^{-|\beta|/b}$ has a **sharp, non-differentiable peak at 0** and heavier tails than the Gaussian. Because it is continuous, it does *not* place positive probability mass at the single point 0. The exact-zero MAP estimates instead come from the kink in its negative log-density, $|\beta|$: its nonzero slope persists all the way to zero, so a whole interval of weak data signals is optimized at the kink. The Gaussian negative log-density $\beta^2/(2\tau^2)$ is smooth with derivative 0 at the origin, so its pull fades continuously near zero and ordinarily shrinks without producing exact-zero modes.
 
-**Cross-entropy** (per-example $-\log q$):
-- A: $-\log 0.6 \approx 0.511$.
-- B: $-\log 0.99 \approx 0.0101$.
-
-**Brier** (per-example $(q-1)^2$):
-- A: $(0.6-1)^2 = 0.16$.
-- B: $(0.99-1)^2 = 10^{-4}$.
-
-So B has ~50× lower CE and ~1600× lower Brier, despite identical accuracy.
-
-**Which is better calibrated?** Since the empirical positive rate is 100%, Model B (predicting 0.99) is far closer to the truth — it is better calibrated *and* more confident in the right direction. Model A is under-confident. (One can also construct the reverse — an over-confident model penalized heavily — e.g. if some labels were 0, a 0.99-everywhere model would have huge CE.)
-
-**Lesson.** Accuracy ignores the magnitude of the probabilities entirely; it's invariant to any monotonic re-scaling that preserves the argmax. Proper scoring rules (CE, Brier) see the probabilities and therefore see calibration. This is *why* you train and model-select on CE, not accuracy.
+**c1.2 tie-in.** This is the same lens, moved from the *data* to the *parameters*: in c1.2, the negative-log of the *noise* distribution was the data loss (Gaussian→squared, Laplace→absolute); here the negative-log of the *prior* on $\beta$ is the penalty (Gaussian→L2, Laplace→L1). Loss and penalty are both negative-log-densities; the whole objective is a negative-log-posterior.
 
 **Rubric:**
-- Two forecasts with identical argmax/accuracy but different confidences
-- Compute differing CE and Brier for both
-- Identify which is better calibrated and why (vs the empirical rate)
-- State the general point: accuracy is blind to probability magnitude; proper scores aren't
+- Ridge ↔ Gaussian prior; lasso ↔ Laplace prior
+- Negative log-prior = penalty (MAP)
+- Laplace: sharp peak / L1 kink at 0 → exact-zero MAP estimates (but no point mass at 0); Gaussian penalty is smooth → no exact zeros
+- Connect to c1.2: loss = −log(noise), penalty = −log(prior)
 
 </details>
 
@@ -234,23 +276,27 @@ So B has ~50× lower CE and ~1600× lower Brier, despite identical accuracy.
 
 <Quiz id="8">
 
-**Q8.** With label smoothing, the target becomes $y^{\text{LS}} = (1-\varepsilon)\,y + \varepsilon/K$. Show that the cross-entropy with this target is minimized by a prediction that assigns the true class probability $1-\varepsilon+\varepsilon/K$ (not 1). Use the KL framing to explain why label smoothing both *improves calibration* and *hurts knowledge distillation*.
+**Q10. The model can predict, but it cannot assign credit.** Two predictors each have $\operatorname{VIF}=50$. Translate that number into the fraction of each feature explained by the others and the corresponding standard-error multiplier. Then explain why individual coefficients may swing or flip sign while the combined prediction $X\hat\beta$ remains stable. End with the deployment condition under which collinearity can begin to hurt prediction too.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Minimizer.** Smoothed CE is $\text{CE}(y^{\text{LS}}, q) = H(y^{\text{LS}}) + \text{KL}(y^{\text{LS}}\,\|\,q)$, minimized (over unconstrained $q$ on the simplex) when $q = y^{\text{LS}}$, i.e. $q_c = 1 - \varepsilon + \varepsilon/K$ for the true class and $\varepsilon/K$ for each other class. (Plug in $K=10$, $\varepsilon=0.1$: true-class target $0.91$, others $0.01$.) So the model is explicitly *told not to be 100% confident*.
+**Definition.** $\text{VIF}_j=1/(1-R_j^2)$, where $R_j^2$ is the $R^2$ from regressing predictor $x_j$ on **all the other predictors**. $\text{VIF}=50 \Rightarrow R_j^2=1-1/50=0.98$ — the predictor is 98% explained by the others.
 
-**Why calibration improves.** Hard one-hot targets push the true logit toward $+\infty$ (the minimizer of plain CE is at infinite logits), which is exactly the over-confidence Guo et al. documented. Label smoothing makes the optimal logits **finite** — the model targets $1-\varepsilon+\varepsilon/K$ instead of $1$ — so it stops driving confidence to the extremes. Calibration error drops.
+**(a) Standard errors.** $\text{Var}(\hat\beta_j)\propto\text{VIF}_j$, so $\text{SE}(\hat\beta_j)$ scales as $\sqrt{\text{VIF}_j}=\sqrt{50}\approx 7.1\times$ larger than under orthogonality. Confidence intervals balloon; $t$-stats shrink; truly-relevant predictors can look insignificant.
 
-**Why distillation suffers.** Müller et al. (2019): minimizing KL to a target that's uniform off the true class forces every wrong class to the *same* small probability $\varepsilon/K$. This **collapses the penultimate-layer representations into tight, equidistant clusters**, erasing the relative similarities among wrong classes ("dog is closer to cat than to truck"). That relative structure — the "dark knowledge" in soft logits — is exactly what a student distills from. A teacher trained with label smoothing therefore makes a *worse* student, even though it may itself be more accurate and better calibrated.
+**(b) Stability and sign.** With nearly-redundant columns, the data barely constrains how the shared effect is *split* between them, so tiny perturbations (a few resampled rows, adding/removing a point) swing the coefficients wildly and can **flip their signs**. The individual coefficients are essentially un-identifiable.
+
+**(c) Predictive accuracy.** Largely **unaffected**. Collinearity introduces **no bias**; the fitted values $\hat y=X\hat\beta$ and the model's predictions on $X$ drawn from the same distribution are fine — the instability is in how the (well-determined) total effect is *attributed* to the collinear features, not in the prediction itself.
+
+**Why the split.** Prediction depends on the *combination* $X\hat\beta$, which is well-determined; inference depends on *individual* $\hat\beta_j$, whose variance is inflated by collinearity. So multicollinearity is a problem for **interpretation/inference, not (usually) prediction**. (A tree model doesn't even care — it just splits on one of the redundant features. Connects to c1.1: this redundancy is exactly what defeats drop-column leakage detection.)
 
 **Rubric:**
-- KL-minimizer of smoothed CE is $q = y^{\text{LS}}$; true-class target $1-\varepsilon+\varepsilon/K$
-- Hard labels → logits → ∞ (overconfidence); smoothing → finite logits → better calibration
-- Smoothing forces equal off-target probabilities → collapses logit/representation structure
-- That erased relative structure is what distillation needs → distillation degrades
-- Bonus: cite Müller 2019
+- VIF $=1/(1-R_j^2)$; $R_j^2$ from regressing $x_j$ on the others; VIF 50 → $R_j^2=0.98$
+- SEs scale $\sqrt{\text{VIF}}\approx7\times$
+- Coefficients unstable / sign-flipping (effect-splitting un-identifiable)
+- Prediction unaffected (no bias); $X\hat\beta$ well-determined
+- Articulate inference-vs-prediction distinction
 
 </details>
 
@@ -258,22 +304,25 @@ So B has ~50× lower CE and ~1600× lower Brier, despite identical accuracy.
 
 <Quiz id="9">
 
-**Q9.** Temperature scaling predicts $\text{softmax}(z/T)$ for a learned scalar $T>0$. Prove that for any $T>0$ it leaves the predicted class (and hence accuracy) unchanged. Show that it *does* change confidence/entropy. When would the optimal $T$ be less than 1?
+**Q11. Ridge through the geometry of the data cloud.** In the SVD $X=UDV^\top$, a small singular value marks a direction in feature space with little observed variation and therefore unstable estimation. Read the factor $d_j^2/(d_j^2+\lambda)$ in that light: which directions does ridge trust, and which does it suppress? Compare this smooth weighting with PCR's keep-or-drop rule, then give one case where suppressing a low-variance direction helps and one where it destroys predictive signal.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Argmax invariance.** $\text{softmax}(z/T)_k = e^{z_k/T}/\sum_j e^{z_j/T}$ is a strictly increasing function of $z_k$ (for $T>0$, dividing by $T$ is order-preserving, and softmax is monotonic in each logit). So $\arg\max_k \text{softmax}(z/T)_k = \arg\max_k z_k$ for every $T>0$. The predicted class never changes ⇒ **accuracy is identical for all $T>0$**. This is why temperature scaling is a "free" calibration fix.
+**Shrinkage factors.** Along principal direction $j$, OLS uses factor $1$; ridge uses $\frac{d_j^2}{d_j^2+\lambda}\in(0,1)$. For **high-variance** directions ($d_j^2\gg\lambda$) the factor $\approx 1$ — barely shrunk. For **low-variance** directions ($d_j^2\ll\lambda$) the factor $\approx d_j^2/\lambda\approx 0$ — **shrunk hard**. So **ridge shrinks most along the low-variance principal directions** — which are exactly the ill-determined, collinear ones (small singular values ↔ near-dependencies). It leaves the well-determined high-variance directions almost untouched.
 
-**Confidence does change.** As $T \to \infty$, $z/T \to 0$ and $\text{softmax}\to$ uniform (entropy maximized, confidence → $1/K$). As $T \to 0^+$, the distribution concentrates on the argmax (entropy → 0, confidence → 1). So $T$ is a pure confidence/entropy knob: $T>1$ softens (fixes over-confidence), $T<1$ sharpens.
+**PCR.** Principal-component regression keeps the top $m$ components *fully* (factor 1) and drops the rest *entirely* (factor 0). That's a **hard threshold** on the same principal directions.
 
-**When is optimal $T<1$?** $T$ is fit by minimizing validation NLL. If the model is *under*-confident — its correct predictions sit at modest probabilities (like Model A in Q7) — sharpening ($T<1$) lowers NLL. This is rarer for modern deep nets (which are over-confident, so usually $T>1$), but happens with heavily regularized models, strong label smoothing, or small ensembles averaged into mush.
+**"Soft PCR."** Ridge replaces PCR's 0/1 cliff with the smooth ramp $d_j^2/(d_j^2+\lambda)$ — a continuous down-weighting of low-variance directions rather than an abrupt cut. Same idea (suppress the unstable directions), softened.
+
+**When it helps.** When the low-variance directions carry mostly *noise* (estimation variance) rather than signal — the usual case under collinearity — shrinking them trades a little bias for a large variance reduction and lowers MSE. It **hurts** if the target actually depends on a low-variance direction, since both ridge and (worse) PCR suppress exactly that direction — a manifestation of PCA/PCR being target-blind.
 
 **Rubric:**
-- Argmax preserved because $z\mapsto z/T$ is order-preserving and softmax monotonic → accuracy unchanged
-- Entropy/confidence varies: $T\to\infty$ uniform, $T\to0$ one-hot
-- $T$ fit by validation NLL
-- Optimal $T<1$ when the model is under-confident
+- Factor $d_j^2/(d_j^2+\lambda)$: ≈1 for large $d_j$, ≈0 for small $d_j$ → shrinks low-variance directions most
+- Low-variance ↔ collinear/ill-determined directions
+- PCR = hard threshold (keep top $m$, drop rest)
+- Ridge = soft version of the same
+- Helps when low-variance dirs are noise; hurts if signal lives there (target-blind)
 
 </details>
 
@@ -281,28 +330,23 @@ So B has ~50× lower CE and ~1600× lower Brier, despite identical accuracy.
 
 <Quiz id="10">
 
-**Q10.** Evaluate $\log \text{softmax}([1000, 1001, 1002])$ both naively (softmax then log) and via the log-sum-exp trick, and show why the naive route fails. Which PyTorch loss should you use to avoid this, and what silent bug appears if you apply softmax yourself and then pass the result to `NLLLoss`?
+**Q12. Same model name, different statistical job.** You fit scikit-learn's `LogisticRegression()` and statsmodels' `Logit().fit()` on the same matrix and get different coefficients; only statsmodels reports standard errors and $p$-values. Explain the different defaults and goals behind the two libraries, including intercept handling and regularization. Then state the scikit-learn 1.8 API for an unregularized fit and for requesting L1 behavior.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Naive route fails.** Computing $\text{softmax}$ first requires $e^{1000}, e^{1001}, e^{1002}$ — all overflow to `inf` in float32/float64 (max representable $\approx 10^{308}$, and $e^{1000}\approx 10^{434}$). Then $\text{inf}/\text{inf} = \text{NaN}$. Even where it doesn't overflow, the subsequent $\log$ of an underflowed $0$ gives $-\text{inf}$.
+**Different coefficients.** scikit-learn's `LogisticRegression` is **L2-regularized by default** (`C=1.0`, where `C` is the *inverse* regularization strength) — it returns a penalized (shrunk) point estimate, *not* the textbook MLE. statsmodels' `Logit().fit()` is **unregularized maximum likelihood** by default. So the two optimize different objectives and land on different $\hat\beta$ (sklearn's are shrunk toward 0). This is the single most commonly-missed fact about sklearn logistic regression: out of the box it is not "plain" logistic regression.
 
-**Log-sum-exp.** $\log\text{softmax}(z)_k = z_k - \operatorname{logsumexp}(z)$, with $\operatorname{logsumexp}(z) = m + \log\sum_j e^{z_j-m}$, $m=\max_j z_j = 1002$:
+**No $p$-values from sklearn.** sklearn is a *prediction* library — it returns a point estimate and **no inferential statistics** (no standard errors, $t$/$z$-stats, $p$-values, or confidence intervals). statsmodels is built for *inference* and reports the full table from the asymptotic sampling distribution of the MLE. (Also: statsmodels does **not** add an intercept — you must `sm.add_constant(X)` — whereas sklearn adds one via `fit_intercept=True`.)
 
-$$\operatorname{logsumexp} = 1002 + \log(e^{-2} + e^{-1} + e^{0}) = 1002 + \log(0.1353 + 0.3679 + 1) = 1002 + \log(1.5032) \approx 1002.4076$$
-
-So $\log\text{softmax} \approx [\,-2.408,\ -1.408,\ -0.408\,]$, and $\text{softmax} \approx [0.0900, 0.2447, 0.6652]$. The max-subtraction keeps every exponent $\le 0$, so nothing overflows.
-
-**Which loss.** Use `nn.CrossEntropyLoss` (it takes raw logits and is `LogSoftmax + NLLLoss` fused with the stable log-sum-exp), or `nn.BCEWithLogitsLoss` for the binary/multilabel case.
-
-**The silent bug.** `nn.NLLLoss` expects **log-probabilities**. If you compute `softmax(z)` yourself and pass it to `NLLLoss`, you've passed probabilities, not log-probabilities — the loss takes a stray $\log$ where there should be none / none where there should be one, training on a wrong objective. No exception is raised; the model just trains poorly. (Symmetrically, passing already-softmaxed values to `CrossEntropyLoss` applies softmax twice.)
+**Reproduce unregularized in sklearn 1.8.** Set `C=np.inf` (effectively no penalty). In **scikit-learn 1.8**, the `penalty` parameter was **deprecated in favor of `l1_ratio`** (removal slated for 1.10): `penalty='l2'` → `l1_ratio=0` (the new default), `penalty='l1'` → **`l1_ratio=1`**, `penalty='elasticnet'` → `0<l1_ratio<1`, and `penalty=None` → `C=np.inf`. (On scikit-learn ≤1.7, `penalty='none'`/`penalty='l1'` is still the live API — so check the installed version.) For pure-L1 you also need a compatible solver (`saga`, or `liblinear`).
 
 **Rubric:**
-- Naive softmax overflows ($e^{1000}=$ inf) → NaN
-- Log-sum-exp with max-subtraction; compute logsumexp ≈ 1002.41 and the log-probs
-- Use `CrossEntropyLoss` (logits in; LogSoftmax+NLLLoss fused)
-- `NLLLoss` expects log-probs; feeding softmax/logits is a silent correctness bug
+- sklearn L2-penalized by default (`C=1.0`, inverse strength) vs statsmodels unregularized MLE → different coefficients
+- sklearn returns no inference (no SEs/$p$-values); statsmodels does; statsmodels needs `add_constant`
+- Unregularized in sklearn: `C=np.inf`
+- sklearn 1.8: `penalty` deprecated → `l1_ratio`; `penalty='l1'` → `l1_ratio=1`
+- Bonus: note ≤1.7 still uses `penalty=`; L1 needs saga/liblinear
 
 </details>
 
@@ -310,92 +354,139 @@ So $\log\text{softmax} \approx [\,-2.408,\ -1.408,\ -0.408\,]$, and $\text{softm
 
 <Quiz id="11">
 
-**Q11.** You train a binary classifier on a 1:99 positive:negative dataset with `BCEWithLogitsLoss`. Explain the role of `pos_weight`, what value you'd start with, and the qualitative effect of raising it on precision, recall, and the model's effective decision threshold. How does `pos_weight` differ from the `weight` argument?
+**Q13 · must-know. Noise in $y$ is harmless; noise in $x$ is not.** The true model is $y=\beta x+\epsilon$.
+
+**(a)** You observe $y^{obs}=y+u$ rather than $y$, where $u$ is mean-zero with $\mathbb E[u\mid x]=0$ and uncorrelated with $\epsilon$. Say what happens to the OLS slope and, separately, to its standard error — and be explicit about which of those two assumptions does which job.
+
+**(b)** Now the response is clean but the predictor is not: you observe $x^{obs}=x+u$, with $u$ mean-zero and independent of both $x$ and $\epsilon$. Derive $\operatorname{plim}\hat\beta$ from $\operatorname{Cov}(x^{obs},y)\big/\operatorname{Var}(x^{obs})$. Explain in one sentence of geometry why the answer comes out the way it does, and name precisely which OLS assumption (a) preserves and (b) destroys.
+
+**(c)** In practice $x$ is latent and $\sigma_u^2$ is not handed to you. Design an estimator of the attenuation factor from observable data alone.
+
+**(d)** Instantiate (c) for a trading signal $s^{obs}_{i,t}=s^{true}_{i,t}+u_{i,t}$ regressed on future returns, where the true signal is unobservable — concretely, a news-sentiment alpha.
+
+**(e)** Does collecting more data fix any of this?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**What `pos_weight` does.** `BCEWithLogitsLoss` with `pos_weight = w` computes, per example, $-w\,y\log\sigma(z) - (1-y)\log(1-\sigma(z))$. It multiplies **only the positive term**, so each positive example contributes $w\times$ the gradient of a negative. This counteracts the 99:1 dominance of negatives in the summed loss.
+**(a) Noise in the response is absorbed by the error term.** Substitute $y^{obs}=y+u$ into the true model:
 
-**Starting value.** The standard heuristic is $\text{pos\_weight} = \#\text{neg}/\#\text{pos} = 99$ — equalizing the total gradient mass of the two classes. Treat it as a starting point to tune, not gospel.
+$$y^{obs}=\beta x+\underbrace{(\epsilon+u)}_{\textstyle \epsilon'}$$
 
-**Effect of raising it.** Larger `pos_weight` makes false negatives costlier relative to false positives, so the model is pushed to predict positive more readily: **recall ↑, precision ↓**. Equivalently, it shifts the *effective decision threshold* downward (the model's optimal operating point moves to flag more positives) and **inflates predicted probabilities** for the positive class (so you'll likely need to recalibrate before treating outputs as true probabilities).
+The measurement noise merges into a new error term $\epsilon'$. Exogeneity survives: $\mathbb E[\epsilon'\mid x]=\mathbb E[\epsilon\mid x]+\mathbb E[u\mid x]=0$. Nothing on the *right-hand side* moved, so the estimator is untouched in expectation — $\hat\beta$ stays **unbiased and consistent**.
 
-**`pos_weight` vs `weight`.** `weight` scales the *entire* per-example (or per-element) loss — it reweights examples/elements regardless of their label. `pos_weight` scales *only the positive term within* the BCE expression — it reweights the positive class specifically. Use `pos_weight` for class imbalance in a binary/multilabel setting; use `weight` for per-example importance weighting.
+Note which assumption bought which result: **$\mathbb E[u\mid x]=0$ alone delivers the unbiasedness** — it is all that exogeneity of $\epsilon'$ needs. The second assumption, $\operatorname{Cov}(\epsilon,u)=0$, buys nothing for the slope; it only makes the variance decompose cleanly in the next step. A candidate who bundles them has not separated estimation from precision.
+
+What you pay is precision. With the noises uncorrelated, $\operatorname{Var}(\epsilon')=\sigma_\epsilon^2+\sigma_u^2$, and since
+
+$$\operatorname{SE}(\hat\beta)=\frac{\sigma_{\epsilon'}}{\sqrt{\textstyle\sum_i (x_i-\bar x)^2}}$$
+
+the standard error **inflates**, $t$-statistics shrink, confidence intervals widen, and $R^2$ falls. The regression table gets quieter but stays honest — the same trade you get from adding an irrelevant regressor.
+
+**(b) Noise in the predictor lands in the regressor *and* the error, and the shared $u$ couples them.** Compute the two pieces of the population slope. The numerator, using independence of $u$ from both $x$ and $\epsilon$:
+
+$$\operatorname{Cov}(x^{obs},y)=\operatorname{Cov}(x+u,\ \beta x+\epsilon)=\beta\underbrace{\operatorname{Cov}(x,x)}_{\sigma_x^2}+\underbrace{\operatorname{Cov}(x,\epsilon)}_{0}+\beta\underbrace{\operatorname{Cov}(u,x)}_{0}+\underbrace{\operatorname{Cov}(u,\epsilon)}_{0}=\beta\sigma_x^2$$
+
+The denominator, again by independence:
+
+$$\operatorname{Var}(x^{obs})=\operatorname{Var}(x+u)=\sigma_x^2+\sigma_u^2$$
+
+Hence
+
+$$\boxed{\ \operatorname{plim}\hat\beta=\frac{\operatorname{Cov}(x^{obs},y)}{\operatorname{Var}(x^{obs})}=\beta\,\frac{\sigma_x^2}{\sigma_x^2+\sigma_u^2}\ }$$
+
+**Why this is attenuation *toward zero*.** The multiplier $\lambda=\sigma_x^2/(\sigma_x^2+\sigma_u^2)$ lies in $(0,1]$, so $|\operatorname{plim}\hat\beta|<|\beta|$ while the **sign is preserved**. The limits are the sanity check: $\sigma_u^2\to0$ gives $\lambda\to1$ (recover $\beta$); $\sigma_u^2\to\infty$ gives $\lambda\to0$ — the estimate collapses to *zero specifically*, not to some other wrong number. Concretely, noise variance equal to signal variance ($\sigma_u^2=\sigma_x^2$) means $\lambda=\tfrac12$: you measure **half** the true effect, no matter how much data you have.
+
+**The geometry, in one sentence:**
+
+> Measurement noise increases horizontal variation in the observed predictor without increasing its covariance with $y$, so the fitted relationship gets diluted.
+
+The numerator of the slope is untouched at $\beta\sigma_x^2$ while the denominator grows by $\sigma_u^2$ — you are spreading the same rise over a wider run, and the line flattens.
+
+**Which assumption breaks.** Rewrite the *feasible* regression in terms of what you actually run. Since $x=x^{obs}-u$,
+
+$$y=\beta x+\epsilon=\beta x^{obs}+\underbrace{(\epsilon-\beta u)}_{\textstyle \nu}, \qquad \operatorname{Cov}(x^{obs},\nu)=\operatorname{Cov}(x+u,\ \epsilon-\beta u)=-\beta\sigma_u^2\neq0$$
+
+That is the whole asymmetry, and it is the sentence to say out loud in an interview: **in (a) the noise appears only in the error term, which was already assumed orthogonal to the regressor; in (b) the same $u$ appears in the regressor *and* in the error, so it manufactures a correlation between them.** (a) preserves exogeneity; (b) destroys it — this is textbook **endogeneity**, and OLS is not merely biased but *inconsistent*.
+
+**(c) Two independent measurements of the same latent quantity identify the signal variance.** The trick is that you never need $x$ itself — you need two noisy looks at it. Suppose
+
+$$x^{(1)}=x+u_1,\qquad x^{(2)}=x+u_2$$
+
+with $u_1,u_2$ mean-zero, independent of each other and of $x$. Then every cross term vanishes:
+
+$$\operatorname{Cov}\!\left(x^{(1)},x^{(2)}\right)=\operatorname{Var}(x)+\underbrace{\operatorname{Cov}(x,u_2)}_{0}+\underbrace{\operatorname{Cov}(u_1,x)}_{0}+\underbrace{\operatorname{Cov}(u_1,u_2)}_{0}=\sigma_x^2$$
+
+**The covariance between independent replicates isolates the persistent signal variance; their disagreement is the measurement noise.** Since $\operatorname{Var}(x^{(1)})=\sigma_x^2+\sigma_{u_1}^2$ is directly observable, the **reliability ratio** is estimable with no knowledge of the latent $x$:
+
+$$\lambda=\frac{\sigma_x^2}{\sigma_x^2+\sigma_u^2}=\frac{\operatorname{Cov}\!\left(x^{(1)},x^{(2)}\right)}{\operatorname{Var}\!\left(x^{(1)}\right)},\qquad \beta_{\text{naive}}=\lambda\beta \implies \hat\beta_{\text{corrected}}=\frac{\hat\beta_{\text{naive}}}{\hat\lambda}$$
+
+When the two replicates have equal noise variance, $\lambda$ is simply $\operatorname{Corr}(x^{(1)},x^{(2)})$ — the classical test–retest reliability.
+
+**The cleaner equivalent: use one replicate as an instrument for the other.** $x^{(2)}$ is correlated with $x^{(1)}$ (they share $x$) but uncorrelated with the equation error (since $u_2\perp\epsilon,u_1$), which is exactly the definition of a valid instrument. The IV estimator lands on $\beta$ with no correction factor at all:
+
+$$\hat\beta_{IV}=\frac{\operatorname{Cov}\!\left(x^{(2)},y\right)}{\operatorname{Cov}\!\left(x^{(2)},x^{(1)}\right)}=\frac{\beta\sigma_x^2}{\sigma_x^2}=\beta$$
+
+Other routes to the same missing information: a **validation subsample** where the true $x$ is recorded; a **known $\sigma_u^2$** from instrument specifications (then divide by $\hat\lambda$ directly, or run SIMEX); a **known error-variance ratio** between the two axes (Deming / total-least-squares regression — the [orthogonal-regression case in the lesson](/c/c1/c1.3)); or **averaging $K$ replicates**, which shrinks the noise to $\sigma_u^2/K$ and pushes $\lambda\to1$ — a partial fix that never quite arrives.
+
+**(d) The quant version: split the evidence, not the sample.** You regress forward returns on $s^{obs}_{i,t}=s^{true}_{i,t}+u_{i,t}$ and get an attenuated loading — your measured IC understates the true relationship by the factor $\lambda$. Because $s^{true}$ is unobservable, manufacture the replicates by splitting the *raw evidence* the signal is computed from:
+
+1. For each stock-date, **randomly split that day's news articles into two disjoint groups**.
+2. Compute the sentiment score independently on each group, giving $s^{(1)}=s+u_1$ and $s^{(2)}=s+u_2$ — same latent sentiment, independent article-sampling noise.
+3. Across many stock-dates, $\operatorname{Cov}\!\left(s^{(1)},s^{(2)}\right)=\operatorname{Var}(s^{true})$: the **persistent cross-replicate covariance is the real signal**, and everything by which the halves disagree is noise.
+4. Compare that against $\operatorname{Var}\!\left(s^{(1)}\right)$ to get reliability, then de-attenuate.
+
+Two details that separate a strong answer:
+
+- **Half-sample correction.** Each half is built from half the articles, so it carries roughly *twice* the noise of the production signal. The half-sample reliability therefore understates the real one; correct with Spearman–Brown, $\lambda_{\text{full}}=2\lambda_{\text{half}}/(1+\lambda_{\text{half}})$.
+- **Independence is the load-bearing assumption, and it is the one that fails.** If both halves inherit a common upstream source — the same wire story reprinted by ten outlets, two vendors both reselling the same feed — then $\operatorname{Cov}(u_1,u_2)\neq0$, the covariance picks up shared noise, and you will conclude your signal is *cleaner* than it is. Also compute the covariance in the units you trade (cross-sectionally demeaned per date), or a common market-wide drift masquerades as signal.
+
+**Other market analogues of the same construction:** two independent data vendors scoring the same fundamental; two model estimates trained on disjoint subsamples or different seeds; splitting the trade tape / order book into odd–even trades or two disjoint sampling grids; multiple analysts' estimates of the same earnings number.
+
+**Challenge the standard story — attenuation is an *inference* problem, not automatically a *prediction* problem.** If $s^{obs}$ is the signal you will actually have at trade time, then the attenuated coefficient is the *correct* one: OLS gives the best linear predictor of returns given the noisy input you will really observe, and de-attenuating it would systematically over-bet. The bias matters when you want the structural $\beta$ (how much true sentiment moves returns), when you are **ranking signals of unequal data quality** against each other, or when you are pricing whether better data is worth buying. Conflating those two questions is the standard mistake.
+
+**(e) No — and this is the point of the question.**
+
+$$\boxed{\text{More observations do not eliminate classical errors-in-variables bias.}}$$
+
+As $n\to\infty$, $\hat\beta$ converges to $\lambda\beta$, not to $\beta$. The estimator is **inconsistent**, not merely noisy, so more data buys you an ever-tighter confidence interval centred on the wrong number — eventually one that excludes the truth with arbitrarily high confidence. Nothing in the regression output flags it: the residuals look fine, the $t$-statistic is large, the diagnostics pass. Fixing it requires **additional information or assumptions about the measurement process** — a replicate, an instrument, a validation sample, or a known noise variance — and no amount of the same mismeasured data supplies that.
+
+**Bonus (the multivariate escalation).** The clean $\lambda$ formula is a *simple*-regression result. With several regressors and classical error in $x_1$ only, the attenuation is governed by the **residual** variance of $x_1$ after projecting out the other predictors, $\sigma_{r_1}^2/(\sigma_{r_1}^2+\sigma_u^2)$ — so collinearity makes the attenuation strictly **worse**, because it shrinks the numerator. Worse still, the *correctly measured* coefficients also become inconsistent, with a sign that depends on the correlation structure and can go either way. Once two or more regressors are mismeasured, there is no attenuation guarantee at all.
 
 **Rubric:**
-- `pos_weight` multiplies the positive term of BCE → boosts positive-class gradient
-- Start at #neg/#pos = 99
-- Raising it: recall ↑, precision ↓, effective threshold drops, probabilities inflate (recalibrate)
-- `weight` scales whole-example loss; `pos_weight` scales only the positive term
+- (a) $y^{obs}$ folds into $\epsilon'=\epsilon+u$; exogeneity intact → $\hat\beta$ unbiased *and* consistent; only $\operatorname{Var}(\epsilon')=\sigma_\epsilon^2+\sigma_u^2$ grows → SEs inflate, $t$ shrinks, $R^2$ falls
+- (a) Separates the two assumptions: $\mathbb E[u\mid x]=0$ buys unbiasedness; $\operatorname{Cov}(\epsilon,u)=0$ only buys the clean variance decomposition
+- (b) Derives $\operatorname{Cov}(x+u,y)=\beta\sigma_x^2$ and $\operatorname{Var}(x+u)=\sigma_x^2+\sigma_u^2$ with every cross term justified by independence
+- (b) Lands $\operatorname{plim}\hat\beta=\beta\sigma_x^2/(\sigma_x^2+\sigma_u^2)$; identifies $\lambda\in(0,1]$ ⇒ shrunk toward zero, sign preserved; checks both limits
+- (b) Geometric statement: noise adds horizontal spread without adding covariance → denominator grows, numerator does not → line flattens
+- (b) States the asymmetry as the mechanism: in (a) $u$ enters only the error; in (b) $u$ enters regressor *and* error, giving $\operatorname{Cov}(x^{obs},\nu)=-\beta\sigma_u^2\neq0$ → endogeneity → inconsistency
+- (c) $\operatorname{Cov}(x^{(1)},x^{(2)})=\sigma_x^2$ from independent replicates; reliability $\hat\lambda=\operatorname{Cov}(x^{(1)},x^{(2)})/\operatorname{Var}(x^{(1)})$; de-attenuate via $\hat\beta_{\text{naive}}/\hat\lambda$
+- (c) Bonus: recognizes one replicate is a valid **instrument** for the other and that IV hits $\beta$ exactly; names validation subsample / known $\sigma_u^2$ / Deming as alternatives
+- (d) Proposes splitting the raw evidence (articles per stock-date) into two independent groups; cross-replicate covariance = signal variance, disagreement = noise
+- (d) Bonus: Spearman–Brown half-sample correction; flags shared-upstream-source violation of independence; cross-sectional demeaning; names other replicate constructions (vendors, seeds, tape splits, analysts)
+- (d) Separates inference from prediction: the attenuated slope is *optimal* for trading the noisy signal; the bias bites for structural estimates and cross-signal comparison
+- (e) States inconsistency explicitly — $n\to\infty$ tightens around $\lambda\beta$; no diagnostic reveals it; the fix requires outside information, not more rows
+- Bonus: multivariate case — attenuation set by the *residualized* variance (worse under collinearity), clean coefficients contaminated with indeterminate sign
 
 </details>
 
 </Quiz>
 
-<Quiz id="12">
+## Rapid-fire: Linear regression
 
-**Q12.** Refute both halves of the claim: *"focal loss only helps with class imbalance, and cross-entropy gives you calibrated probabilities for free."* Cite named evidence. Then make the deeper point: for long-tailed classification, when is the loss function the *wrong* lever, and what works better?
+These 14 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
 
-<details>
-<summary>Model answer + rubric</summary>
-
-**Half 1 — "focal loss only helps imbalance" is false.** Mukhoti et al. (NeurIPS 2020, "Calibrating Deep Neural Networks using Focal Loss") show focal loss trains *better-calibrated* models than cross-entropy on **balanced** benchmarks. Mechanism: focal loss can be bounded below by a KL term minus an entropy-like term, so it implicitly **regularizes confidence** (penalizes overconfident predictions) — an effect independent of imbalance. So focal loss has a real, general second use: confidence regularization.
-
-**Half 2 — "CE is calibrated for free" is false.** Guo et al. (ICML 2017, "On Calibration of Modern Neural Networks") show modern deep nets are **systematically overconfident**: increasing depth/width and adding batch norm *worsen* calibration, and networks overfit NLL (test error keeps dropping while test NLL rises — confidence inflates). That's why temperature scaling exists. Nuance worth stating: Minderer et al. (NeurIPS 2021) find newer non-convolutional architectures (ViT, MLP-Mixer) are *better* calibrated out of the box — so even the "modern nets are overconfident" story is architecture-dependent and has evolved.
-
-**Deeper point — the loss is often the wrong lever.** Kang et al. (ICLR 2020, "Decoupling Representation and Classifier") found that on long-tailed recognition, **class imbalance barely hurts representation learning — the bottleneck is the classifier**. Training the backbone normally (instance-balanced sampling) and then *retraining only the classifier head* (cRT) or rescaling its weight norms ($\tau$-normalization) beats elaborate reweighted/resampled losses on ImageNet-LT, Places-LT, and iNaturalist. And Menon et al. (ICLR 2021, "Logit Adjustment") give a **Bayes-consistent** alternative — add $\log \pi_y$ to the logits — that is theoretically grounded where focal/reweighting are heuristics. So the strong answer: focal loss ≈ a confidence regularizer + soft hard-mining; class-balanced ≈ a principled reweighting *magnitude*; but on real long-tail problems both are often dominated by *decoupling* or *logit adjustment*. Reach for the loss last, not first.
-
-**Rubric:**
-- Refute "focal only for imbalance": Mukhoti 2020, focal improves calibration on balanced data via confidence regularization
-- Refute "CE auto-calibrated": Guo 2017 overconfidence (depth/width/BN, NLL overfitting); bonus Minderer 2021 architecture caveat
-- Deeper point: Kang 2020 decoupling (classifier is the bottleneck, not the representation)
-- Menon 2021 logit adjustment as the Bayes-consistent alternative
-- Conclusion: the loss is frequently not the best lever for long-tail
-
-</details>
-
-</Quiz>
-
-## Rapid-fire: cross-entropy, softmax & loss design
-
-1. **One logit too many.** Softmax is unchanged if you add a constant to every logit. Show that a $K$-class softmax head is over-parameterized, that the two-logit case collapses exactly to a sigmoid on $z_1 - z_0$, and what (if anything) changes if you pin one logit to zero.
-2. **Second derivative, not first.** The gradient $q - y$ is the warm-up (main Q1); derive the *Hessian* of softmax–CE with respect to the logits, show it equals $\operatorname{diag}(q) - qq^\top$, and prove it is positive semi-definite. What is its null space, and how does that connect to softmax's shift invariance?
-3. **The gradient isn't coincidence.** Re-derive $q - y$ from the GLM view: Bernoulli/Categorical as an exponential family with sigmoid/softmax as the *canonical link*. What property of the canonical link produces the clean "prediction minus target" gradient, and what breaks if you swap in probit?
-4. **Forward or reverse KL?** Cross-entropy training minimizes $\text{KL}(p\,\|\,q)$ over $q$. Contrast it with $\text{KL}(q\,\|\,p)$: which is mode-covering and which is mode-seeking, and why? Name one place each direction is actually used (MLE pre-training vs. the KL-to-reference penalty in RLHF, variational inference). Why is KL not a distance metric, and does that matter here?
-5. **Hinge vs logistic.** Both are convex, Bayes-consistent surrogates for 0-1 loss. Show the hinge loss $\max(0,\,1 - yz)$ has gradient exactly $0$ past the margin and constant magnitude inside it — so only margin violators (the support vectors) shape the solution — and that its population minimizer is the hard decision $\text{sign}(2\eta(x)-1)$, not the probability $\eta(x)$. What information does hinge irreversibly discard, why is Platt scaling on an SVM reconstructive surgery rather than a garnish, and when is "ignore examples you already classify with margin" exactly the behavior you want that CE never gives you?
-6. **Separable data, infinite logits.** Show that on linearly separable data, unregularized logistic regression has no finite minimizer — the weights diverge, and (Soudry et al. 2018) the *direction* converges to the max-margin SVM solution. What happens to the predicted "probabilities" along the way? Identify exactly where the "CE recovers the true posterior" argument of Q4 breaks, and which fixes — weight decay, early stopping, label smoothing — restore finite logits, and why.
-7. **Linear in the target.** Prove cross-entropy is linear in the target distribution $p$, and use that to show mixup's loss against a mixed label equals the same mixture of the two individual CE losses. Does the argument survive for the Brier score?
-8. **Focal loss isn't proper.** Cross-entropy's expected value is uniquely minimized at $q = p$ (Q4). Show that for $\gamma > 0$ the pointwise minimizer of expected focal loss is *not* the true posterior $p$ — focal loss is not a proper scoring rule — and characterize the direction of the bias. Is it still *classification-calibrated* (does the Bayes argmax survive)? Reconcile the improperness with Mukhoti et al.'s finding that focal-trained networks are *better* calibrated in practice: what is doing the calibrating — the population objective, or finite-sample confidence regularization?
-9. **The wrong-sign $\alpha$.** RetinaNet ships focal loss with $\gamma = 2$ and $\alpha = 0.25$ — giving the rare foreground *less* weight than the abundant background, the opposite sign of every class-weighting heuristic. Explain why that's the right sign: what has $(1-p_t)^\gamma$ already done to the gradient mass of the easy negatives, and what residual imbalance is $\alpha$ mopping up? What does this tell you about tuning $\alpha$ and $\gamma$ independently?
-10. **Differentiate through the modulator.** Derive $\partial\,\text{FL}/\partial z$ for the binary sigmoid case and identify the two terms — the down-weighted CE gradient and the extra term from differentiating $(1-p_t)^\gamma$ itself. Which term concentrates ever more of the total gradient on the hardest examples as training proceeds, and why does that make focal loss backfire on rare classes with noisy labels — exactly the regime it's marketed for?
-11. **Softmax or $K$ sigmoids?** RetinaNet scores classes with independent sigmoids, not softmax. When is softmax's sum-to-one constraint a modeling *error* — multi-label targets (where softmax + CE is a silent correctness bug on co-occurring labels), a dominant background/"none of the above" class, open-set inputs? What does the constraint do to gradient coupling between competing classes, and what changes for calibration when you switch? Why does dense detection default to sigmoid + focal?
-12. **`pos_weight` shifts the minimizer.** With positive-class weight $w$, derive the population minimizer of weighted BCE: $q^* = \dfrac{w\,p}{w\,p + (1-p)}$, not $p$. Invert it to recover the honest probability at inference time, and show the same correction as a logit shift of $\log w$. What does this say about ever reading a `pos_weight`-trained model's raw outputs as probabilities?
-13. **CE memorizes noise; MAE doesn't.** State the symmetry condition of Ghosh et al. (2017) — $\sum_k L(q, k) = \text{const}$ — under which a loss is provably tolerant to symmetric label noise. Verify MAE on probabilities satisfies it and CE does not, and derive what the population CE minimizer converges to under symmetric flips at rate $\eta$ — the clean posterior or a shrunk one. Explain mechanistically why CE's unbounded per-example loss makes mislabeled examples dominate late training, where generalized cross-entropy $L_q$ sits between the two, and what robustness costs you in convergence speed on *clean* data.
-14. **Distillation's $T^2$ factor.** In distillation the student matches teacher probabilities softened at temperature $T$. Derive how the soft-target gradient scales with $T$, and explain why Hinton et al. (2015) multiply the distillation term by $T^2$ when mixing it with the hard-label loss.
-15. **InfoNCE is a classifier.** Write the InfoNCE / CLIP-style contrastive loss as softmax cross-entropy over one positive and $N-1$ negatives. What does the temperature $\tau$ control, why is it learnable in CLIP, and why does the gradient signal collapse when the negatives are too easy?
-16. **Teacher forcing's fine print.** Show via the chain rule of probability that per-token CE with teacher forcing is exactly MLE of the full sequence. What train/inference mismatch does this create at generation time (exposure bias), and why doesn't the training loss ever see it?
-17. **Masked CE with smoothing.** Write cross-entropy for a padded batch of token sequences with label smoothing: how do you mask pad positions, what does `ignore_index` in PyTorch's `CrossEntropyLoss` do to the *denominator* of the mean, and what silently goes wrong if you average over all positions instead of unmasked ones? (Reported as an OpenAI ML-coding prompt.)
-18. **Where BCE returns `inf`.** Implement BCE from a raw sigmoid output and locate where float32 fails: near what logit does $\sigma(z)$ round to exactly 1, making $\log(1-\sigma(z))$ infinite — and which identity does `BCEWithLogitsLoss` use to avoid ever forming $1-\sigma(z)$?
-19. **The weighted-mean divisor.** In PyTorch, `CrossEntropyLoss(weight=w)` with `reduction='mean'` divides by the *sum of the weights present in the batch*, not by the batch size. Construct two batches where identical per-example losses produce different effective step sizes, and say when this bites (heavily imbalanced batches, rare-class spikes).
-
-## Rapid-fire: calibration, forecasting & the quant lens
-
-1. **NLL rises, error falls.** Guo et al. observed test error still *decreasing* while test NLL *increases* late in training. A strictly proper scoring rule getting worse while accuracy improves — is that a contradiction of Q4? Decompose NLL (or Brier) into calibration and refinement components, identify which one deteriorates, and state what this implies about early-stopping on NLL vs. on accuracy.
-2. **Perfectly calibrated, perfectly useless.** Construct a classifier with $\text{ECE} \approx 0$ and zero discrimination. Which term of the Murphy decomposition is it missing — what does *resolution* measure that ECE cannot see? Then break ECE the other way: show how binning choices (bin count, miscalibrations of opposite sign canceling within a bin) can manufacture a near-zero ECE for a genuinely miscalibrated model, and explain why ECE is not a proper scoring rule while Brier and NLL are.
-3. **Reliability needs samples.** Per bin, empirical accuracy carries binomial noise of order $\sqrt{c(1-c)/n_b}$. Use that to critique a reliability diagram built from 1,000 validation points and 15 bins: which apparent miscalibrations are signal, and how would you size the validation set instead?
-4. **Beyond top-label calibration.** Standard ECE audits only the predicted class's confidence. Construct a multiclass model that is top-label calibrated yet badly class-wise miscalibrated, and explain which downstream decisions (expected-value math over all classes) the class-wise failure corrupts.
-5. **What temperature can't fix.** Temperature scaling applies one monotone, class-symmetric map to all logits. Construct a miscalibration pattern a single $T$ provably cannot repair — e.g. class A overconfident while class B is underconfident, or a non-monotone reliability diagram. Compare vector scaling ($K$ parameters) and matrix scaling ($K^2 + K$): why does matrix scaling routinely *worsen* calibration on a 5,000-example validation set while $T$ is nearly unoverfittable?
-6. **Platt vs isotonic vs temperature.** For each: parameter count, validation-data appetite, whether argmax/accuracy and AUC can change, and the characteristic failure mode. Why does isotonic regression want thousands of validation points where Platt needs hundreds — and when does Platt's sigmoid-in-logit-space assumption itself fail (recall its equal-variance-Gaussians heritage)?
-7. **Smoothing vs the confidence penalty.** Label smoothing adds $\varepsilon\,\text{CE}(u, q)$ — a $\text{KL}(u\,\|\,q)$-direction pull toward uniform; Pereyra et al.'s confidence penalty subtracts entropy, $-\beta H(q)$, which is $\text{KL}(q\,\|\,u)$ up to a constant. Derive both as regularizers of the same CE objective and explain the practical asymmetry of the KL direction: which one forces *every* wrong class to the identical probability (Q8's distillation damage) and which merely discourages low entropy — and when would you choose each?
-8. **Perplexity is just $\exp(\text{CE})$.** Show that language-model perplexity is $\exp$ of mean per-token NLL, that a model predicting uniformly over $k$ tokens has perplexity exactly $k$, and that per-token NLL in nats divided by $\ln 2$ is the bits-per-token of a lossless compressor. How many bits/token is a perplexity drop from 20 to 19 worth? Why are perplexities incomparable across tokenizers and vocabularies, and what normalization (bits per byte) fixes the comparison?
-9. **Sharpness under calibration.** State Gneiting's forecasting maxim — maximize sharpness subject to calibration — and explain why optimizing a strictly proper score pursues both at once. Then argue why no post-hoc recalibration map applied to the scores can add resolution: where does sharpness have to be won, and what does that imply about "fixing" a weak model with calibration?
-10. **Brier and log loss disagree.** Construct a small dataset and two forecasters that Brier and NLL *rank oppositely* — hint: one confidently wrong prediction, since Brier's per-example penalty is bounded by 1 while $-\log q \to \infty$. Which score should a fund use when the forecasts size leveraged bets, and what is the Kelly argument for that choice?
-11. **Reweight or re-threshold?** For a *calibrated* model, derive the cost-sensitive Bayes rule and show it is nothing but a threshold $t^* = c_{FP}/(c_{FP} + c_{FN})$ — no retraining needed, with $0.5$ just the equal-costs special case. Elkan's cost-sensitive theorem (2001) says reweighting and thresholding are equivalent for the Bayes-optimal rule — so when does training-time reweighting genuinely beat post-hoc thresholding for a finite-capacity model on finite data? Name the assumptions (correct specification, sufficient data, representation unaffected by weighting) whose failure re-opens the case for reweighting.
-12. **Calibration doesn't transfer.** A model calibrated on validation data is deployed where the positive prior doubles. Show it is now miscalibrated, derive the Bayes logit correction from the old and new prior odds, and connect this to why fraud models get *recalibrated* after every drift episode rather than retrained from scratch.
-13. **Downsampling breaks the auction.** You train an ads-CTR model keeping only a fraction $s$ of negatives. Derive the recalibration formula $q' = q\,/\,\bigl(q + (1-q)/s\bigr)$ (He et al. 2014, Facebook's ads paper) and show it is exactly a logit shift of $\log s$; compute it: at $s = 0.025$, a raw prediction of $0.5$ is really $\approx 0.024$. Prove AUC is invariant to the distortion while calibration is destroyed, and explain concretely why an uncorrected model overbids in a second-price auction — the reason ads teams treat recalibration as a launch blocker. Bonus: under outcome-based (case-control) sampling, which logistic-regression coefficients are biased — the slopes or the intercept?
-14. **Normalized cross-entropy.** At a 1.5% base CTR, raw log loss looks small for *any* model. Define NCE — log loss normalized by the log loss of the base-rate predictor — explain what it subtracts out, why it is the offline metric of choice for ads and feed ranking (Facebook, LinkedIn), and what NCE at or above 1 tells you.
-15. **No focal in ads?** Argue why large ads-CTR teams typically do *not* reach for focal loss or oversampling despite an extreme ~1–2% positive rate — the auction consumes calibrated probabilities — and how the imbalance is actually handled (negative downsampling for compute, then recalibration). When would focal still earn its place?
-16. **The 90%-bucket audit.** In production, predictions near 0.9 are correct only 70% of the time. Rank the candidate causes — genuine overconfidence, delayed labels (chargebacks lag 30–90 days), prior drift, the model's own interventions censoring outcomes — and design the audit that distinguishes them.
-17. **Variance of the logistic MLE.** Derive the Fisher information of logistic regression, $X^\top S X$ with $S = \operatorname{diag}\bigl(q_i(1-q_i)\bigr)$, and the asymptotic covariance of the MLE. Why do near-separated features get huge standard errors, and what does that do to interpreting a fraud model's coefficients?
-18. **Log loss in dollars.** A market prices a binary event at $m$; your model says $q$. Derive the identity that a Kelly bettor's expected log-wealth growth from betting $q$ against $m$ equals the *difference of expected log losses*, $\mathbb{E}[-\log m_y] - \mathbb{E}[-\log q_y]$ — your edge is exactly your NLL advantage. What is a 0.01-nat edge worth per event, what does the unboundedness of $-\log q$ say about ever quoting a probability of exactly $0$ or $1$, and why does this make calibration a P&L line item rather than a modeling nicety at a quant fund?
+1. **Write down OLS** Write the OLS solution $\hat\beta = (X^\top X)^{-1}X^\top y$ and say in one line where it comes from. When does that inverse not exist, and what does scikit-learn actually return in that case?
+2. **Which assumption buys what** List the assumptions behind OLS and map each one to what breaks when it fails: whether $\hat\beta$ still exists, whether it is unbiased, or only whether the standard errors are valid. Which single failure makes the coefficient itself wrong?
+3. **What a standard error is** Explain in plain words what the standard error of a coefficient is telling you. Name three things that make it smaller, and say why the reference distribution is $t_{n-p}$ rather than a normal.
+4. **What a p-value is not** A coefficient has $p = 0.03$. State precisely what that number is a probability of, then say why it is not the probability the null is true and not a measure of effect size. Two teams report the same point estimate, one significant and one not, so what differs between them?
+5. **Junk feature, better R-squared** You add a column of pure random noise to a regression. What happens to training RSS, to $R^2$, and to adjusted $R^2$? Use that to explain why nobody should argue model quality from $R^2$ alone.
+6. **Omitted-variable bias** You fit $y$ on $x_1$, but the true model also contains $x_2$. Write the bias in $\hat\beta_1$ in terms of $\beta_2$ and the regression of $x_2$ on $x_1$. Then use it on a live case: your feature has a clearly positive coefficient on its own and turns negative once you add one control, so what does that tell you about the control, and which regression answers whether the feature is worth acting on?
+7. **Heteroskedastic residuals** Your residual plot fans out as the fitted value grows. Is $\hat\beta$ still unbiased? Say which regression outputs are still trustworthy and which are not, and name the fix you would apply.
+8. **Copy the dataset** You stack your dataset on top of itself so every row appears twice, then refit. What happens to the coefficients, to $R^2$, and to the standard errors? Why is that dangerous, and what real-world data situation is a softer version of the same problem?
+9. **VIF of 50** Define VIF and translate $\text{VIF}_j = 50$ into how much of that feature is explained by the others and how much the standard error is inflated. Then the part interviewers actually want: is multicollinearity a problem for prediction, for interpretation, or both?
+10. **Two near-duplicate features** You have two features with correlation $0.98$. What does ridge do to their coefficients, what does lasso do, and which of those answers changes if you refit on a bootstrap resample? What does elastic net add here?
+11. **Why L1 zeros things out** Explain why lasso produces exact zeros and ridge does not, using what each penalty's gradient looks like as a coefficient approaches zero rather than the diamond-and-circle picture. If lasso zeroes a feature, does that mean the feature is useless?
+12. **Scaling and the intercept** You multiply one feature column by $1000$. What happens to its OLS coefficient and $t$-statistic, and what happens to its ridge coefficient? Use the difference to explain why standardization is required before penalized fitting but not before OLS, and why the intercept is normally left unpenalized.
+13. **Outliers and leverage** Why is OLS sensitive to outliers, and what is the difference between a point with a large residual and a point with high leverage? Give an example of a point that badly distorts the fit while showing almost no residual, and say what you would do about it.
+14. **Regress it the other way** You estimate a hedge ratio by regressing A on B, and a colleague regresses B on A. The two slopes are not reciprocals of each other. Explain why, say what the product of the two slopes equals, and say who is right.
