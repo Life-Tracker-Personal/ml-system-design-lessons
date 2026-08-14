@@ -6,7 +6,7 @@ description: Reference-based metrics and their limits, building and validating a
 estimatedMinutes: 40
 ---
 
-These questions test whether you can define a measurement that survives contact with a generative system. Naming a metric is easy. Saying what it fails to capture, and proving your judge agrees with a human, is the part that gets probed.
+These six questions test whether you can define a measurement that survives contact with a generative system. Naming a metric is easy. Saying what it fails to capture, and proving your judge agrees with a human, is the part that gets probed.
 
 <Quiz id="1">
 
@@ -21,7 +21,7 @@ These questions test whether you can define a measurement that survives contact 
 
 **(a)** First, **the output space is not finite**, so there is no confusion matrix and no notion of "the" correct label to compare against. Second, **there are many correct answers**, so a single reference is one sample from a large set of acceptable outputs and disagreeing with it is not the same as being wrong. Third, **quality is multidimensional**: a summary can be factually correct but too long, fluent but unfaithful, faithful but useless. Classification collapses to one scalar because the label space is discrete, and that collapse is not available here.
 
-**(b)** Exact match against a reference gives essentially zero for any competent paraphrase. It measures string identity, not correctness. You would be scoring a model down for producing a better summary that happens to use different words, and the metric provides no gradient toward improvement because near-misses and total failures score identically.
+**(b)** Exact match against a reference gives a near-zero score for any competent paraphrase. It measures string identity, not correctness. You would be scoring a model down for producing a better summary that happens to use different words, and the metric provides no gradient toward improvement because near-misses and total failures score identically.
 
 **Rubric:**
 - (a) Infinite output space, many valid answers, multidimensional quality
@@ -159,7 +159,7 @@ They remain the right tool when there is genuinely one canonical form and you ne
 
 **Pointwise** scoring on a rubric gives an absolute number you can gate on and track across releases. The cost is scale drift, both between annotators and within one annotator over a session, and lower agreement in general.
 
-**(b)** Pairwise comparisons grow as $\binom{k}{2}$, so five models is 10 pairs, and with both orderings and repeats it multiplies quickly. Worse, pairwise preferences are not guaranteed transitive, so you can get A beats B beats C beats A and no consistent ranking exists.
+**(b)** Comparing $k$ models pairwise takes $\binom{k}{2}$ comparisons, so five models is 10 pairs, and with both orderings and repeats it multiplies quickly. Worse, pairwise preferences are not guaranteed transitive, so you can get A beats B beats C beats A and no consistent ranking exists.
 
 The standard fix is to fit a latent-strength model to the pairwise outcomes, **Bradley-Terry** or an Elo-style rating, which produces a single scale from sparse noisy comparisons and does not require every pair. That is what public LLM leaderboards do. Pair it with a small pointwise absolute check so you know whether the top of the ranking is actually good enough to ship.
 

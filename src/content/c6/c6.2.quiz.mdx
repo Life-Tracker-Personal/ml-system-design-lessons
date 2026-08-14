@@ -148,7 +148,7 @@ What you trade away: you will miss real regressions smaller than your noise floo
 
 **(a)** Turn all three onto a common footing rather than arguing about which matters more. Ask what 3 points of the quality metric is worth in the outcome the business actually cares about, using whatever link you have between offline quality and an online outcome, and compare that to the incremental spend at your volume. Separately, treat latency against a **product constraint**: if p95 has a hard budget, a 400ms increase either fits or it does not, and no amount of quality buys it back.
 
-Also consider that the choice is not binary. Route by difficulty so the expensive model handles only the queries that need it, cascade with a cheap first pass and escalation, or cache aggressively. That usually recovers most of the quality at a fraction of the cost.
+The choice is also not binary. Route by difficulty so the expensive model handles only the queries that need it, cascade with a cheap first pass and escalation, or cache aggressively. That usually recovers most of the quality at a fraction of the cost.
 
 **(b)** By making cost and latency **first-class gated axes in the eval from the start**, reported on every run next to quality with their own thresholds. When they are footnotes, every model upgrade turns into a fresh argument. When they are gates, the tradeoff is visible before anyone gets attached to the quality number.
 
@@ -177,7 +177,7 @@ Also consider that the choice is not binary. Route by difficulty so the expensiv
 
 1. **The eval set does not match live traffic.** It is stale, or it over-represents cases you curated. The offline gain is real on that distribution and irrelevant on the live one.
 2. **The metric does not predict the outcome.** You improved groundedness and the business metric is task completion; the two may be only weakly linked, or linked with a ceiling you already hit.
-3. **The experiment lacked power.** Flat is not the same as no effect. If the MDE was 5% and the true effect is 1%, a flat result is exactly what you would see.
+3. **The experiment lacked power.** Flat is not the same as no effect. If the smallest effect the test could reliably detect — its minimum detectable effect, or MDE — was 5% and the true effect is 1%, a flat result is exactly what you would see.
 
 Others worth naming: the improvement is real but confined to a small segment, or serving conditions differ from eval conditions (different decoding parameters, truncation, timeouts).
 

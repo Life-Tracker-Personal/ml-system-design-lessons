@@ -6,7 +6,7 @@ description: Sample size, paired comparison, bootstrap intervals, multiple compa
 estimatedMinutes: 45
 ---
 
-These questions test whether you can tell a real improvement from noise. Most candidates can name a metric. Far fewer can say how many examples they need before the number means anything, and that gap is what gets probed.
+These six questions test whether you can tell a real improvement from noise. Most candidates can name a metric. Far fewer can say how many examples they need before the number means anything, and that gap is what gets probed.
 
 <Quiz id="1">
 
@@ -27,7 +27,7 @@ $$\mathrm{SE}(\hat p_B - \hat p_A)=\sqrt{\frac{0.7(0.3)}{100}+\frac{0.72(0.28)}{
 
 So $z = 0.02/0.0642 = 0.31$ and the 95% interval on the gap is $2 \pm 12.6$ points, running from about $-10.6$ to $+14.6$. The data are entirely consistent with B being *worse*. You have learned nothing about which model is better.
 
-**(b)** Using $(z_{\alpha/2}+z_\beta)^2=(1.96+0.84)^2=7.85$,
+**(b)** Write $\Delta = 0.02$ for the true gap to be detected, $z_{\alpha/2}=1.96$ for the two-sided 5% cutoff and $z_\beta = 0.84$ for the cutoff that delivers 80% power, so $(z_{\alpha/2}+z_\beta)^2=(1.96+0.84)^2=7.85$. Then
 
 $$n=\frac{7.85\,[\,p_A(1-p_A)+p_B(1-p_B)\,]}{\Delta^2}=\frac{7.85\times0.4116}{0.0004}\approx 8{,}078$$
 
@@ -59,7 +59,7 @@ About eight thousand items per model. Small differences are expensive, and this 
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** The 95% half-width is $w = 1.96\sqrt{p(1-p)/n}$. Inverting,
+**(a)** With $p$ the true pass rate and $n$ the number of independent eval items, the 95% half-width is $w = 1.96\sqrt{p(1-p)/n}$. Inverting,
 
 $$n \ge \left(\frac{1.96}{w}\right)^2 p(1-p)$$
 
@@ -149,7 +149,7 @@ Since $p(1-p)$ is maximized at $p = 0.5$ where it equals $0.25$, the worst case 
 
 **(a)** $12 \times 8 = 96$ comparisons. Under a global null at $\alpha = 0.05$ you expect about $96 \times 0.05 = 4.8$ false positives. Five "significant" results is exactly what pure noise produces. The finding is uninformative as reported.
 
-**(b)** **Bonferroni** tests each at $\alpha/m$, controlling the family-wise error rate, the probability of *any* false positive. It is right when a single false positive is costly, such as a ship/no-ship gate. **Benjamini-Hochberg** controls the false discovery rate, the expected proportion of false positives among the things you flag. It is right for exploratory screening where you will follow up on hits anyway and can tolerate some being wrong.
+**(b)** **Bonferroni** tests each of the $m$ comparisons at $\alpha/m$, controlling the family-wise error rate, the probability of *any* false positive. It is right when a single false positive is costly, such as a ship/no-ship gate. **Benjamini-Hochberg** controls the false discovery rate, the expected proportion of false positives among the things you flag. It is right for exploratory screening where you will follow up on hits anyway and can tolerate some being wrong.
 
 **(c)** The strongest version of their argument: with 96 correlated comparisons, Bonferroni's $\alpha = 0.0005$ has almost no power to detect a real effect, so you will systematically miss true improvements and the team will stop trusting the process. That is a real cost, and correlation between metrics means the correction is genuinely too harsh.
 

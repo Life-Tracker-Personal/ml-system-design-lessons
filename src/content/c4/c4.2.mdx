@@ -11,7 +11,7 @@ estimatedMinutes: 50
 
 An agent is a loop that multiplies. If each step succeeds with probability $p$ and the task needs $n$ steps, the naive end-to-end success rate is $p^n$, and that single expression explains why demos work and production does not. At $p = 0.95$ and $n = 20$ steps you finish 36% of tasks. Everything you can do about it falls into three buckets: **raise $p$, cut $n$, or break the independence** by catching and recovering from failures mid-run. Guardrails, step caps, idempotency keys, sandboxes and traces are all instances of one of those three.
 
-The second organizing fact is that the model has one input channel. Your system prompt, the user's message, and the HTML a tool just fetched all arrive as tokens in the same context, with no hardware-level separation between instruction and data. That is why prompt injection cannot be fixed by prompting, why the answer to "expose a generic SQL tool" is no, and why the trace you need is a record of what the model *decided*, not just what your tools *did*. Interviewers do not ask you to define these failures. They hand you one ("your agent fails 20% of the time") and watch you find the mechanism.
+The second organizing fact is that the model has one input channel. Your system prompt, the user's message, and the HTML a tool just fetched all arrive as tokens in the same context, with no hardware-level separation between instruction and data. That is why prompt injection cannot be fixed by prompting, why the answer to "expose a generic SQL tool" is no, and why the trace you need is a record of what the model *decided*, not just what your tools *did*. These failures rarely arrive as definitions. They arrive as incidents — "your agent fails 20% of the time" — and the work is locating the mechanism underneath.
 
 ## What you'll be able to do after this lesson
 
@@ -35,13 +35,13 @@ $$
 
 Plug in numbers. At $p = 0.99$ and $n = 20$: $0.99^{20} = e^{20 \ln 0.99} = e^{-0.201} = 0.818$. At $p = 0.95$: $0.95^{20} = e^{-1.026} = 0.358$. A five-point drop in per-step accuracy costs you 46 points of task completion. That is the whole reason a chatbot that feels excellent becomes an agent that feels unusable.
 
-Invert it, because that is the form you want in an interview. If you need 90% end-to-end over 20 steps,
+The more useful direction is the inverse: fix the end-to-end target first, then read off the per-step rate it demands. If you need 90% end-to-end over 20 steps,
 
 $$
 p = 0.9^{1/20} = e^{\ln(0.9)/20} = e^{-0.005268} = 0.99475
 $$
 
-Your per-step error budget is 0.53%. Roughly one mistake in 190 tool calls. Say that out loud in a design round and you have established the stakes better than any paragraph of prose.
+Your per-step error budget is 0.53%. Roughly one mistake in 190 tool calls, which is a bar few unaided LLM steps clear.
 
 ### The three levers
 
@@ -49,7 +49,7 @@ Your per-step error budget is 0.53%. Roughly one mistake in 190 tool calls. Say 
 
 **Cut $n$.** This is the underrated one. If the agent needs 20 calls to do something a single deterministic function could do, replace the 20 calls with the function. Every step you move out of the LLM's decision surface and into orchestrator code is a step with $p = 1$. "Which logic belongs in the orchestrator versus the LLM" is the same question as "which steps can I delete from the exponent."
 
-**Break the independence.** Add a check after each step that catches a fraction $c$ of errors, and retry once. Effective per-step success becomes
+**Break the independence.** Add a check after each step that catches a fraction $c$ of errors, and retry once. A step now succeeds in two ways: it was right the first time, with probability $p$; or it was wrong (probability $1 - p$), the checker caught it (probability $c$), and the retry landed (probability $p$). Adding the two disjoint cases gives the effective per-step success rate $p'$, where the prime marks the rate after the check-and-retry rather than the raw model rate:
 
 $$
 p' = p + (1 - p)\,c\,p
@@ -59,7 +59,7 @@ With $p = 0.95$ and a checker that catches 80% of failures: $p' = 0.95 + 0.05 \t
 
 > **Stop and think.** The independence assumption is doing a lot of work. Name one mechanism that makes real agents *worse* than $p^n$, and one that makes them *better*. Hint: think about what a bad step leaves behind in the context, and what a model does when a tool returns an error message.
 
-Both directions are real. A bad step poisons the context — a wrong retrieval, a misread tool result, and every later step reasons from it, so errors correlate rather than being independent. And models do self-correct: a tool that returns `404: no such order` often causes the very next step to fix the argument. So $p^n$ is not a prediction. It is a **budgeting tool**: it tells you what per-step bar you must clear and how much a recovery mechanism is worth. Use it that way and say so, rather than presenting it as a measured rate.
+Both directions are real. A bad step poisons the context — a wrong retrieval, a misread tool result, and every later step reasons from it, so errors correlate rather than being independent. And models do self-correct: a tool that returns `404: no such order` often causes the very next step to fix the argument. So $p^n$ is not a prediction. It is a **budgeting tool**: it tells you what per-step bar you must clear and how much a recovery mechanism is worth. Treat it as a budget, and state that you are treating it as one, rather than as a measured completion rate.
 
 ## Part 2 — The failure modes, with mechanisms
 
@@ -77,24 +77,24 @@ The fix is to stop treating the context as an append-only log:
 - **Store artifacts by reference.** Write the 40 KB API response to a scratchpad file or a key-value store, put the handle in the context, and let the agent re-read only the part it needs.
 - **Re-anchor the goal.** Restate the objective and the hard constraints near the end of the context, not only at the top, so they sit close to the generation point.
 
-Note the tension with prompt caching, which we cost out below: caching requires a stable prefix, and compaction rewrites history. Compact at deliberate checkpoints rather than every turn, so you invalidate the cache once instead of continuously.
+Compaction is in tension with prompt caching, priced out in the cost section: caching requires a stable prefix, and compaction rewrites history. Compact at deliberate checkpoints rather than every turn, so you invalidate the cache once instead of continuously.
 
 ### Tool-call hallucination — two different problems
 
 **Goal — separate the failure that a schema fixes from the one it does not.**
 
-**Mode one: the call is malformed.** The model invents a tool that does not exist, omits a required field, or emits something that is not valid JSON. This is cheap to eliminate. Structured output enforcement (constrained decoding against the tool's JSON Schema) makes an invalid call unrepresentable, and a validation layer in the orchestrator catches whatever slips through and returns a typed error the model can act on.
+**Mode one: the call is malformed.** The model invents a tool that does not exist, omits a required field, or emits something that is not valid JSON. This is cheap to eliminate. Restrict the sampler at each token so that the only sequences it can reach are ones that parse into a valid call against the tool's JSON Schema — constrained decoding, sold as **structured output enforcement**. An invalid call becomes unrepresentable rather than merely discouraged, and a validation layer in the orchestrator catches whatever slips through and returns a typed error the model can act on.
 
 **Mode two: the call is well-formed and wrong.** Consider `issue_refund(order_id, amount_cents, reason)`. The model passes a real order ID, a valid integer, an allowed reason — and refunds the order total when the customer asked about one line item. The schema is satisfied perfectly. This is the expensive mode, and structured outputs do nothing for it.
 
 What actually helps:
 
-- **Narrow the types.** `reason` becomes an enum, not a free string. `amount_cents` gets a maximum. A parameter with three legal values fails less often than one with $2^{63}$.
+- **Narrow the types.** `reason` becomes an enum, not a free string. `amount_cents` gets a maximum. A parameter with three legal values fails less often than a 64-bit integer, which has roughly $2^{63}$ of them.
 - **Require provenance.** Enforce in the orchestrator that `order_id` must have appeared in a prior tool result this run. An ID the model produced from nowhere is rejected before it reaches your billing system.
 - **Precondition checks inside the tool.** The refund tool re-reads the order and rejects an amount exceeding the line item. The tool is the last place you can catch a semantically wrong argument, and it is the only place with the data to do it.
 - **Echo before acting.** For high-stakes calls, have the tool return a dry-run description that the model (or a human) must confirm.
 
-**Tool selection with many tools** is the sibling failure. Selection accuracy degrades as candidates grow, and the mechanism is usually overlap: two tools whose descriptions are both plausible answers to the same request. Fixes, in order of effect — merge or delete near-duplicate tools; write each description with an explicit *use when* and *do not use when* clause; retrieve the top-k relevant tool schemas per turn rather than presenting all forty. If the model keeps picking the wrong tool, the first thing to inspect is not the prompt but whether two descriptions are distinguishable to a careful reader.
+**Tool selection with many tools** is the sibling failure. Selection accuracy degrades as candidates grow, and the mechanism is usually overlap: two tools whose descriptions are both plausible answers to the same request. Fixes, in order of effect — merge or delete near-duplicate tools; write each description with an explicit *use when* and *do not use when* clause; retrieve the $k$ most relevant tool schemas per turn, for some small $k$, rather than presenting all forty. If the model keeps picking the wrong tool, the first thing to inspect is not the prompt but whether two descriptions are distinguishable to a careful reader.
 
 ### Loops and non-termination
 
@@ -106,7 +106,7 @@ Three distinguishable shapes:
 2. **Oscillation.** A to B to A. Two plausible plans, neither of which completes, each of which looks better from the other's vantage point.
 3. **Productive-looking drift.** New calls every time, no progress toward the goal. The hardest to detect and the most expensive.
 
-Detection lives in the orchestrator. Hash the pair (tool name, canonicalized arguments) and count repeats — three identical calls is a stop condition, not a warning. Keep a short window of recent hashes to catch A-B-A cycles. Track a progress signal for case three: number of distinct entities touched, or subgoals marked complete, and stop when it flatlines for k steps.
+Detection lives in the orchestrator. Hash the pair (tool name, canonicalized arguments) and count repeats — three identical calls is a stop condition, not a warning. Keep a short window of recent hashes to catch A-B-A cycles. Track a progress signal for case three: number of distinct entities touched, or subgoals marked complete, and stop when it flatlines for $k$ consecutive steps, with $k$ a small constant set from the task's normal pace.
 
 And cap everything, in four independent units: **steps**, **wall-clock time**, **tokens**, and **dollars**. Each catches a different pathology — a fast tight loop blows the step cap, a slow one blows the clock, a verbose one blows the token budget. Never let the model decide it has had enough; a stuck model is by definition not the right judge of whether it is stuck.
 
@@ -122,19 +122,19 @@ The second is ambiguous tool responses. A tool returns HTTP 200 with a body of `
 
 **Goal — show why an agent that takes 2.5x more steps costs 5x more.**
 
-Each turn resends the whole trajectory. Let $B$ be the fixed prefix (system prompt plus tool schemas) and $\Omega$ the tokens each turn adds to the context. Total input tokens billed across $n$ turns is
+Each turn resends the whole trajectory. Let $B$ be the fixed prefix in tokens (system prompt plus tool schemas) and $\Omega$ the tokens each turn adds to the context. Take one turn per step, so $n$ is the same step count as in Part 1. Turn $i$ therefore bills $B + i\,\Omega$ input tokens: the prefix again, plus everything the first $i$ turns accumulated. Summing $i$ from 1 to $n$ turns the second term into the triangular number $n(n+1)/2$:
 
 $$
 \text{input} = nB + \Omega \cdot \frac{n(n+1)}{2}
 $$
 
-Quadratic in $n$. Take $B = 2000$, $\Omega = 1500$, and 300 output tokens per turn, priced at a Sonnet-class rate of \$3 per million input tokens and \$15 per million output.
+Quadratic in $n$. Take $B = 2000$, $\Omega = 1500$, and 300 output tokens per turn, priced at a Sonnet-class rate of USD 3 per million input tokens and USD 15 per million output.
 
-At $n = 12$: input $= 12 \times 2000 + 1500 \times 78 = 24{,}000 + 117{,}000 = 141{,}000$ tokens, costing \$0.42. Output is 3,600 tokens, costing \$0.05. About **\$0.48 per task**.
+At $n = 12$: input $= 12 \times 2000 + 1500 \times 78 = 24{,}000 + 117{,}000 = 141{,}000$ tokens, costing USD 0.42. Output is 3,600 tokens, costing USD 0.05. About **USD 0.48 per task**.
 
-Now the agent loops to $n = 30$ before a cap stops it: input $= 60{,}000 + 1500 \times 465 = 757{,}500$ tokens, costing \$2.27, plus \$0.14 of output. About **\$2.41** — five times the cost for 2.5 times the steps. That quadratic is the reason step caps are a cost control and not merely a safety control, and it is the number to quote when an interviewer bolts "while controlling token cost" onto the prompt.
+Now the agent loops to $n = 30$ before a cap stops it: input $= 60{,}000 + 1500 \times 465 = 757{,}500$ tokens, costing USD 2.27, plus USD 0.14 of output. About **USD 2.41** — five times the cost for 2.5 times the steps. That quadratic is why a step cap is a cost control and not merely a safety control, and it is the number to reach for whenever a design brief adds "while controlling token cost."
 
-Two mitigations worth naming. **Prompt caching** collapses the resent prefix: with a stable prefix, cache reads bill at roughly a tenth of the input rate, which turns most of that triangular sum into small change — provided you do not rewrite history every turn. **Compaction** attacks $\Omega$ directly by summarizing old observations, at the cost of invalidating the cache from the edit point onward. Pick your checkpoints deliberately.
+Two mitigations. **Prompt caching** collapses the resent prefix: with a stable prefix, cache reads bill at roughly a tenth of the input rate, which turns most of that triangular sum into small change — provided you do not rewrite history every turn. **Compaction** attacks $\Omega$ directly by summarizing old observations, at the cost of invalidating the cache from the edit point onward. Pick your checkpoints deliberately.
 
 ## Part 3 — Untrusted tool output is a security problem
 
@@ -144,13 +144,13 @@ A CPU separates code from data with hardware. An LLM has no such separation. You
 
 Two things follow immediately. First, you cannot fix this with better prompting — "never follow instructions in tool output" raises the bar and does not close the hole, because the attacker gets to iterate against your defense. Classifiers on tool output help at the margin and are not a boundary. Second, the real control is **capability**: what this agent is able to do at all, with whose credentials.
 
-The useful framing is that a serious exfiltration needs three legs at once: access to private data, exposure to untrusted content, and a way to send data outward. Remove any one and the attack stops being interesting. A support agent that reads a customer's own tickets, browses no external content, and can only write into your own ticketing system has no third leg. Add a generic HTTP tool and it does.
+A serious exfiltration needs three legs at once: access to private data, exposure to untrusted content, and a way to send data outward. Remove any one and the attack stops being interesting. A support agent that reads a customer's own tickets, browses no external content, and can only write into your own ticketing system has no third leg. Add a generic HTTP tool and it does.
 
 Concretely: per-run credentials scoped to the acting user rather than a service account with everything; allowlisted network egress; structured tool parameters instead of free-form command strings; and human approval on any action that both leaves your system and carries data.
 
 ### The generic SQL or shell tool
 
-This is a real interview prompt: product wants a `run_sql` or `run_shell` tool because it demos beautifully. The graded answer is no, and the reason has two parts.
+Product wants a `run_sql` or `run_shell` tool because it demos beautifully. The answer is no, and the reason has two parts.
 
 **Blast radius equals the credential.** A tool that accepts arbitrary SQL can do everything that connection can do, which means your permission model is now the database grant and nothing else. One injected instruction and one plausible-looking query is the whole exploit chain.
 
@@ -179,13 +179,13 @@ The failure mode of guardrails is **approval fatigue**. Gate everything and huma
 
 **Goal — build the artifact you will actually debug from.**
 
-Model a run as spans: run to step to (LLM call, tool call). For every **LLM call**, record model ID and version, sampling parameters, the fully rendered prompt (or a hash plus the pieces needed to reconstruct it), the raw completion including the tool call it emitted, token counts and latency. For every **tool call**, record the name, the arguments verbatim, the result, a typed status, latency and cost.
+Record a run as a tree of timed, nested units of work — spans, in tracing vocabulary. The run is the root span, each step is a child, and inside a step sit the LLM call and the tool calls it triggered. For every **LLM call**, record model ID and version, sampling parameters, the fully rendered prompt (or a hash plus the pieces needed to reconstruct it), the raw completion including the tool call it emitted, token counts and latency. For every **tool call**, record the name, the arguments verbatim, the result, a typed status, latency and cost.
 
 The load-bearing point: **the important failure usually happens before execution.** If you only log tool effects, you cannot distinguish "the model chose the wrong tool," "the model chose right but passed a bad argument," "the tool returned garbage," and "the tool was correct and the model misread it." Those four have four different fixes. Log the decision, not just the effect.
 
 ### Debugging a 20% failure rate
 
-The question is asked constantly, and the answer is a procedure, not a hypothesis.
+The answer is a procedure, not a hypothesis.
 
 1. Pull 50 failing traces. Not summaries — traces.
 2. For each, label the **first step that diverged**, not the task outcome. A task that fails at step 14 because of a bad retrieval at step 3 is a step-3 failure.
@@ -193,19 +193,19 @@ The question is asked constantly, and the answer is a procedure, not a hypothesi
 4. Fix the biggest bucket. Agent failures concentrate hard; two or three causes usually account for most of the 20%.
 5. Turn every fixed bucket into a regression case, so the fix is defended.
 
-The move being graded is step 2. Candidates who say "I'd improve the prompt and add retries" have skipped the measurement; candidates who bucket by first divergence have turned one number into an actionable list.
+Step 2 carries the procedure. "Improve the prompt and add retries" skips the measurement entirely and proposes a fix before the distribution is known; bucketing by first divergence turns one number into an actionable list.
 
 ### Determinism and reproducibility
 
-Temperature zero is not determinism, and saying so is a good signal. Even with greedy decoding, provider-side batching changes floating-point reduction order, so identical inputs can produce different tokens. Beyond that: model versions move under stable aliases, tools read a world that changes, retrieval indexes are rebuilt, and clocks advance.
+Temperature zero is not determinism. Setting temperature to zero gives greedy decoding, which takes the highest-scoring token at every position — deterministic only if the scores themselves are bit-identical run to run. They are not: provider-side batching changes the order in which floating-point numbers are summed, and floating-point addition is not associative, so identical inputs can produce different tokens whenever two candidates are near-tied. Beyond that: model versions move under stable aliases, tools read a world that changes, retrieval indexes are rebuilt, and clocks advance.
 
 So aim at the achievable targets instead.
 
 **Pin what you can.** Explicit model versions, never a floating `-latest` alias. Pinned tool and schema versions recorded in the trace.
 
-**Make replay a first-class mode.** Record every tool call and result in the trace; a replay run serves tool results from the recording instead of hitting the world. Now the orchestrator is deterministic even though the model is not, and you can test a prompt change or a cap change against 200 recorded runs in seconds. This is the single highest-leverage debuggability investment, and it also gives you the ability to fork a run at step k with an edited context.
+**Make replay a first-class mode.** Record every tool call and result in the trace; a replay run serves tool results from the recording instead of hitting the world. Now the orchestrator is deterministic even though the model is not, and you can test a prompt change or a cap change against 200 recorded runs in seconds. This is the single highest-leverage debuggability investment, and it also gives you the ability to fork a run at any step $k$ with an edited context.
 
-**Evaluate distributionally.** With a nondeterministic system, one pass or fail is a sample. Run each case $k$ times and report a rate with an interval. Twenty runs, sixteen passes gives $\hat p = 0.8$ and a standard error of $\sqrt{0.8 \times 0.2 / 20} = 0.089$, so the 95% interval is roughly $[0.62, 0.98]$. A twenty-case eval set cannot detect a five-point regression. For a two-sided comparison at that resolution you need roughly $16\,\hat p(1-\hat p)/\delta^2 \approx 1000$ cases per arm. Knowing that your eval is underpowered is worth more than a precise-looking number from it.
+**Evaluate distributionally.** With a nondeterministic system, one pass or fail is a sample. Run each case several times and report a rate with an interval. Twenty runs, sixteen passes gives an observed pass rate of $\hat p = 0.8$ — the hat marks an estimate from a sample rather than the true rate — and a standard error of $\sqrt{0.8 \times 0.2 / 20} = 0.089$, so the 95% interval is roughly $[0.62, 0.98]$. A twenty-case eval set cannot detect a five-point regression. Write $\delta$ for the smallest difference in pass rate you want to detect, five points here, so $\delta = 0.05$. Comparing two rates at that resolution, with the conventional 95% confidence and 80% power, needs roughly $16\,\hat p(1-\hat p)/\delta^2 \approx 1000$ cases per arm; the 16 is the constant those two conventions produce. Knowing that your eval is underpowered is worth more than a precise-looking number from it.
 
 ## Tradeoff matrix
 
@@ -213,7 +213,7 @@ So aim at the achievable targets instead.
 |---|---|---|---|
 | Step / token / time / dollar caps | infinite loops, cost blowup | truncated legitimate long tasks | genuinely open-ended research where the cap becomes the answer |
 | Repeat-hash loop detector | literal repetition, oscillation | false stops on legitimately repeated polls | polling tools, unless you exempt them |
-| Structured output enforcement | malformed tool calls | slight latency, schema maintenance | never, really — but do not claim it fixes semantics |
+| Structured output enforcement | malformed tool calls | slight latency, schema maintenance | effectively never — but do not claim it fixes semantics |
 | Provenance rule on IDs | invented identifiers | blocks legitimate user-supplied IDs | flows where the user pastes an ID directly |
 | Human approval gate | irreversible mistakes | latency, rubber-stamping if overused | high-volume low-stakes actions; use budgets instead |
 | Sandboxed execution | injection blast radius | ops complexity, no network for real work | tools that legitimately need egress; allowlist instead |

@@ -15,7 +15,7 @@ These seven questions test whether you can rebuild attention and price it, not w
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a) The variance.** Assume query and key components are independent of each other, with mean 0 and variance 1. That is what standard initialization plus a normalization layer immediately before the QKV projection buys you.
+**(a) The variance.** Assume query and key components are independent of each other, with mean 0 and variance 1. That is what standard initialization plus a normalization layer immediately before the QKV projection buys you. Take one query vector $q$ and one key vector $k$, each of length $d_k$, and write $q_t$ and $k_t$ for their $t$-th components:
 
 $$q \cdot k = \sum_{t=1}^{d_k} q_t k_t$$
 
@@ -27,7 +27,7 @@ Dividing by $\sqrt{d_k}$ returns logits to unit variance at any head width. This
 
 **(b) The numbers.** At $d_k = 128$, $\mathrm{sd} = \sqrt{128} \approx 11.3$. Two logits one standard deviation apart give a softmax ratio of $e^{11.3} \approx 8.1 \times 10^4$, so the larger position gets probability $\approx 0.99999$.
 
-The softmax Jacobian is
+A saturated softmax is flat, so a nudge to any logit barely moves the probabilities. The softmax Jacobian says so exactly, with $z$ the vector of logits entering the softmax, $p = \mathrm{softmax}(z)$ the probability vector it returns, and $\delta_{ij}$ equal to 1 when $i = j$ and 0 otherwise:
 
 $$\frac{\partial p_i}{\partial z_j} = p_i(\delta_{ij} - p_j)$$
 
@@ -175,7 +175,7 @@ So each head writes its own additive contribution into the residual stream. That
 
 Applied *after* the softmax, you zero the forbidden weights but the row now sums to less than 1. Row $i$ sums to whatever fraction of the original mass fell on positions $\le i$, so each token's output is silently scaled down by a position-dependent factor. Position 0 is hit hardest — it keeps roughly $1/n$ of its mass — and the effect shrinks along the sequence. The model trains anyway, to a quietly worse optimum, and the symptom is quality that degrades toward the beginning of sequences. Nothing crashes, which is what makes it dangerous.
 
-**(c) NaN rows.** Combine a causal mask with a key-padding mask and some row can end up fully masked — for example a padded query position, all of whose keys are also masked. Then every logit is $-\infty$, the softmax computes $e^{-\infty}/\sum e^{-\infty} = 0/0$, and you get NaN. The NaN propagates through the matmul into every downstream token and into the gradients, so one bad row poisons the whole batch. It appears only on batches containing a sequence with the offending padding pattern, which is why it looks intermittent. Fixes: use a large finite negative constant (around $-10^9$ in fp32, and note that $-10^9$ overflows fp16 so pick a dtype-appropriate value), or guarantee every row has at least one visible key, or mask out the padded query rows from the loss entirely.
+**(c) NaN rows.** Combine a causal mask with a key-padding mask and some row can end up fully masked — for example a padded query position, all of whose keys are also masked. Then every logit is $-\infty$, the softmax computes $e^{-\infty}/\sum e^{-\infty} = 0/0$, and you get NaN. The NaN propagates through the matmul into every downstream token and into the gradients, so one bad row poisons the whole batch. It appears only on batches containing a sequence with the offending padding pattern, which is why it looks intermittent. Fixes: use a large finite negative constant (around $-10^9$ in fp32; $-10^9$ overflows fp16, so pick a dtype-appropriate value), or guarantee every row has at least one visible key, or mask out the padded query rows from the loss entirely.
 
 **(d) Missing key-padding mask.** Requests of different lengths are padded to the batch maximum. Without a key-padding mask, real tokens attend to pad tokens, which carry embedding values. The amount of padding depends on the longest sequence in the batch, so the output for a given request depends on its batch-mates. This is invisible when you test single requests and non-reproducible under load, which is the classic version of this bug. The causal mask does not save you: pad positions can sit at indices below the query index.
 

@@ -11,7 +11,7 @@ estimatedMinutes: 55
 
 Five distributions carry almost all of quantitative interviewing: binomial, Poisson, geometric, exponential, normal. They are not five unrelated facts. They are four views of one story (independent trials at a constant rate) plus the limit that everything collapses to. If you can derive the mean and variance of each in ten seconds and say what physical process generates it, you have the prerequisite for every harder question in this chapter.
 
-On top of that base sit three things interviewers actually test. Memorylessness, which explains the inspection paradox and why you wait the full mean for the bus. Order statistics of uniforms, which the CDF-of-max trick solves in one line. And decision-making under a known distribution: backward induction for optimal stopping, Kelly for bet sizing, and fast mental estimates of mean and standard deviation for market-making questions where you get ninety seconds.
+On top of that base sit three further ideas. Memorylessness, which explains the inspection paradox and why you wait the full mean for the bus. Order statistics of uniforms, which the CDF-of-max trick solves in one line. And decision-making under a known distribution: backward induction for optimal stopping, Kelly for bet sizing, and fast mental estimates of mean and standard deviation for market-making questions where you get ninety seconds.
 
 ## What you'll be able to do after this lesson
 
@@ -21,26 +21,26 @@ On top of that base sit three things interviewers actually test. Memorylessness,
 - Derive the inspection paradox properly, including why the answer is the full mean and not half of it.
 - Get any order statistic of uniforms from the CDF-of-max trick and recognise the Beta distribution when it appears.
 - Solve the red/black card stopping game by backward induction and get $2/3$ for the 2-2 deck.
-- Derive Kelly's $f^\star = 2p - 1$ from maximising $E[\log W]$, and explain concretely why full Kelly is dangerous.
+- Derive Kelly's $f^\star = 2p - 1$ from maximising expected log wealth $E[\log W]$, and explain concretely why full Kelly is dangerous.
 - Quote a market on a dice or coin sum in under a minute with a defensible width.
 
 ## Part 1 — Five distributions, one story
 
 Start with a single biased coin: probability $p$ of success, trials independent.
 
-**Binomial.** Count successes in $n$ fixed trials. $P(X = k) = \binom{n}{k} p^k (1-p)^{n-k}$. Write $X = \sum_{i=1}^n I_i$ with $I_i$ the indicator of success on trial $i$. Linearity gives $E[X] = np$ immediately, and independence lets variance add: $\mathrm{Var}(I_i) = p(1-p)$, so $\mathrm{Var}(X) = np(1-p)$. The indicator decomposition is the whole trick and it generalises to problems where the trials are *not* independent (the mean still works, the variance does not).
+**Binomial.** Count successes in $n$ fixed trials, and call that count $X$, so the possible values $k$ run from 0 to $n$. $P(X = k) = \binom{n}{k} p^k (1-p)^{n-k}$. Write $X = \sum_{i=1}^n I_i$ with $I_i$ the indicator of success on trial $i$, meaning $I_i = 1$ on a success and 0 otherwise. Linearity gives $E[X] = np$ immediately, and independence lets variance add: $\mathrm{Var}(I_i) = p(1-p)$, so $\mathrm{Var}(X) = np(1-p)$. The indicator decomposition is the whole trick and it generalises to problems where the trials are *not* independent (the mean still works, the variance does not).
 
-**Geometric.** Count trials until the first success. $P(X = k) = (1-p)^{k-1}p$. Do not sum the series. Condition on the first trial:
+**Geometric.** Count trials up to and including the first success, again writing $X$ for the count, so now $k = 1, 2, 3, \dots$. $P(X = k) = (1-p)^{k-1}p$. Do not sum the series. Condition on the first trial:
 
 $$E[X] = 1 + (1-p)E[X] \implies E[X] = \frac{1}{p}$$
 
 The same one-step conditioning gives $E[X^2] = 1 + (1-p)\,E[(X+1)^2]$, which unwinds to $\mathrm{Var}(X) = (1-p)/p^2$.
 
-**Poisson.** Count events in a fixed window when they arrive at a constant rate $\lambda$ with no clustering. $P(X=k) = e^{-\lambda}\lambda^k/k!$, and $E[X] = \mathrm{Var}(X) = \lambda$. Mean equals variance is the diagnostic: real count data with variance well above the mean is *overdispersed* and is not Poisson.
+**Poisson.** Count events in a fixed window when they arrive at a constant rate with no clustering, and let $\lambda$ be the mean number of events that window contains. With $X$ the count and $k = 0, 1, 2, \dots$, $P(X=k) = e^{-\lambda}\lambda^k/k!$, and $E[X] = \mathrm{Var}(X) = \lambda$. Mean equals variance is the diagnostic: real count data with variance well above the mean is *overdispersed* and is not Poisson.
 
-**Exponential.** The continuous waiting time between those events. $f(t) = \lambda e^{-\lambda t}$, $P(T > t) = e^{-\lambda t}$, $E[T] = 1/\lambda$, $\mathrm{Var}(T) = 1/\lambda^2$. Standard deviation equals the mean, which is why exponential waiting times feel so erratic.
+**Exponential.** The continuous waiting time $T$ between those events, at the same rate $\lambda$ events per unit time. Its density is $f(t) = \lambda e^{-\lambda t}$, its survival probability is $P(T > t) = e^{-\lambda t}$, $E[T] = 1/\lambda$, $\mathrm{Var}(T) = 1/\lambda^2$. Standard deviation equals the mean, which is why exponential waiting times feel so erratic.
 
-**Normal.** What sums turn into. If $X_1, \dots, X_n$ are independent with mean $\mu$ and variance $\sigma^2$, then $\sum X_i$ is approximately $\mathcal{N}(n\mu, n\sigma^2)$. Keep 68 / 95 / 99.7 percent within one, two and three standard deviations loaded in memory; every fast estimation question uses it.
+**Normal.** What sums turn into. If $X_1, \dots, X_n$ are independent with common mean $\mu$ and common variance $\sigma^2$, then $\sum X_i$ is approximately $\mathcal{N}(n\mu, n\sigma^2)$, where the two arguments are the mean and the variance of the limiting bell shape. That statement is the central limit theorem. Keep 68 / 95 / 99.7 percent within one, two and three standard deviations loaded in memory; every fast estimate leans on those three numbers.
 
 ## Part 2 — Memorylessness, and why only two distributions have it
 
@@ -48,21 +48,21 @@ A distribution is memoryless if having waited already tells you nothing:
 
 $$P(T > s + t \mid T > s) = P(T > t)$$
 
-Let $G(t) = P(T > t)$. The condition says $G(s+t) = G(s)G(t)$ for all $s, t \ge 0$. That is the Cauchy functional equation in multiplicative form. For a right-continuous $G$ with $G(0)=1$, the only solutions are $G(t) = e^{-\lambda t}$, which is exactly the exponential. Sketch: $G(1) = G(1/n)^n$ forces $G(1/n) = G(1)^{1/n}$, so $G(q) = G(1)^q$ on the rationals, and continuity extends it to the reals. Write $G(1) = e^{-\lambda}$ and you are done.
+Let $G(t) = P(T > t)$. The condition says $G(s+t) = G(s)G(t)$ for all $s, t \ge 0$. That is the Cauchy functional equation in multiplicative form. For a right-continuous $G$ with $G(0)=1$, the only solutions are $G(t) = e^{-\lambda t}$, which is exactly the exponential. Sketch: $G(1) = G(1/n)^n$ for every positive integer $n$, which forces $G(1/n) = G(1)^{1/n}$, so $G(q) = G(1)^q$ for every positive rational $q$, and continuity extends it to the reals. Writing $G(1) = e^{-\lambda}$ names the rate $\lambda \ge 0$ and turns that into $G(t) = e^{-\lambda t}$.
 
 Run the identical argument on the integers and you get $G(n) = G(1)^n$, which is the geometric distribution. So geometric is the unique memoryless discrete distribution and exponential the unique memoryless continuous one. They are the same statement at two resolutions.
 
-Two consequences worth memorising. First, the minimum of independent exponentials with rates $\lambda_i$ is exponential with rate $\sum \lambda_i$, since $P(\min > t) = \prod e^{-\lambda_i t}$. Second, the probability that machine $i$ fires first is $\lambda_i / \sum_j \lambda_j$, and that fact is independent of when the first event happens. Competing-risk questions collapse to those two lines.
+Two consequences worth memorising. Picture $m$ machines running side by side, machine $i$ failing at exponential rate $\lambda_i$ for $i = 1, \dots, m$. First, the minimum of independent exponentials with rates $\lambda_i$ is exponential with rate $\sum \lambda_i$, since $P(\min > t) = \prod e^{-\lambda_i t}$ with both the sum and the product running over all $m$ machines. Second, the probability that machine $i$ fires first is $\lambda_i / \sum_j \lambda_j$, where $j$ ranges over the same $m$, and that fact is independent of when the first event happens. Competing-risk questions collapse to those two lines.
 
 ## Part 3 — Poisson: the limit, the process and the inspection paradox
 
 ### Binomial to Poisson
 
-Chop a window into $n$ tiny slots, each with success probability $p = \lambda/n$. Then
+Chop a window into $n$ tiny slots, each holding at most one event, with success probability $p = \lambda/n$ so that the expected count stays at $\lambda$ however fine the slots get. With $X$ the number of slots that succeed and $k$ one of its possible values,
 
 $$P(X=k) = \binom{n}{k}\left(\frac{\lambda}{n}\right)^k\left(1-\frac{\lambda}{n}\right)^{n-k} = \frac{n(n-1)\cdots(n-k+1)}{n^k}\cdot\frac{\lambda^k}{k!}\cdot\left(1-\frac{\lambda}{n}\right)^{n-k}$$
 
-As $n \to \infty$ the first factor goes to 1, the last goes to $e^{-\lambda}$, and you land on $e^{-\lambda}\lambda^k/k!$. The practical rule: the approximation is good when $n$ is large and $np$ is moderate, say $n \ge 100$ and $np \le 10$. Note the variance check. Binomial variance is $np(1-p) \to np$ when $p$ is tiny, matching Poisson's $\mathrm{Var} = \lambda$.
+As $n \to \infty$ the first factor goes to 1, the last goes to $e^{-\lambda}$, and you land on $e^{-\lambda}\lambda^k/k!$. The practical rule: the approximation is good when $n$ is large and $np$ is moderate, say $n \ge 100$ and $np \le 10$. The variance check confirms the two agree in that regime. Binomial variance is $np(1-p) \to np$ when $p$ is tiny, matching Poisson's $\mathrm{Var} = \lambda$.
 
 A worked example. 400 servers, each fails independently on a given day with probability $0.005$. Then $\lambda = 2$, and $P(\text{no failures}) = e^{-2} \approx 0.135$, $P(\text{at least 3}) = 1 - e^{-2}(1 + 2 + 2) \approx 1 - 0.677 = 0.323$.
 
@@ -72,7 +72,7 @@ Buses arrive as a Poisson process with rate $\lambda = 1/10$ per minute, so gaps
 
 Memorylessness answers it in one line: the time until the next arrival has the same exponential distribution regardless of how long ago the last bus left, so you wait 10 minutes on average, not 5.
 
-The reason people expect 5 is worth spelling out, because the fix generalises to non-exponential gaps. You do not land in a uniformly chosen gap. You land in a gap chosen in proportion to its length, since long gaps cover more of the timeline. That is *length-biased sampling*: if gap lengths have density $f$, the gap you land in has density $\ell f(\ell)/E[L]$, so
+People expect 5, and the reason they are wrong generalises to gaps that are not exponential. You do not land in a uniformly chosen gap. You land in a gap chosen in proportion to its length, since long gaps cover more of the timeline. That is *length-biased sampling*. Write $L$ for the length of a gap drawn at random from the schedule and $f$ for its density, so that a gap of length near $\ell$ carries density $f(\ell)$. The gap you land in has density $\ell f(\ell)/E[L]$: one factor of $\ell$ for the extra chance of landing inside a long gap, and the division by the mean gap $E[L]$ to keep the density integrating to 1. So
 
 $$E[\text{gap you land in}] = \frac{E[L^2]}{E[L]} = \frac{E[L]^2 + \mathrm{Var}(L)}{E[L]} = E[L] + \frac{\mathrm{Var}(L)}{E[L]}$$
 
@@ -80,56 +80,58 @@ Given the gap, your arrival is uniform inside it, so you wait half of it. For ex
 
 ## Part 4 — Order statistics of uniforms
 
-Let $U_1, \dots, U_n$ be independent Uniform$(0,1)$. The maximum is easy because "max $\le x$" means "all of them $\le x$":
+Let $U_1, \dots, U_n$ be independent Uniform$(0,1)$. Write $U_{(k)}$ for the $k$-th smallest of the $n$ draws, so $U_{(1)}$ is the minimum and $U_{(n)}$ is the maximum. The maximum is easy because "max $\le x$" means "all of them $\le x$":
 
 $$P(U_{(n)} \le x) = x^n \implies f(x) = n x^{n-1} \implies E[U_{(n)}] = \int_0^1 n x^n\,dx = \frac{n}{n+1}$$
 
 For $n=2$ that is $E[\max] = 2/3$, and by symmetry $E[\min] = 1/3$. Sanity check: they sum to 1, as they must, since $\max + \min = U_1 + U_2$.
 
-The general $k$-th order statistic follows from a counting argument. To have $U_{(k)}$ in $[x, x+dx]$, pick which point lands there ($n$ ways), which $k-1$ of the rest fall below ($\binom{n-1}{k-1}$ ways), and the rest fall above:
+The general $k$-th order statistic, for any $k$ between 1 and $n$, follows from a counting argument. To have $U_{(k)}$ in the thin sliver $[x, x+dx]$, pick which point lands there ($n$ ways), which $k-1$ of the rest fall below ($\binom{n-1}{k-1}$ ways), and the rest fall above:
 
 $$f_{U_{(k)}}(x) = \frac{n!}{(k-1)!\,(n-k)!}\,x^{k-1}(1-x)^{n-k}$$
 
-That is exactly a Beta$(k,\, n-k+1)$ density, and its mean is $k/(n+1)$. There is a picture that makes the answer obvious without any integration: $n$ uniform points cut $[0,1]$ into $n+1$ gaps, those gaps are exchangeable, so each has mean $1/(n+1)$, and the $k$-th point sits after $k$ of them.
+That is exactly a Beta$(k,\, n-k+1)$ density, and its mean is $k/(n+1)$. A picture gets that mean with no integration at all: $n$ uniform points cut $[0,1]$ into $n+1$ gaps, those gaps are exchangeable, so each has mean $1/(n+1)$, and the $k$-th point sits after $k$ of them.
 
-Two classics that fall out. The expected number of Uniform$(0,1)$ draws until the running sum exceeds 1 is $e$, because $P(\text{sum of } n \text{ draws} \le 1) = 1/n!$ (that is the volume of a simplex) and $E[N] = \sum_{n\ge 0} P(N > n) = \sum 1/n! = e$. And for the broken-stick problem, two uniform cuts on a stick form a triangle with probability $1/4$, since a triangle fails exactly when some piece exceeds $1/2$ and the three failure events are disjoint with probability $1/4$ each.
+Two classics that fall out. Let $N$ be the number of Uniform$(0,1)$ draws needed before the running sum first exceeds 1. Its expectation is $e$: needing more than $n$ draws means the first $n$ of them summed to at most 1, so $P(\text{sum of } n \text{ draws} \le 1) = 1/n!$ (that is the volume of a simplex), and the tail formula for a non-negative integer variable gives $E[N] = \sum_{n\ge 0} P(N > n) = \sum 1/n! = e$. And for the broken-stick problem, two uniform cuts on a stick form a triangle with probability $1/4$, since a triangle fails exactly when some piece exceeds $1/2$ and the three failure events are disjoint with probability $1/4$ each.
 
 ## Part 5 — Optimal stopping by backward induction
 
-The staple: a shuffled deck of 2 red and 2 black cards, drawn one at a time. You win \$1 per red drawn and lose \$1 per black. You may stop whenever you like and keep what you have. What is the EV under optimal play?
+Take a shuffled deck of 2 red and 2 black cards, drawn one at a time. You win \$1 per red drawn and lose \$1 per black. You may stop whenever you like and keep what you have. What is the EV under optimal play?
 
 Define $V(r,b)$ as the expected *additional* gain with $r$ red and $b$ black still in the deck, playing optimally. Stopping is worth 0, so
 
 $$V(r,b) = \max\!\left(0,\ \frac{r}{r+b}\big(1 + V(r-1,b)\big) + \frac{b}{r+b}\big(-1 + V(r,b-1)\big)\right)$$
 
-Boundaries: $V(0,b) = 0$ (nothing left but losses, so stop) and $V(r,0) = r$ (take all the reds). Now grind upward.
+Boundaries: $V(0,b) = 0$ (nothing left but losses, so stop) and $V(r,0) = r$ (take all the reds). Work upward from the smallest decks, since each value depends only on decks with one card fewer.
 
 - $V(1,1) = \max(0,\ \tfrac12(1+0) + \tfrac12(-1+1)) = \tfrac12$
 - $V(2,1) = \max(0,\ \tfrac23(1+\tfrac12) + \tfrac13(-1+2)) = 1 + \tfrac13 = \tfrac43$
 - $V(1,2) = \max(0,\ \tfrac13(1+0) + \tfrac23(-1+\tfrac12)) = \max(0, \tfrac13 - \tfrac13) = 0$
 - $V(2,2) = \max(0,\ \tfrac12(1 + 0) + \tfrac12(-1 + \tfrac43)) = \tfrac12 + \tfrac16 = \tfrac23$
 
-The answer is $2/3$. Two things to say out loud in the room. The value is strictly positive even though the full deck has zero mean, because the option to stop is worth something and options are never worth less than nothing. And the optimal policy is not "stop when ahead": at $(1,2)$ you are indifferent, and at $(2,1)$ you continue despite being behind, because the remaining deck is red-rich.
+The answer is $2/3$. Two features of that answer matter. The value is strictly positive even though the full deck has zero mean, because the option to stop is worth something and options are never worth less than nothing. And the optimal policy is not "stop when ahead": at $(1,2)$ you are indifferent, and at $(2,1)$ you continue despite being behind, because the remaining deck is red-rich.
 
 ## Part 6 — Sizing and quoting
 
 ### Kelly
 
-You have edge $p > 1/2$ on an even-money bet and you can repeat it. Betting a fixed fraction $f$ of wealth, after $n$ bets wealth is a product, so take logs and maximise the growth rate per bet:
+You win an even-money bet with probability $p > 1/2$ and can repeat it as often as you like. Bet a fixed fraction $f$ of your current wealth each time. Wealth $W$ after $n$ bets is a product of factors $1+f$ and $1-f$, and a logarithm turns that product into a sum, so the quantity to maximise is $g(f)$, the expected log growth per bet:
 
 $$g(f) = p\log(1+f) + (1-p)\log(1-f)$$
+
+The bet fraction that maximises growth is where this curve peaks, so differentiate and set the derivative to zero:
 
 $$g'(f) = \frac{p}{1+f} - \frac{1-p}{1-f} = 0 \implies p(1-f) = (1-p)(1+f) \implies f^\star = 2p - 1$$
 
 So with $p = 0.6$ you bet 20 percent of your bankroll. Maximising $E[\log W]$ rather than $E[W]$ is the point worth defending: $E[W]$ is maximised by betting everything, which drives you to ruin with probability 1, while log wealth is the thing that actually compounds.
 
-Why full Kelly is dangerous in practice, in three concrete ways. Growth is flat at the top and cliff-like past it, so overbetting costs far more than underbetting; in the Gaussian approximation $g(f) \approx f\mu - f^2\sigma^2/2$, and $g(2f^\star) = 0$ exactly. Full Kelly also has brutal drawdowns: the probability of your bankroll ever falling to a fraction $a$ of its starting value is $a$, so a 50 percent drawdown at some point is a coin flip. And $p$ is estimated, not known, so overestimating your edge by 20 percent silently moves you past optimal. Half Kelly gets you $3/4$ of the maximum growth rate with half the volatility, which is why practitioners use it.
+Why full Kelly is dangerous in practice, in three concrete ways. Growth is flat at the top and cliff-like past it, so overbetting costs far more than underbetting. In the Gaussian approximation, where $\mu$ and $\sigma$ are the mean and standard deviation of the per-bet return, $g(f) \approx f\mu - f^2\sigma^2/2$, and $g(2f^\star) = 0$ exactly. Full Kelly also has brutal drawdowns: the probability of your bankroll ever falling to a fraction $a$ of its starting value is $a$, so a 50 percent drawdown at some point is a coin flip. And $p$ is estimated, not known, so overestimating your edge by 20 percent silently moves you past optimal. Half Kelly gets you $3/4$ of the maximum growth rate with half the volatility, which is why practitioners use it.
 
 ### Fast market-making
 
-The format is: "make a market on the sum of three dice," ninety seconds, and the interviewer trades against your quote. The mechanics are just mean and variance adding over independent draws.
+The format is: "make a market on the sum of three dice," ninety seconds, and the interviewer trades against your quote. The mechanics are mean and variance adding over independent draws.
 
-One die: $E = 3.5$, $\mathrm{Var} = \frac{1}{6}\sum (k-3.5)^2 = 35/12 \approx 2.92$. Three dice: $E = 10.5$, $\mathrm{Var} = 8.75$, $\sigma \approx 2.96$. A market of $9.5$ at $11.5$ is defensible: centred on the true mean, about two-thirds of a standard deviation wide.
+One die: $E = 3.5$, and averaging the squared deviation $(k-3.5)^2$ over the six faces $k = 1, \dots, 6$ gives $\mathrm{Var} = \frac{1}{6}\sum (k-3.5)^2 = 35/12 \approx 2.92$. Three dice: $E = 10.5$, $\mathrm{Var} = 8.75$, $\sigma \approx 2.96$. A market of $9.5$ at $11.5$ is defensible: centred on the true mean, about two-thirds of a standard deviation wide.
 
 For coins, the number of heads in 100 flips has mean 50 and $\sigma = \sqrt{100 \cdot 0.25} = 5$, so quote 48 at 52. Width is a real decision, not a formality. Quote too tight and an informed counterparty picks you off; quote too wide and you never trade, which in an interview reads as no appetite for risk. Say your reasoning aloud: centre on EV, scale width to $\sigma$, then widen further if the quantity is one the interviewer might already know.
 
