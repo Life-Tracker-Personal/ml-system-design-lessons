@@ -1,0 +1,232 @@
+---
+id: c10.2
+chapter: 10
+title: Factor models and where risk comes from
+subtitle: Why a covariance matrix must be structured, and what the structure buys you
+refs: []
+estimatedMinutes: 60
+---
+
+## TL;DR
+
+A covariance matrix over $N$ assets has $N(N+1)/2$ free numbers. At $N = 500$ that is 125,250 parameters, and a five-year monthly history gives you $60 \times 500 = 30{,}000$ observations to fit them with. You are asking for four times more parameters than you have data points. **A factor model is the answer to that counting problem: it replaces a free covariance matrix with $\Sigma = B\Sigma_f B^\top + D$, and drops the parameter count from 125,250 to about 5,555.** Everything else about factor models follows from that trade. You buy estimability and invertibility, and you pay by assuming that everything two assets have in common runs through $K$ common drivers.
+
+Then use it. Portfolio variance splits into a factor part and a specific part, risk contributions sum exactly to total risk by Euler's theorem, and the same decomposition run against a benchmark gives active risk, tracking error, and the information ratio. The fundamental law of active management, $IR \approx IC\sqrt{BR}$, says where a good information ratio comes from: skill per bet times the square root of how many genuinely independent bets you get. *Independent* is where the law breaks, and it breaks hard: 500 positions with average pairwise correlation 0.10 have the effective breadth of about 10 bets. The same machinery settles the last question, whether your alpha is alpha or a known factor in costume.
+
+## What you'll be able to do after this lesson
+
+- Count the parameters in a free covariance matrix and in a $K$-factor model, and say at what $N$ and $T$ the free matrix stops being estimable.
+- Derive $\Sigma = B\Sigma_f B^\top + D$, name every assumption used, and say when the result is positive definite rather than merely positive semi-definite.
+- Estimate a beta by regression and split total variance into systematic and idiosyncratic parts.
+- Distinguish statistical, fundamental, and macroeconomic factor models by which side is observed and which regression direction estimates the other.
+- Decompose portfolio risk into factor and specific contributions with real arithmetic, and prove that marginal contributions sum to total risk.
+- Compute tracking error and the information ratio against a benchmark, apply $IR \approx IC\sqrt{BR}$, and correct breadth for correlated bets.
+- Test whether a strategy's returns are alpha or repackaged factor exposure, and report an appraisal ratio.
+
+## Part 1 — The counting problem
+
+Start with what you are trying to estimate. For $N$ assets with returns $r_1, \dots, r_N$, the covariance matrix $\Sigma$ holds $\mathrm{Cov}(r_i, r_j)$ in entry $(i,j)$. It is symmetric, so the free entries are the diagonal plus one triangle: $N$ variances and $N(N-1)/2$ distinct covariances, $N(N+1)/2$ in total.
+
+Put $N = 500$, roughly a large-cap US equity universe. Then
+
+$$\frac{500 \times 501}{2} = 125{,}250$$
+
+free parameters. Five years of monthly returns is 60 observations per asset, so $60 \times 500 = 30{,}000$ numbers in the whole panel: 125,250 quantities from 30,000 observations, 0.24 observations per parameter.
+
+The rank consequence is worked through in c8.3: at $T = 60$ the sample covariance has rank at most 59, leaving 441 exactly zero eigenvalues and 441 directions in portfolio space the data declares riskless. Take that as given. What the parameter count adds on top of it is separate and survives full rank: even a matrix that inverts cleanly is being asked to carry more numbers than the panel can support.
+
+Daily data shows that directly. Five years of daily returns is $T \approx 1{,}260$, which clears $N = 500$ and gives an invertible matrix, and the panel now holds $1{,}260 \times 500 = 630{,}000$ numbers, about 5.0 observations per parameter. Five observations per parameter is not an estimate anyone would defend elsewhere, and the five-year window buying them spans regimes over which the truth changed. The problem is not sampling frequency. A free covariance matrix has too many parameters to be worth estimating freely at any frequency. So impose structure.
+
+## Part 2 — The factor model and the parameter collapse
+
+**Goal — write down a return model with far fewer parameters than a free covariance matrix, and read off the covariance it implies.**
+
+The idea: assets move together because they are exposed to a small number $K$ of common drivers, and whatever is left over is asset-specific noise. For a single period,
+
+$$r = \alpha + Bf + \varepsilon$$
+
+where $r$ is the $N \times 1$ vector of asset returns, $\alpha$ an $N \times 1$ vector of asset-specific expected returns, $B$ the $N \times K$ matrix whose entry $B_{ik}$ is asset $i$'s exposure (loading) to driver $k$, $f$ the $K \times 1$ vector of factor returns for that period, and $\varepsilon$ the $N \times 1$ vector of idiosyncratic returns.
+
+Three assumptions do the work: $\mathbb{E}[\varepsilon] = 0$; $\mathrm{Cov}(f, \varepsilon) = 0$, which is what "specific" means; and $\mathrm{Cov}(\varepsilon) = D$ **diagonal**, with $D_{ii} = d_i$ the specific variance of asset $i$. The third is the strong one and the whole model rests on it: after removing the factors, no two assets share anything.
+
+Write $\mu_f = \mathbb{E}[f]$ and $\Sigma_f = \mathrm{Cov}(f)$, a $K \times K$ matrix. Since $\alpha$ is constant it drops out of any covariance, and
+
+$$\Sigma = \mathrm{Cov}(r) = \mathbb{E}\bigl[(B(f - \mu_f) + \varepsilon)(B(f - \mu_f) + \varepsilon)^\top\bigr]$$
+
+Expand into four terms. The first is $B\,\mathbb{E}[(f-\mu_f)(f-\mu_f)^\top]\,B^\top = B\Sigma_f B^\top$, the last is $\mathbb{E}[\varepsilon\varepsilon^\top] = D$, and the two cross terms $B\,\mathbb{E}[(f-\mu_f)\varepsilon^\top]$ and its transpose vanish by the second assumption. So
+
+$$\Sigma = B\Sigma_f B^\top + D$$
+
+Count the parameters. $B$ has $NK$ entries, $\Sigma_f$ has $K(K+1)/2$, and $D$ has $N$. With $N = 500$ and $K = 10$:
+
+- $B$: $500 \times 10 = 5{,}000$
+- $\Sigma_f$: $10 \times 11 / 2 = 55$
+- $D$: $500$
+
+Total $5{,}000 + 55 + 500 = 5{,}555$. Against 125,250 that is a $22.5\times$ reduction, and against 30,000 monthly observations it is 5.4 observations per parameter instead of 0.24. Run the same factor model on the daily panel and it gets $630{,}000/5{,}555 = 113$ observations per parameter, against the free matrix's 5.0 on the same data. That comparison is the entire argument for factor models.
+
+Two structural facts come free. $B\Sigma_f B^\top$ has rank at most $K = 10$, hopelessly singular on its own, but adding a diagonal $D$ with all $d_i > 0$ makes $\Sigma$ positive definite: for any $w \neq 0$, $w^\top \Sigma w = (B^\top w)^\top \Sigma_f (B^\top w) + \sum_i w_i^2 d_i > 0$. The factor model always hands the optimizer an invertible matrix, which the sample covariance at $T < N$ never does. Inverting it is also cheap: the Woodbury identity turns an $N \times N$ inverse into a $K \times K$ one.
+
+> **Stop and think.** The parameter count says $K = 10$ is far better than a free matrix. Does that mean $K = 50$ is better still, since it is still far below 125,250? Work out what $K = 50$ costs in $B$ alone before answering.
+
+## Part 3 — One factor: CAPM and the meaning of beta
+
+**Goal — see the whole apparatus in the smallest case, where $K = 1$ and the single factor is the market.**
+
+Set $K = 1$ and let the factor be the excess return of a broad market portfolio, $f = r_m - r_f$, where $r_f$ is the risk-free rate. The model for asset $i$ becomes
+
+$$r_i - r_f = \alpha_i + \beta_i (r_m - r_f) + \varepsilon_i$$
+
+This is a univariate regression, so the loading is the OLS slope:
+
+$$\beta_i = \frac{\mathrm{Cov}(r_i, r_m)}{\mathrm{Var}(r_m)} = \rho_{im}\frac{\sigma_i}{\sigma_m}$$
+
+with $\rho_{im}$ the correlation between asset and market and $\sigma_i, \sigma_m$ their return standard deviations. Beta is not correlation. It is correlation scaled by the volatility ratio, which is why a high-volatility stock can have beta above 1 while correlating only moderately with the index. Estimating it means running that regression on 2 to 5 years of weekly or monthly excess returns; the estimate carries a standard error like any slope, and short-window betas are noisy enough that practitioners shrink them toward 1.
+
+Take variances of both sides. Since $\varepsilon_i$ is uncorrelated with the market,
+
+$$\sigma_i^2 = \beta_i^2\sigma_m^2 + \sigma_{\varepsilon i}^2$$
+
+The first term is **systematic risk**, driven by the common factor, and no asset escapes it. The second is **idiosyncratic** or **specific risk**. The ratio of the first term to the total is exactly the $R^2$ of the regression.
+
+Work a number. With $\beta_i = 1.2$, annualized market volatility $\sigma_m = 16\%$, and specific volatility $\sigma_{\varepsilon i} = 25\%$, the systematic variance is $(1.2 \times 0.16)^2 = 0.036864$ and the specific variance is $0.25^2 = 0.0625$. Total variance $0.099364$, so $\sigma_i = 31.5\%$, and the systematic share is $0.036864 / 0.099364 = 37.1\%$. For a single stock, most of the risk is its own.
+
+Now diversify. Hold 50 stocks equally weighted, each with beta 1, specific volatility 25%, and residuals uncorrelated across names. The portfolio residual averages 50 independent terms, so its volatility is $0.25/\sqrt{50} = 0.0354$. Portfolio variance is $0.0256 + 0.00125 = 0.02685$, giving 16.39% volatility, of which specific risk is $0.00125/0.02685 = 4.7\%$. Fifty names turned a 37% systematic share into 95%. Diversification removes one term and leaves the other untouched.
+
+## Part 4 — Many factors, and three ways to build them
+
+**Goal — know what the standard factors are, and know the three architectures for estimating a factor model, because interviewers ask which one you would use where.**
+
+One factor is not enough. Sorting stocks on characteristics produces return spreads a single market factor does not explain, and each surviving spread becomes a candidate factor. Fama and French (1993) added **SMB** (small minus big), small-capitalization stocks minus large, and **HML** (high minus low), high book-to-market minus low. Fama and French (2015) added **RMW** (robust minus weak) on operating profitability and **CMA** (conservative minus aggressive) on asset growth. Jegadeesh and Titman (1993) documented momentum, packaged by Carhart (1997) as **UMD** (up minus down) on trailing 12-month return skipping the most recent month to avoid short-term reversal. Asness, Frazzini and Pedersen's quality-minus-junk sorts on profitability, growth and safety together.
+
+Each of these is a **long-short** portfolio: long one leg, short the other, so the position bets on one group beating another rather than on the market rising. Vocabulary that travels with that: **gross exposure** is the sum of absolute position weights, **net exposure** the sum of signed weights, so a book 150% long and 150% short is 300% gross and 0% net, and is called market-neutral. A **basis point** is one hundredth of one percent, 0.0001. A **drawdown** is the peak-to-trough decline in cumulative value.
+
+The three architectures differ in which side of $r = \alpha + Bf + \varepsilon$ you observe.
+
+A **statistical** model observes neither and extracts both from the return panel by principal component analysis: keep the top $K$ eigenvectors of the sample covariance and call them factors. By construction they capture more variance per factor than any other choice, making this the best pure risk model per parameter. The costs: the factors have no names, so you cannot tell a risk committee what a position is exposed to, and eigenvectors rotate and flip sign between windows, manufacturing turnover. The first principal component of an equity panel has all-positive, roughly equal loadings and behaves like a market factor. These models suit short-horizon statistical arbitrage, where residualizing returns matters and interpretation does not.
+
+A **fundamental** model observes $B$ from asset characteristics: log market capitalization, book-to-market, trailing beta, momentum, leverage, industry dummies. With $B$ known each period, the factor returns come from a **cross-sectional** regression of that period's asset returns on the exposure columns, one regression per period. Commercial risk models (Barra, Axioma) work this way. The decisive advantage is new assets: a company that listed last month has no return history, so a statistical model has nothing to say, but its market capitalization and sector are known today. These dominate long-horizon construction and risk reporting.
+
+A **macroeconomic** model observes $f$ as economic time series: inflation surprises, industrial production, the term spread, the credit spread, oil. Exposures come from a **time-series** regression of each asset's returns on those series, one per asset. Chen, Roll and Ross (1986) is the canonical version. These explain less return variance than the other two, so they are poor pure risk models, but they answer what the others cannot: what happens to this book if the front end sells off 100 basis points.
+
+Regression direction is the compact way to keep these straight. Observed factors, unknown exposures: regress through time. Observed exposures, unknown factors: regress across the cross-section. Neither observed: PCA.
+
+## Part 5 — Using the model: risk decomposition and marginal contributions
+
+**Goal — attribute a portfolio's risk to its sources, exactly, with no leftover.**
+
+Let $w$ be the $N \times 1$ vector of portfolio weights. Portfolio variance is $\sigma_p^2 = w^\top \Sigma w$, and substituting the factor structure gives
+
+$$\sigma_p^2 = \underbrace{x^\top \Sigma_f x}_{\text{factor}} + \underbrace{\sum_{i=1}^{N} w_i^2 d_i}_{\text{specific}}, \qquad x = B^\top w$$
+
+where $x$ is the $K \times 1$ vector of the portfolio's net factor exposures: its beta to factor $k$ is the weighted sum of its holdings' loadings.
+
+Work it. Two factors, market and value, with $x = (1.0,\ 0.3)$. Market volatility 16%, value factor volatility 8%, correlation $-0.2$, so the off-diagonal of $\Sigma_f$ is $-0.2 \times 0.16 \times 0.08 = -0.00256$. Factor variance is
+
+$$1.0^2(0.0256) + 2(1.0)(0.3)(-0.00256) + 0.3^2(0.0064) = 0.0256 - 0.001536 + 0.000576 = 0.024640$$
+
+For specific risk, take 60 equally weighted names each with specific volatility 30%, so $d_i = 0.09$ and $w_i = 1/60$, and the sum is $60 \times (1/60)^2 \times 0.09 = 0.0015$. Total variance $0.026140$, so $\sigma_p = 16.17\%$, of which the factor share is $0.024640/0.026140 = 94.3\%$ and specific is 5.7%.
+
+Watch what happens in volatility units. Factor volatility is $\sqrt{0.02464} = 15.70\%$, specific volatility $\sqrt{0.0015} = 3.87\%$, and those sum to 19.57%, not 16.17%. **Variances add; volatilities do not.** Every risk report listing a factor volatility beside a specific volatility invites that mistake.
+
+### Marginal contribution to risk
+
+That splits variance. Splitting *volatility* across individual positions needs a different tool, because $\sigma_p$ is not a sum over assets in any obvious way. Define the marginal contribution of asset $i$ as the derivative of portfolio volatility with respect to its weight. From $\sigma_p = (w^\top\Sigma w)^{1/2}$,
+
+$$MCR_i = \frac{\partial \sigma_p}{\partial w_i} = \frac{(\Sigma w)_i}{\sigma_p}$$
+
+and the contribution to risk is $CR_i = w_i \cdot MCR_i$. These sum exactly:
+
+$$\sum_i CR_i = \frac{\sum_i w_i (\Sigma w)_i}{\sigma_p} = \frac{w^\top \Sigma w}{\sigma_p} = \frac{\sigma_p^2}{\sigma_p} = \sigma_p$$
+
+It works because $\sigma_p(\lambda w) = \lambda \sigma_p(w)$: volatility is homogeneous of degree 1 in the weights. Differentiate that identity in $\lambda$ at $\lambda = 1$ to get $w^\top \nabla \sigma_p = \sigma_p$, Euler's theorem for homogeneous functions. Any risk measure with the same scaling property admits the same exact attribution, which is why the construction also shows up for value-at-risk and expected shortfall.
+
+A two-asset example shows that risk contribution is not weight. Take $w = (0.6, 0.4)$, $\sigma_1 = 20\%$, $\sigma_2 = 30\%$, $\rho = 0.4$, so the covariance is $0.024$. Then $(\Sigma w)_1 = 0.04(0.6) + 0.024(0.4) = 0.0336$ and $(\Sigma w)_2 = 0.024(0.6) + 0.09(0.4) = 0.0504$. Portfolio variance is $0.6(0.0336) + 0.4(0.0504) = 0.04032$, so $\sigma_p = 20.08\%$. The contributions are each $0.02016/0.2008 = 10.04\%$, summing to 20.08% as promised. Asset 2 carries 40% of the capital and 50% of the risk. Equalizing contributions rather than weights is what risk parity does.
+
+## Part 6 — Active risk, tracking error, and the information ratio
+
+**Goal — run the same decomposition relative to a benchmark, because that is how most institutional mandates are scored.**
+
+Let $w_b$ be benchmark weights and $w_p$ portfolio weights. The **active weights** $w_a = w_p - w_b$ sum to zero when both are fully invested, making the active portfolio a long-short book overlaid on the benchmark. Active return is $R_a = w_a^\top r$, and **active risk**, universally called **tracking error**, is
+
+$$TE = \sqrt{w_a^\top \Sigma w_a} = \sqrt{x_a^\top \Sigma_f x_a + \sum_i w_{a,i}^2 d_i}, \qquad x_a = B^\top w_a$$
+
+A tracking error of 4% is 400 basis points: roughly two years in three the fund lands within 400 basis points of its benchmark. Everything from Part 5 carries over with $w_a$ in place of $w$, including marginal contributions, which is how a risk report says "62% of your tracking error comes from an unintended small-cap tilt."
+
+The **information ratio** is active return divided by tracking error:
+
+$$IR = \frac{\mathbb{E}[R_a]}{TE}$$
+
+Structurally this is a Sharpe ratio with the benchmark in place of the risk-free asset, so every estimator property derived in c8.3 applies verbatim: standard error about $1/\sqrt{n}$ in per-period units, t-statistic $IR \times \sqrt{T_{\text{years}}}$. A manager with a genuine information ratio of 0.5 running 4% tracking error earns 200 basis points of active return per year and needs $(1.96/0.5)^2 = 15.4$ years before the record is nominally significant. Manager selection on three-year track records is selection on noise, and no amount of factor modeling fixes it.
+
+## Part 7 — The fundamental law of active management
+
+**Goal — say where an information ratio comes from, in terms you can act on.**
+
+Suppose you make $BR$ bets per year (the **breadth**). For each, you have a forecast $z_j$, standardized to mean 0 and variance 1, and the realized return $r_j$ has volatility $\sigma$. Your skill is the **information coefficient**, $IC = \mathrm{corr}(z_j, r_j)$, the cross-sectional correlation between what you forecast and what happened. Real equity ICs are small; 0.03 to 0.06 is a working range for a good signal.
+
+Take positions proportional to the signal and inversely proportional to risk, $h_j = c\,z_j/\sigma$, so every bet carries equal risk. Expected profit on one bet is $\mathbb{E}[h_j r_j] = (c/\sigma)\,\mathrm{Cov}(z_j, r_j) = c \cdot IC$, and its variance is approximately $(c/\sigma)^2\sigma^2 = c^2$ for small $IC$. If the bets are independent, profits add and variances add, so over $BR$ bets expected profit is $BR \cdot c \cdot IC$ and standard deviation is $c\sqrt{BR}$. Divide:
+
+$$IR \approx IC \sqrt{BR}$$
+
+That is Grinold's (1989) fundamental law. Skill and diversification are substitutes on a square-root exchange rate: an $IC$ of 0.05 across 100 independent bets gives $IR = 0.5$, the same $IC$ across 1,000 gives $0.05\sqrt{1000} = 1.58$. Doubling $IC$ is worth quadrupling breadth, and doubling $IC$ is much harder.
+
+Now the honest part. Adding variances required the bets to be uncorrelated. They are not. If the $BR$ payoffs all have pairwise correlation $\rho$, total variance becomes $c^2\bigl(BR + BR(BR-1)\rho\bigr)$, and
+
+$$IR = \frac{BR \cdot c \cdot IC}{c\sqrt{BR\,(1 + (BR-1)\rho)}} = IC\sqrt{\frac{BR}{1 + (BR-1)\rho}} \equiv IC\sqrt{BR_{\text{eff}}}$$
+
+With $BR = 500$ names and a modest $\rho = 0.10$, effective breadth is $500/(1 + 499 \times 0.10) = 500/50.9 = 9.8$. Five hundred positions bought the diversification of ten. The information ratio is $0.05\sqrt{9.8} = 0.16$, not the $0.05\sqrt{500} = 1.12$ the naive law promised, a sevenfold overstatement. As $BR \to \infty$ effective breadth converges to $1/\rho = 10$: **correlation puts a hard ceiling on breadth that no number of extra names can lift.** That is the failure mode of every strategy built by ranking one signal across a universe, because those positions are one bet expressed 500 times.
+
+Clarke, de Silva and Thorley (2002) add the other leak: constraints stop you from holding the positions the model wants. Their transfer coefficient $TC$ is the correlation between ideal unconstrained active weights and the ones you hold, giving $IR \approx TC \times IC \times \sqrt{BR}$. A long-only constraint on a signal with symmetric long and short views drives $TC$ well below 1, because the short half of every forecast truncates at a zero weight.
+
+## Part 8 — When alpha turns out to be beta
+
+**Goal — determine whether a return stream is genuinely new or a known factor in disguise, before someone else determines it for you.**
+
+Alpha is an intercept, defined only relative to the factors you regressed on. Run
+
+$$R_t - r_{f,t} = \alpha + \sum_{k=1}^{K}\beta_k F_{k,t} + e_t$$
+
+on your strategy's realized returns $R_t$ against standard factor returns $F_{k,t}$, and test whether $\hat\alpha$ differs from zero.
+
+Work an example. A strategy returns 12% annualized with 15% volatility, against a 2% risk-free rate, for a Sharpe of $10/15 = 0.667$. Regressing on market, SMB and HML gives $\beta_{\text{mkt}} = 0.3$, $\beta_{\text{SMB}} = 0.5$, $\beta_{\text{HML}} = 0.7$. Over the same period the factors returned 6%, 2% and 4%. The explained part of the excess return is
+
+$$0.3(6) + 0.5(2) + 0.7(4) = 1.8 + 1.0 + 2.8 = 5.6\%$$
+
+leaving $10 - 5.6 = 4.4\%$ of alpha. If the regression $R^2$ is 0.6, residual volatility is $15\sqrt{0.4} = 9.49\%$, and the appraisal ratio, alpha over residual volatility, is $4.4/9.49 = 0.46$. So 56% of the excess return was factor exposure buyable in an index product for a few basis points a year, and the part that is yours needs $(1.96/0.46)^2 = 18$ years of data to distinguish from zero.
+
+Errors run in both directions. Omit a real factor and you report its premium as your alpha, which is how a value-tilted or short-volatility strategy sells itself as skill. Include too many factors, especially ones built from the same characteristics your signal uses, and you regress away returns that were genuinely yours. Alpha is not a property of a return stream. It is a claim about which benchmark you agreed to be measured against, and that negotiation has real money attached.
+
+## Tradeoff matrix
+
+| Model | Where $B$ comes from | Where $f$ comes from | Estimation | New assets | Best at | Main weakness |
+|---|---|---|---|---|---|---|
+| Sample covariance | n/a | n/a | Direct from returns | Needs history | Nothing when $N > T$ | Singular at $T < N$; 125,250 parameters at $N=500$ |
+| Statistical (PCA) | Estimated | Estimated | Eigendecomposition of return panel | Needs history | Variance explained per factor; short-horizon residualization | Unnamed factors; rotation and sign instability across windows |
+| Fundamental | Observed characteristics | Estimated | Cross-sectional regression per period | Immediate, from characteristics | Interpretable risk reporting; long-horizon construction | Exposures need point-in-time data; factor set is a modeling choice |
+| Macroeconomic | Estimated | Observed economic series | Time-series regression per asset | Needs history | Scenario and stress analysis | Explains the least return variance; noisy betas |
+
+## Production failure modes
+
+1. **Look-ahead in the exposure matrix.** A fundamental model built on book value uses the fiscal period end, but that number was not public until the filing date, typically 45 to 90 days later. Building $B$ on period-end dates makes every backtest look better than reality. Fix: stamp every characteristic with its public availability date and lag accordingly.
+2. **Residuals that are not diagonal.** $D$ diagonal is an assumption, not a fact. If a real driver is missing from $B$ (a currency, a crowding factor, a supply-chain linkage), its effect lands in $\varepsilon$ as correlated residuals, and the model understates risk exactly for the portfolios most exposed to it. Diagnostic: average the off-diagonal correlation of realized residuals within industry and within region; it should be near zero.
+3. **Understated tracking error, measured.** Each period, divide the realized active return by the tracking error predicted at the start of that period to get $z_t$. If the model is calibrated, $z_t$ has standard deviation 1. Predicted annual $TE$ of 4% is $4/\sqrt{12} = 1.155\%$ monthly; if realized monthly active returns have standard deviation 1.62%, then $\mathrm{sd}(z) = 1.40$ and true tracking error is $5.6\%$. Portfolios sized to a 4% risk budget are running 5.6%.
+4. **Optimizing against the model that scores you.** An optimizer minimizing $w^\top(B\Sigma_f B^\top + D)w$ loads on directions the model calls cheap, and directions outside the span of $B$ are cheapest of all. If your alpha has a component orthogonal to the factor space, the optimizer prices its risk as pure specific risk and scales the position up. This is the factor alignment problem; the fix is to add the alpha direction to the risk model as a factor, or to constrain the position instead of trusting the risk estimate.
+5. **PCA factors that rotate.** Recomputing principal components each month gives eigenvectors that flip sign and rotate when eigenvalues are close. The model then reports an exposure change when only the basis changed, and turnover follows. Fix: sign-align each new eigenvector to the previous one and require an eigenvalue gap before treating a component as distinct.
+6. **A factor covariance estimated through a regime change.** $\Sigma_f$ is small enough to estimate well, which tempts you into a long window. Long windows average across regimes and understate risk when volatility clusters. Half-life weighting, shorter for volatilities than for correlations, is the standard compromise.
+
+## Interview gotchas
+
+- **"Is $B\Sigma_f B^\top + D$ a valid covariance matrix?"** Symmetric by inspection. Positive semi-definite because $w^\top\Sigma w = \lVert\Sigma_f^{1/2}B^\top w\rVert^2 + \sum_i w_i^2 d_i \ge 0$. Positive *definite* if and only if every $d_i > 0$; set one specific variance to zero and you have declared a riskless portfolio.
+- **"If $A$ and $B$ are covariance matrices, is $AB$?"** Reported at SIG. In general no: the product of two symmetric matrices need not be symmetric. If $AB = BA$ then $(AB)^\top = B^\top A^\top = BA = AB$, so it is symmetric; commuting symmetric matrices are simultaneously diagonalizable, so the eigenvalues of $AB$ are pairwise products $\lambda_i\mu_i \ge 0$ and $AB$ is positive semi-definite. Yes under commutation, no in general.
+- **"You regress $y$ on $x$ for slope $\beta_{yx}$, then $x$ on $y$ for $\beta_{xy}$. What is their product?"** Reported at Point72/Cubist. $\beta_{yx} = \mathrm{Cov}(x,y)/\mathrm{Var}(x)$ and $\beta_{xy} = \mathrm{Cov}(x,y)/\mathrm{Var}(y)$, so the product is $\rho^2 = R^2$. The two fitted lines coincide only when $R^2 = 1$.
+- **"Your covariance matrix is noisy. What do you do?"** Shrink toward a structured target (Ledoit-Wolf is the named estimator), impose a factor structure, or lengthen the sample. Then connect them: a factor model *is* a shrinkage estimator whose target was chosen for interpretability.
+- **"Why not add more factors?"** Each factor costs $N$ loadings. At $N = 500$, going from $K = 10$ to $K = 50$ takes the total from 5,555 to $25{,}000 + 1{,}275 + 500 = 26{,}775$. In-sample fit rises monotonically; out-of-sample risk forecasts do not.
+- **"Why do risk contributions sum to total risk?"** Volatility is homogeneous of degree 1 in the weights, so Euler's theorem gives $w^\top\nabla\sigma = \sigma$ exactly, not approximately.
+- **"State the fundamental law, then attack it."** $IR \approx IC\sqrt{BR}$, then immediately: breadth counts *independent* bets, and with pairwise correlation $\rho$ effective breadth is $BR/(1 + (BR-1)\rho)$, capped at $1/\rho$. Volunteering that unprompted separates reciting the formula from understanding it.
+- **"Your strategy has a Sharpe of 0.9. How do I know it is alpha?"** Regress the returns on market, size, value, momentum and profitability; report the intercept, its t-statistic, and the appraisal ratio. Then name what is missing from that factor set (carry, betting-against-beta, liquidity) and argue your residual is not one of those either.
+- **"What did August 2007 do to factor models?"** Multiple statistical arbitrage books held overlapping factor exposures. When one deleveraged, the shared positions moved together, which is exactly the residual correlation a diagonal $D$ assumes away. Realized losses ran many times predicted tracking error, and crowding entered risk models as a factor afterward.
+
+## Take the quiz
+
+**[Take the quiz →](/c/c10/c10.2/quiz)**

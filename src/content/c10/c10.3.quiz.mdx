@@ -1,0 +1,472 @@
+---
+lessonId: c10.3
+chapter: 10
+title: Quiz — From backtest to live portfolio
+description: Eight questions on execution cost, turnover, break-even and optimal holding periods, capacity, partial adjustment, no-trade bands, attribution, drawdown and VaR coherence.
+estimatedMinutes: 75
+---
+
+These eight questions test whether you can price a trade from stated assumptions, kill a strategy with turnover arithmetic, derive a capacity number and a rebalancing rule from an objective, and then read a live track record without being fooled by its headline statistics. Do the algebra on paper before opening an answer, and say the arithmetic out loud rather than writing it. The rapid-fire section at the bottom stands on its own and depends on nothing above. If you drill only one part of this quiz, drill that one.
+
+<Quiz id="1">
+
+**Q1. Price one trade.** (a) Build a one-way execution cost in basis points from these assumptions and show every step: a 50 USD mid-cap US equity with a 3 cent quoted spread, 1 bp of commissions and fees, daily return volatility 2 percent, impact coefficient $Y = 0.5$, and an order equal to 1 percent of average daily volume. (b) State the impact law you used, define every symbol, and show why total cost in currency scales as the $3/2$ power of size while per-unit cost scales as the square root. (c) Separate temporary from permanent impact and say how each one hits a round trip. (d) A vendor calibrated a cost model on orders at 0.1 percent of ADV and quotes a flat per-unit cost from it. Quantify the error when you send an order at 1 percent of ADV, and say in which direction it fails.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** A basis point, bp, is one hundredth of a percentage point, so 1 bp is 0.0001 of notional, and notional is the market value of what you traded. Costs are quoted as a fraction of notional because that is the unit that subtracts cleanly from a return.
+
+The quoted spread is the distance from the bid, the best price someone will buy from you at, to the ask, the best price someone will sell to you at. Here it is 0.03/50 = 0.0006 = 6 bp. Trading immediately means crossing, buying at the ask or selling at the bid, so you pay half of it against the midpoint: **3 bp**.
+
+Commissions, exchange fees, clearing and the US SEC fee on sales come to about **1 bp** for an institutional equity account. Both of these are fixed tolls per unit of notional: they scale with how often you trade, not with how big you are.
+
+Impact, with daily volatility $\sigma = 2\% = 200$ bp and participation $p = 0.01$:
+
+$$\text{impact} = Y\sigma\sqrt{p} = 0.5 \times 200 \times \sqrt{0.01} = 0.5 \times 200 \times 0.1 = 10 \text{ bp}$$
+
+One-way cost $= 3 + 1 + 10 = $ **14 bp**, round trip 28 bp. The one-way number is what multiplies turnover; the round-trip number is what a single trade idea has to beat.
+
+**(b)** The law is the square-root law of market impact,
+
+$$\text{impact} \approx Y\,\sigma\,\sqrt{p}, \qquad p = \frac{Q}{V}$$
+
+with $Q$ the order size in shares, $V$ the average daily volume in shares (ADV), $\sigma$ the asset's daily return volatility, $p$ the participation rate, and $Y$ a dimensionless constant that broker cost models calibrate per market, typically 0.5 to 1. Almgren, Thum, Hauptmann and Li (2005) fit the exponent on Citigroup US equity order data and got roughly 0.6, not exactly 0.5; the square root survives because it is close, tractable and stable across markets.
+
+The scaling argument: impact as written is a cost *per unit traded*. Total cost in currency is that per-unit cost times the size traded, and size is proportional to $p$, so
+
+$$\text{total} \propto p \times \sqrt{p} = p^{3/2}$$
+
+Trading four times as much costs eight times as much, not four. This is why splitting one large trade into many small ones is not cosmetic: the exponent above one is the entire argument for execution schedules.
+
+**(c)** Temporary impact is what you pay for consuming the liquidity resting on the book and pushing the price past where the rest of the market thinks it belongs. When you stop, market makers replenish and the price relaxes back. Permanent impact does not relax, because the market has read information into your trading and repriced the asset.
+
+On a round trip they hit differently. Temporary impact is paid twice, once going in and once coming out, because both times you are the one demanding immediacy. Permanent impact does not reverse, so it shows up as a gap between your entry reference price and your exit reference price: you bought a little above where the market was and you will sell a little below where it is. The practical consequence is that measuring impact by comparing your fill to the arrival price mixes the two, and you need a post-trade relaxation window to split them.
+
+**(d)** At $p = 0.001$ the true per-unit impact is $0.5 \times 200 \times \sqrt{0.001} = 100 \times 0.03162 = 3.16$ bp. A flat per-unit model carries that 3.16 bp forward to any size. At $p = 0.01$ the truth is 10 bp. The model understates impact by $10 - 3.16 = 6.84$ bp one way, 13.7 bp round trip.
+
+The direction is the dangerous one: the error is always an *underestimate* as you scale up, because the true per-unit cost is increasing in size and the flat model froze it at its smallest observed value. Every downstream number inherits the bias in the flattering direction, so net returns, capacity and the optimal holding period are all overstated at once. The general statement: per-unit cost at $k$ times the size is $\sqrt{k}$ times higher, so at ten times the size it is 3.16 times higher, not equal.
+
+**Rubric:**
+- Converts 3 cents on 50 USD into 6 bp quoted and 3 bp half-spread, and says why only half is paid
+- Impact computed as $0.5 \times 200 \times 0.1 = 10$ bp with every symbol defined, landing on 14 bp one way and 28 bp round trip
+- Derives $p^{3/2}$ for total cost from per-unit times size, rather than asserting it
+- Cites Almgren et al. (2005) and the fitted exponent near 0.6 without pretending 0.5 is exact
+- Temporary and permanent distinguished by whether the price relaxes, and mapped onto a round trip correctly
+- Quantifies the flat-model error as 3.16 versus 10 bp, and names the underestimate direction as the reason it matters
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. Kill a strategy with arithmetic.** Use the 14 bp one-way cost throughout. (a) Define annual turnover, relate it to average holding period $H$, and write cost drag. (b) Strategy A holds 20 days and backtests at 12 percent gross. Strategy B is the same idea run faster: 2-day holding period, 20 percent gross. Compute both net returns. (c) Redo Strategy B on a per-round-trip basis and state the result in one sentence. A portfolio manager proposes fixing it with 3x leverage. Respond. (d) For a strategy grossing 20 percent, find the shortest holding period that can break even, and give the general formula.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Turnover is traded notional relative to holdings. Define annual turnover as total traded notional in a year, buys plus sells, divided by average portfolio value. On this convention, selling the entire book once and buying a new one is 2.0 turns. With $H$ the average holding period in trading days and 252 trading days in a year, the book is replaced $252/H$ times, and each replacement is two turns:
+
+$$\text{turnover}_{\text{ann}} = \frac{2 \times 252}{H}, \qquad \text{cost drag} = \text{turnover}_{\text{ann}} \times c$$
+
+with $c$ the one-way cost per unit of notional. The convention matters and interviewers do check it, because a "100 percent turnover" fund under a one-sided convention is a "200 percent turnover" fund under this one.
+
+**(b)** Strategy A: turnover $= 2 \times 252/20 = 25.2$. Drag $= 25.2 \times 14 = 352.8$ bp $= 3.53\%$. Net $= 12 - 3.53 = $ **8.47 percent**. Painful and survivable.
+
+Strategy B: turnover $= 2 \times 252/2 = 252$. Drag $= 252 \times 14 = 3528$ bp $= 35.3\%$. Net $= 20 - 35.3 = $ **minus 15.3 percent**. The faster version backtests 8 points better gross and loses money live.
+
+**(c)** Strategy B does $252/2 = 126$ round trips a year, so gross alpha per round trip is $2000/126 = 15.9$ bp against a round-trip cost of 28 bp. **It loses 12.1 bp every single time it trades.**
+
+Leverage does not fix it, and the reason is that leverage is a positive scalar multiplying both terms. Net return is $L \times (15.9 - 28)$ bp per round trip for leverage $L$; the sign of a negative number is invariant under multiplication by a positive one. Three times leverage turns a 15.3 percent loss into a 46 percent loss, and adds financing cost and margin risk on top. The only repairs are on the per-trade economics: raise gross alpha per round trip, lower $c$ through better execution or a more liquid universe, or slow down so each round trip harvests more of the signal.
+
+**(d)** Break-even requires annual gross $\ge$ drag:
+
+$$g_{\text{ann}} \ge \frac{2 \times 252}{H}\,c \quad\Longleftrightarrow\quad H \ge \frac{504\,c}{g_{\text{ann}}}$$
+
+With $g_{\text{ann}} = 0.20$ and $c = 0.0014$: $H \ge 504 \times 0.0014/0.20 = 0.7056/0.20 = 3.53$ days. So a strategy that grosses 20 percent a year cannot hold for less than about three and a half days at this cost level, whatever it does.
+
+The formula is worth carrying because of what it says structurally: the minimum viable holding period is proportional to cost and inversely proportional to gross return. Halving your execution cost halves the speed floor. It is also a *necessary* condition only, since it treats gross return as independent of $H$, which it is not once the signal decays.
+
+**Rubric:**
+- States the two-turns convention explicitly and flags that conventions differ
+- 25.2 and 252 turnover, 3.53 percent and 35.3 percent drag, 8.47 percent and minus 15.3 percent net
+- Per-round-trip reframe: 15.9 bp gross against 28 bp cost, minus 12.1 bp per trade
+- Rejects leverage with the sign argument, not by assertion, and names financing and margin as extra costs
+- Names the three real repairs: gross alpha per trip, cost, holding period
+- $H \ge 504c/g$ derived and evaluated at 3.53 days, with the caveat that it holds gross fixed
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. When a signal cannot pay its own toll.** A position entered at time zero has expected excess return per day $a(t) = a_0 e^{-t/\tau}$, with $a_0 = 6$ bp per day and $\tau = 10$ days. One-way cost is $c = 14$ bp. (a) Derive the gross return of a round trip as a function of holding period, and say what it saturates at and why. (b) Derive the break-even holding period in general and evaluate it. State the condition under which no holding period works. (c) Derive the stationarity condition for the holding period that maximizes annualized net return, interpret it in words, and solve it numerically. (d) Double the cost to 28 bp and redo (b) and (c). Explain the size of the effect.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Holding for $H$ days collects the integral of the decaying rate:
+
+$$G(H) = \int_0^H a_0 e^{-t/\tau}\,dt = a_0\tau\bigl(1 - e^{-H/\tau}\bigr)$$
+
+Here $a_0$ is the expected return per day at entry, $\tau$ is the decay time constant in days, and the signal's half-life is $\tau\ln 2 = 6.93$ days. As $H \to \infty$, $G \to a_0\tau = 6 \times 10 = 60$ bp. That ceiling is the entire information content of one signal observation. Holding longer past that point adds no return and adds risk, because the position is now held on a signal that has stopped saying anything.
+
+Against $G(H)$ you pay $2c$, the one-way cost twice, since a round trip crosses the spread and pays impact on both legs.
+
+**(b)** Set $G(H) = 2c$:
+
+$$a_0\tau\bigl(1 - e^{-H/\tau}\bigr) = 2c \;\Longrightarrow\; H_{\text{be}} = -\tau\ln\!\left(1 - \frac{2c}{a_0\tau}\right)$$
+
+Numerically: $60(1 - e^{-H/10}) = 28$, so $e^{-H/10} = 32/60 = 0.5333$ and $H_{\text{be}} = 10\ln(1.875) = $ **6.29 days**.
+
+The condition for any solution to exist is $a_0\tau > 2c$. If the total lifetime information in the signal is worth less than one round trip of cost, the strategy is dead at every holding period, and no amount of capital, leverage or execution cleverness changes that. Here $60 > 28$, so it survives.
+
+**(c)** Annualized net return is profit per round trip times round trips per year:
+
+$$R(H) = \bigl[G(H) - 2c\bigr]\frac{252}{H}$$
+
+Differentiate the bracket-over-$H$ part. With $f(H) = [G(H) - 2c]/H$,
+
+$$f'(H) = \frac{G'(H)H - [G(H) - 2c]}{H^2} = 0 \;\Longrightarrow\; \underbrace{G'(H)}_{\text{alpha rate now}} = \underbrace{\frac{G(H) - 2c}{H}}_{\text{average net rate}}$$
+
+In words: **hold until the instantaneous alpha the position is still earning falls to the average net rate you would earn by closing it and recycling the capital into a fresh signal.** That is an opportunity-cost condition, and it is the reason the optimum is not the break-even point. At break-even the average net rate is zero while the instantaneous rate is still strongly positive, so you are quitting far too early.
+
+Solve $6He^{-H/10} = 60(1 - e^{-H/10}) - 28$. At $H = 15$: left 20.08, right 18.61, so $f$ is still rising. At $H = 16$: left 19.38, right 19.89, so $f$ is falling. The root is near $H = 15.7$, and the function is flat there: $f \approx 1.243$ bp per day, so $R = 252 \times 1.243 = $ **313 bp per year**. Call it 16 days.
+
+**The optimal holding period is about 2.5 times the break-even one.** Holding just past break-even means paying a fixed 28 bp toll to harvest only the thin end of the signal.
+
+**(d)** With $c = 28$ so $2c = 56$: break-even is $e^{-H/10} = 4/60 = 0.0667$, giving $H_{\text{be}} = 10\ln 15 = $ **27.1 days**. The optimum solves $6He^{-H/10} = 60(1-e^{-H/10}) - 56$, whose root is near $H = 44$: there $G = 59.26$, net per round trip $= 3.26$ bp, $f = 3.26/44 = 0.0742$ bp per day, $R = $ **18.7 bp per year**.
+
+Doubling the cost took the strategy from 313 bp to 19 bp, a 94 percent destruction from a 100 percent cost increase. The mechanism is not subtraction. Higher cost forces a longer hold, the longer hold runs into the $a_0\tau$ ceiling, and you end up paying a large toll to collect a return that has already saturated: at 44 days you capture 59.3 of the available 60 bp and hand back 56 of it. **Cost does not subtract from a strategy's return, it deforms the operating point.** This is also why a cost estimate that is off by a factor of two is not a factor-of-two error in the answer.
+
+**Rubric:**
+- Integral evaluated, ceiling $a_0\tau = 60$ bp identified and explained as the signal's total information
+- General break-even formula with the logarithm, evaluated to 6.29 days
+- Feasibility condition $a_0\tau > 2c$ stated
+- Stationarity condition derived as $G'(H) = [G(H)-2c]/H$ and read aloud as an opportunity-cost rule
+- Root bracketed numerically near 15.7 to 16 days, worth 313 bp per year
+- Doubled-cost case: 27.1 days break-even, about 44 days optimal, 18.7 bp per year
+- Explains the 94 percent collapse through the saturation ceiling, not as arithmetic subtraction
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. Capacity, and the size you would actually run.** A strategy holds $N$ names of roughly equal size, has assets under management $A$, and the median name trades $D$ dollars per day. (a) Derive capacity $A^{\ast}$ from a net-alpha-equals-zero condition, defining every symbol. (b) Evaluate it for $g = 47.89$ bp gross per round trip, fixed one-way cost $s = 4$ bp, $Y = 0.5$, $\sigma = 200$ bp, $N = 200$, $D = 50$ million USD. (c) Show that the profit-maximizing size is $\tfrac49 A^{\ast}$, compute the dollar profit there, and say what fraction of net alpha impact takes. (d) Manager A runs the same signal at 2 billion USD and shows worse returns than manager B running it at 200 million USD. Is manager A worse? Answer from the formula.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** With $N$ equally weighted names, each order is $A/N$ dollars, so participation is
+
+$$p = \frac{A}{ND}$$
+
+Write $g$ for gross return per round trip and $s$ for the fixed part of one-way cost, half-spread plus commissions and fees. Net return per round trip is gross minus twice the fixed cost minus twice the impact:
+
+$$n(A) = g - 2s - 2Y\sigma\sqrt{\frac{A}{ND}}$$
+
+Only the last term depends on $A$, and it grows as $\sqrt{A}$. Capacity is the size at which the strategy earns exactly nothing, $n(A^{\ast}) = 0$:
+
+$$A^{\ast} = ND\left(\frac{g - 2s}{2Y\sigma}\right)^{2}$$
+
+**(b)** $2s = 8$ bp and $2Y\sigma = 2 \times 0.5 \times 200 = 200$ bp. So
+
+$$\sqrt{p^{\ast}} = \frac{47.89 - 8}{200} = 0.1995 \;\Longrightarrow\; p^{\ast} = 0.0398$$
+
+$$A^{\ast} = 200 \times 50{,}000{,}000 \times 0.0398 = 398 \text{ million USD}$$
+
+At 398 million USD the strategy trades about 4 percent of each name's daily volume on every rebalance and earns exactly zero after cost.
+
+**(c)** Capacity is where profit hits zero, which is not where profit is largest. Total dollar profit per round trip is
+
+$$P(A) = A\,n(A) = A(g-2s) - kA^{3/2}, \qquad k = \frac{2Y\sigma}{\sqrt{ND}}$$
+
+$$\frac{dP}{dA} = (g-2s) - \tfrac32 k\sqrt{A} = 0 \;\Longrightarrow\; \sqrt{A_{\text{opt}}} = \frac{g-2s}{1.5k}$$
+
+and since $\sqrt{A^{\ast}} = (g-2s)/k$ by construction, $A_{\text{opt}} = \tfrac{4}{9}A^{\ast} = $ **177 million USD**.
+
+At that size the impact term equals $(g-2s)/1.5$, so net per round trip is exactly one third of $g - 2s$: here 13.3 bp out of 39.89 bp. **The profit-maximizing size gives two thirds of your net alpha away to impact.** That is not a mistake; it is what maximizing dollars rather than percentages looks like.
+
+Annualized at a 16-day holding period: $252/16 = 15.75$ round trips, so $15.75 \times 13.3 = 209$ bp per year on 177 million USD, about **3.7 million USD a year**. That is the honest size of this business, and it is the number that decides whether the strategy supports a team.
+
+**(d)** Read the capacity formula for what is absent: there is no term for the manager. $A^{\ast}$ is set by $g$ and the signal's decay, which belong to the signal, and by $N$, $D$ and $\sigma$, which belong to the universe. Skill enters only through $Y$ and $s$ — better execution and cheaper brokerage — and those move capacity by a constant factor, not an order of magnitude.
+
+So the comparison is not informative as posed. At ten times the AUM in the same universe, participation is ten times higher and per-unit impact is $\sqrt{10} = 3.16$ times higher. Manager A can be strictly better at execution and still post worse returns. The right questions are: what is each one's participation rate, and what is each one's return *at the same size*. The correct framing of returns at scale is dollars, not percent, and the answer to "who is better" is whichever manager's signal has the higher $g$ and $\tau$, which is a statement about the alpha, not about the person.
+
+This is also the diagnosis for a fund whose returns quietly decayed while assets grew. The tell is realized cost per unit traded rising while the signal's information coefficient holds flat, which says the alpha is intact and the size is not.
+
+**Rubric:**
+- $p = A/(ND)$ set up and the $\sqrt{A}$ dependence isolated before solving
+- $A^{\ast} = ND((g-2s)/(2Y\sigma))^2$ derived, and 398 million USD computed via $p^{\ast} = 0.0398$
+- $dP/dA$ taken on $A(g-2s) - kA^{3/2}$, giving the factor $4/9$ from the $3/2$ exponent, and 177 million USD
+- Notes net per round trip is exactly one third of $g - 2s$ at the optimum, 13.3 of 39.89 bp
+- Annualizes to about 3.7 million USD and treats that as the business-relevant number
+- Answers (d) by pointing at the absent manager term and the $\sqrt{10}$ impact ratio, and asks for participation rates rather than judging from returns
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Where partial adjustment comes from.** (a) Write the frictionless mean-variance objective and its solution, then say precisely why trading to that solution every day is a disaster once cost is real. (b) Add a quadratic cost $\tfrac{\gamma}{2}(w-w_0)^\top\Sigma(w-w_0)$ and derive the optimal trade. Show it is a convex combination and give the weight. (c) Redo it with the identity as the cost metric and say what changes qualitatively. (d) With $\lambda = 5$ and $\gamma = 15$, give the adjustment speed and the half-life of the gap to a static target. Then state the one structural thing a quadratic cost can never produce, and why.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The frictionless problem is
+
+$$\max_w \; w^\top\alpha - \frac{\lambda}{2}w^\top\Sigma w$$
+
+with $\alpha$ the vector of expected excess returns, $\Sigma$ the covariance matrix of returns, $\lambda$ a risk-aversion constant, and $w$ the vector of portfolio weights. Setting the gradient to zero gives $\alpha = \lambda\Sigma w$, so $w^{\ast} = \tfrac{1}{\lambda}\Sigma^{-1}\alpha$.
+
+Re-estimate $\alpha$ and $\Sigma$ each morning and $w^{\ast}$ moves each morning. A small part of that motion is the world changing. The larger part is estimation error, and $\Sigma^{-1}$ amplifies it along the smallest-eigenvalue directions, which are the worst-estimated ones. Trading to $w^{\ast}$ daily is optimal before cost and catastrophic after it, because every basis point of turnover generated by noise is billed at full price and returns nothing in expectation. The fix is not to trade less by decree; it is to put the cost in the objective and let the optimum trade less on its own.
+
+**(b)** With $w_0$ the current holdings and $\gamma$ a cost-aversion constant:
+
+$$\max_w \; w^\top\alpha - \frac{\lambda}{2}w^\top\Sigma w - \frac{\gamma}{2}(w-w_0)^\top\Sigma(w-w_0)$$
+
+Using $\Sigma$ as the cost metric encodes the claim that volatile names are also the expensive ones to trade, which is roughly true and is what makes the algebra collapse. Gradient to zero:
+
+$$\alpha - \lambda\Sigma w - \gamma\Sigma(w-w_0) = 0 \;\Longrightarrow\; \Sigma\bigl[(\lambda+\gamma)w - \gamma w_0\bigr] = \alpha$$
+
+Multiply by $\Sigma^{-1}$ and substitute $\Sigma^{-1}\alpha = \lambda w^{\ast}$:
+
+$$(\lambda+\gamma)w = \lambda w^{\ast} + \gamma w_0 \;\Longrightarrow\; w = \theta w^{\ast} + (1-\theta)w_0, \qquad \theta = \frac{\lambda}{\lambda+\gamma}$$
+
+The coefficients are non-negative and sum to one, so the optimum is a genuine convex combination: you move a fraction $\theta$ of the way from where you are to where you would like to be. Partial adjustment was not imposed, it fell out. The mechanism is that the marginal benefit of closing the gap is linear in the remaining gap while the marginal cost of trading is linear in the trade taken, so the two lines cross at an interior point of the segment.
+
+**(c)** With the identity as the cost metric the trade term is $\tfrac{\gamma}{2}\lVert w - w_0\rVert^2$ and the first-order condition is $\alpha - \lambda\Sigma w - \gamma(w - w_0) = 0$, so
+
+$$w = (\lambda\Sigma + \gamma I)^{-1}\bigl(\lambda\Sigma w^{\ast} + \gamma w_0\bigr)$$
+
+The two coefficient matrices still sum to the identity, so it remains a weighted average, but the weight is now direction-dependent rather than a scalar. Directions with large $\Sigma$ eigenvalues get $\lambda\Sigma$ dominating, so they move quickly toward $w^{\ast}$; low-risk directions get $\gamma I$ dominating and lag. The qualitative change: cheap, low-risk directions are closed slower relative to the $\Sigma$-metric version, because the identity metric says trading them costs as much as trading anything else, while the risk term says correcting them matters less.
+
+**(d)** $\theta = 5/(5+15) = 0.25$. You close a quarter of the gap per rebalance, so the residual gap to a fixed target follows $0.75^t$. Half-life:
+
+$$t_{1/2} = \frac{\ln 2}{\ln(4/3)} = \frac{0.6931}{0.2877} = 2.41 \text{ days}$$
+
+The structural thing quadratic cost can never produce is a **no-trade region**. The marginal cost of the first unit of trade is $\gamma\Sigma(w - w_0)$ evaluated at $w = w_0$, which is exactly zero. A cost whose derivative vanishes at zero trade is a cost you can always beat: any nonzero gap offers a strictly positive first-order gain against a second-order cost, so the optimum always trades at least a little, every single period. That is fine as a model of impact, which really does vanish for an infinitesimal order, and wrong as a model of the spread and commissions, which do not. Getting a dead zone requires a cost term with a nonzero one-sided derivative at zero, meaning a term proportional to the absolute size of the trade.
+
+**Rubric:**
+- $w^{\ast} = \Sigma^{-1}\alpha/\lambda$ derived, and daily rebalancing rejected on estimation-noise grounds with $\Sigma^{-1}$ amplification named
+- Gradient taken and $\Sigma^{-1}$ used to reach $(\lambda+\gamma)w = \lambda w^{\ast} + \gamma w_0$ cleanly
+- $\theta = \lambda/(\lambda+\gamma)$, with the coefficients checked as non-negative and summing to one
+- Explains the interior optimum through linear marginal benefit against linear marginal cost
+- Identity-metric solution written, and the direction-dependent speed explained
+- $\theta = 0.25$ and half-life 2.41 days computed
+- Identifies zero marginal cost at zero trade as the reason no dead zone exists, and says what kind of term would create one
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. The no-trade band.** One asset, expected excess return $a$, volatility $\sigma$, risk aversion $\lambda$, proportional one-way cost $c$ per unit traded, current weight $w_0$. (a) Write the objective, explain why the usual first-order condition does not apply, and derive the region in which the optimal action is to do nothing. (b) Say where you trade to when the target leaves the band, and why it is not the centre. (c) Work the numbers for $a = 3\%$ annual, $\lambda = 5$, annual $\sigma = 20\%$, $c = 14$ bp. (d) State how band half-width responds to $c$, $\lambda$ and $\sigma$, and explain each sign. Then say what a real rebalancer looks like when both cost shapes are present, and what is wrong with a monthly calendar rebalance.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The objective is
+
+$$\max_w \; aw - \frac{\lambda}{2}\sigma^2 w^2 - c\lvert w - w_0\rvert$$
+
+The absolute value is not differentiable at $w = w_0$, so setting a derivative to zero is not available there. Handle the two sides separately.
+
+For $w > w_0$ the cost is $c(w - w_0)$ and the derivative is $a - \lambda\sigma^2 w - c$, vanishing at $w_+ = (a-c)/(\lambda\sigma^2)$. For $w < w_0$ the cost is $c(w_0 - w)$ and the derivative is $a - \lambda\sigma^2 w + c$, vanishing at $w_- = (a+c)/(\lambda\sigma^2)$. Each candidate is admissible only if it actually lies on the branch it was derived on: $w_+$ requires $w_+ > w_0$, and $w_-$ requires $w_- < w_0$.
+
+If $w_0$ lies between $w_+$ and $w_-$, neither condition holds, so neither one-sided stationary point is admissible. The objective is concave, so with no admissible interior stationary point the maximum sits at the kink, $w = w_0$. That is the instruction to do nothing. The no-trade region is
+
+$$\left[\frac{a-c}{\lambda\sigma^2},\; \frac{a+c}{\lambda\sigma^2}\right], \qquad \text{half-width } \frac{c}{\lambda\sigma^2}$$
+
+centred on the frictionless weight $a/(\lambda\sigma^2)$. Constantinides (1986) established this structure for proportional costs.
+
+**(b)** When the frictionless target does leave the band, the optimum is the **nearer boundary**, not the target. The reason is the same one-sided algebra: once you are trading upward, the relevant stationary point is $w_+$, which sits a distance $c/(\lambda\sigma^2)$ below the frictionless target. Every unit of trade past the boundary costs $c$ and buys less than $c$ of risk-adjusted improvement. Trade to the edge, never to the target. A rebalancer that detects a breach and then snaps all the way to $w^{\ast}$ has thrown away most of the benefit of having a band at all.
+
+**(c)** $\lambda\sigma^2 = 5 \times 0.04 = 0.2$. Frictionless weight $= 0.03/0.2 = 15\%$. Half-width $= 0.0014/0.2 = 0.007 = 0.7$ percentage points. The band is **14.3 percent to 15.7 percent**, and any target inside it is answered with silence. That is 1.4 percentage points of tolerance around a 15 percent position, under a tenth of the position, bought by a cost of only 14 bp: small costs buy meaningful dead zones.
+
+**(d)** Half-width is $c/(\lambda\sigma^2)$.
+
+Increasing in $c$: a more expensive market should tolerate more drift before you pay to correct it. Decreasing in $\lambda$: a more risk-averse investor suffers more from holding the wrong weight, so the same cost buys a narrower tolerance. Decreasing in $\sigma^2$: the penalty for being off target is quadratic with coefficient $\lambda\sigma^2$, so in a volatile asset a given weight error is more expensive in risk terms and gets corrected sooner. The last one is the counterintuitive sign and worth stating deliberately — high volatility narrows the band in weight space, even though it widens the range of weights the asset will drift through.
+
+Real cost has both shapes at once, spread and fees proportional to size and impact smooth in size, so a real rebalancer has both features: a **dead zone** from the proportional part and **damping** from the smooth part. Do nothing inside the band; outside it, move partway toward the boundary rather than jumping.
+
+A monthly calendar rebalance has neither feature. It trades on a date chosen for administrative convenience, with no reference to whether the gap is worth closing, so it trades when it should not and fails to trade when it should. It also concentrates a month of drift into one large order, and under the $3/2$ scaling of total impact cost, one order of size $X$ costs more than many orders summing to $X$.
+
+**Rubric:**
+- Objective written and non-differentiability at $w_0$ identified as the reason for one-sided analysis
+- Both one-sided optima derived with their admissibility conditions, and the kink argued as the maximum by concavity
+- Band and half-width $c/(\lambda\sigma^2)$ stated, centred on the frictionless weight, Constantinides cited
+- Trade-to-the-boundary justified from the one-sided stationary point, not asserted
+- Numbers: 15 percent centre, 0.7 point half-width, 14.3 to 15.7 percent
+- All three comparative statics signed with a reason, including the non-obvious $\sigma^2$ one
+- Combined band-plus-damping design described, and calendar rebalancing criticised on both timing and the $3/2$ cost of one large trade
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Reading a live track record.** (a) A long-short portfolio returned 14 percent. Loadings are 0.35 on the market (which returned 10 percent), 0.50 on value (4 percent), 0.40 on momentum (6 percent). Set up the attribution regression, define every symbol, and split the return. (b) Residual volatility is 8 percent a year and you have one year of data. Is the selection component real? How many years would you need for a $t$ of 2, holding everything else fixed? (c) Define drawdown and maximum drawdown, then explain from the definition why maximum drawdown is not comparable across track records. Use the driftless result to compare a nine-year manager at 40 percent against a one-year manager at 20 percent, both at 15 percent volatility. (d) A risk committee wants a hard 20 percent drawdown stop. Critique it and propose something defensible.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** A long-short portfolio holds positive weights (longs) and negative ones (shorts). Gross exposure is $\sum_i\lvert w_i\rvert$ and net exposure is $\sum_i w_i$; a market-neutral book keeps net near zero and gross well above one. Regress realized portfolio returns on factor returns:
+
+$$r_{p,t} = \alpha + \sum_{k=1}^{K}\beta_k f_{k,t} + \varepsilon_t$$
+
+with $f_{k,t}$ factor $k$'s return in period $t$, $\beta_k$ the portfolio's loading on factor $k$, $\alpha$ the average return the factors do not explain, and $\varepsilon_t$ the residual. Factor $k$'s contribution over the year is $\beta_k$ times that factor's realized return.
+
+Contributions: $0.35 \times 10 = 3.5$, $0.50 \times 4 = 2.0$, $0.40 \times 6 = 2.4$. Factor total **7.9 percent**, selection **6.1 percent**. So more than half the headline came from exposures anyone can buy in an index product for a handful of basis points, and the fee should be charged only on the remainder. The uncomfortable version of this conversation is that a manager charging 2-and-20 on 14 percent is charging alpha fees on 7.9 points of beta.
+
+**(b)** With residual volatility 8 percent a year, the standard error of the annual alpha estimate from one year of data is about 8 percent. So
+
+$$t = \frac{6.1}{8} = 0.76$$
+
+Nothing has been demonstrated. This is fully consistent with a manager whose true selection alpha is zero having an ordinary good year.
+
+For $t = 2$ with the same 6.1 percent alpha and 8 percent residual volatility, the standard error must fall to $6.1/2 = 3.05$ percent, and it scales as $8/\sqrt{T}$:
+
+$$\frac{8}{\sqrt{T}} = 3.05 \;\Longrightarrow\; \sqrt{T} = 2.62 \;\Longrightarrow\; T = 6.9 \text{ years}$$
+
+Roughly seven years to establish a 6.1 percent alpha at that residual volatility, and that is under the generous assumption that the alpha is stable for seven years. Tracking error, the volatility of return in excess of a benchmark, and the information ratio, mean active return divided by tracking error, inherit the same Sharpe-estimator standard error covered in c8.3.
+
+**(c)** With $V_t$ the portfolio value,
+
+$$DD_t = 1 - \frac{V_t}{\max_{s \le t}V_s}, \qquad MDD_T = \max_{t \le T}DD_t$$
+
+Maximum drawdown is determined by exactly two dates in the entire sample, the peak and the following trough, and discards every other observation. Two consequences follow directly. Its sampling variance is enormous, because two order statistics carry the whole estimate. And its expectation grows with the length of the record mechanically, because a maximum over a longer path can only be weakly larger — extending a track record can never reduce its maximum drawdown.
+
+For a driftless diffusion with volatility $\sigma$, Magdon-Ismail and Atiya (2004) give
+
+$$\mathbb{E}[MDD_T] = \sqrt{\pi/2}\,\sigma\sqrt{T} \approx 1.25\,\sigma\sqrt{T}$$
+
+At $\sigma = 15\%$: one year gives $1.25 \times 0.15 = 18.8\%$; nine years gives $1.25 \times 0.15 \times 3 = 56.4\%$. So the nine-year manager at 40 percent came in **well under** expectation, and the one-year manager at 20 percent came in slightly over. The headline numbers rank them backwards. With positive drift the growth slows to roughly logarithmic in $T$, but it still grows, so the conclusion survives: normalize by $\sigma\sqrt{T}$, or compare something that uses the whole path.
+
+**(d)** The critique is that a fixed threshold has an expiry date. A 20 percent stop on a 15 percent volatility strategy is above the one-year expectation of 18.8 percent and far below the nine-year expectation of 56.4 percent, so the same rule that is mildly conservative in year one is close to a certainty of firing by year nine, regardless of whether anything is wrong. A stop that eventually fires on every surviving strategy carries no information, and it fires at the worst possible time: after a peak-to-trough decline, which is when mean reversion is most likely to be about to help.
+
+What to propose instead. Scale the threshold with $\sigma\sqrt{T}$ so it stays at a constant number of standard deviations of the path, and recompute it as the record lengthens. Trigger on the *normalized* drawdown rather than the raw one. Make the trigger a review rather than a liquidation, since the statistical evidence in a drawdown is weak. And put the real monitoring on quantities with more observations behind them, which is the subject of the shutdown question: realized cost versus modelled cost, the signal's cross-sectional information coefficient, and whether the factor attribution has drifted so that the alpha you are paid for has quietly become a value tilt.
+
+**Rubric:**
+- Regression written with every symbol defined, and long-short vocabulary defined rather than assumed
+- 3.5 / 2.0 / 2.4 contributions, 7.9 factor and 6.1 selection, with the fee implication drawn
+- $t = 0.76$ computed and correctly interpreted as no evidence
+- 6.9 years derived from $8/\sqrt{T} = 3.05$, with the stability caveat
+- Drawdown and maximum drawdown defined, and non-comparability argued from the two-order-statistic structure and the monotonicity in $T$
+- $1.25\sigma\sqrt{T}$ applied: 18.8 percent at one year, 56.4 percent at nine, with the ranking reversed
+- Fixed stop critiqued as certain to fire and badly timed, with a $\sigma\sqrt{T}$-scaled, review-not-liquidate alternative
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8. Risk measures, and when to pull the plug.** (a) Define VaR and expected shortfall precisely, then compute both at 99 percent for a 100 million USD book with 1 percent daily volatility and normal returns. (b) List the coherence axioms, say which one VaR fails, and construct the counterexample with full arithmetic. (c) Show expected shortfall satisfies subadditivity on that same example. (d) A strategy backtested at Sharpe 1.0 has run at 0.3 for two years. Do the statistics, then say what you would actually do. Defend your monitoring choice out loud.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Value at Risk at confidence level $q$ is a **threshold**: the smallest loss level $L$ such that the probability of losing more than $L$ is at most $1-q$. Expected shortfall at the same level is a **magnitude**: the average loss conditional on being in the worst $1-q$ of outcomes. VaR says where the tail starts; ES says how bad it is once you are inside it.
+
+A 100 million USD book at 1 percent daily volatility has a 1 million USD daily standard deviation. Under normality with $z = 2.326$ the 99 percent quantile:
+
+$$\text{VaR}_{99} = 2.326 \times 1 = 2.326 \text{ million USD}$$
+
+For a normal, $\text{ES} = \sigma\,\phi(z)/(1-q)$ with $\phi$ the standard normal density. Here $z^2/2 = 2.7051$, so $\phi(2.326) = 0.3989\,e^{-2.7051} = 0.3989 \times 0.06686 = 0.02667$ and
+
+$$\text{ES}_{99} = \frac{0.02667}{0.01} = 2.667 \text{ million USD}$$
+
+about 15 percent above VaR under normality, and much further above it under fat tails. The gap between the two numbers is itself a fat-tail diagnostic: if your empirical ES-to-VaR ratio is well above 1.15, your losses are not normal.
+
+**(b)** A coherent risk measure is monotone (a position that always loses more is riskier), translation invariant (adding cash reduces risk one for one), positively homogeneous (doubling the position doubles the risk), and subadditive (the risk of a combined book never exceeds the sum of the parts). Subadditivity is the one that encodes diversification, and it is the one VaR fails.
+
+The counterexample: two independent bonds, each losing 100 with probability 0.008 and 0 otherwise, at $q = 99\%$.
+
+One bond. The probability of a loss above 0 is 0.008, which is at most 0.01, so 0 already satisfies the threshold definition and $\text{VaR} = \mathbf{0}$. The two parts sum to 0.
+
+The portfolio of both. The probability of any loss at all is $1 - 0.992^2 = 0.015936$, which exceeds 0.01, so 0 no longer qualifies. The probability of a loss above 100 is $0.008^2 = 0.000064$, at most 0.01, so 100 does qualify. Portfolio $\text{VaR} = \mathbf{100}$.
+
+Diversifying across two independent positions raised reported risk from 0 to 100. The reason is structural, not a numerical accident: VaR looks only at a quantile and ignores everything beyond it, so it cannot see that a single bond's tail was almost bad enough to count. Sliding the quantile across a jump in the loss distribution changes the answer discontinuously.
+
+**(c)** Expected shortfall averages over the tail instead of reading off its edge.
+
+One bond: the worst 1 percent of probability mass consists of 0.008 of mass at loss 100 and 0.002 of mass at loss 0, so $\text{ES} = (0.008 \times 100)/0.01 = 80$. Two of them sum to 160.
+
+Portfolio: the worst 1 percent consists of 0.000064 of mass at loss 200 and the remaining 0.009936 at loss 100, so
+
+$$\text{ES} = \frac{0.000064(200) + 0.009936(100)}{0.01} = \frac{0.0128 + 0.9936}{0.01} = 100.64$$
+
+And $100.64 \le 160$, as subadditivity requires. Averaging over the whole tail is what restores the property, and it is why Basel moved bank market-risk capital from VaR to expected shortfall. The practical corollary inside a firm: summing desk-level VaRs bounds firm risk in neither direction, so aggregate ES or aggregate the positions and recompute.
+
+**(d)** Statistics first. The standard error of a Sharpe estimate is roughly $1/\sqrt{T}$ with $T$ in years, from c8.3. Two years gives $1/\sqrt{2} = 0.707$. The observed shortfall is $1.0 - 0.3 = 0.7$, so
+
+$$t = \frac{0.7}{0.707} = 0.99$$
+
+You cannot reject that this is still a Sharpe 1.0 strategy having an ordinary bad run. Now invert it: to detect that drop at a one-sided 5 percent level you need a standard error of $0.7/1.645 = 0.426$, hence $T = 1/0.426^2 = $ **5.5 years**. By the time the return series proves the strategy is dead, you have funded five and a half years of it.
+
+The defence of what I would do instead. I refuse to make the shutdown decision a function of the return series, because the arithmetic above says that estimator answers on a timescale longer than the decision needs. I move the decision onto quantities with more observations behind them:
+
+- The signal's **cross-sectional information coefficient**, the correlation between predicted and realized returns across names each day. It carries $N$ names times $T$ days of evidence rather than $T$, so on a 200-name book it converges hundreds of times faster than the Sharpe.
+- **Realized cost against the model's prediction.** Every fill is an observation. If costs have risen while the information coefficient held flat, the alpha is intact and the problem is size or execution, and the fix is to shrink, not to shut.
+- **The participation rate actually being run**, versus the rate the capacity calculation assumed.
+- **Attribution drift.** If the factor loadings have grown and the selection residual has shrunk, the strategy has become a factor product without anyone deciding that.
+
+What I concede: none of these has a clean null hypothesis attached, so I am trading statistical rigour for timeliness on purpose, and I would say so rather than dress the information coefficient up as a test. I also concede that the Sharpe test is the right instrument for the question "was this ever real", and the wrong instrument for "has this stopped working". The two questions have different answers and different data requirements, and conflating them is how funds end up either shutting good strategies after one bad year or funding dead ones for half a decade.
+
+**Rubric:**
+- VaR as a threshold and ES as a conditional average, stated as a contrast before any arithmetic
+- 2.326 million USD and 2.667 million USD computed, with $\phi(2.326) = 0.02667$ shown
+- Four coherence axioms named, subadditivity identified as the failure and as the one encoding diversification
+- Counterexample done with both probabilities: $1 - 0.992^2 = 0.015936$ ruling out 0, and $0.008^2 = 0.000064$ admitting 100
+- Explains the failure as VaR ignoring the tail past the quantile, not as a numerical quirk
+- ES computed as 80, 80 and 100.64, and the inequality checked
+- $t = 0.99$ and 5.5 years both computed, and the shutdown decision explicitly moved off the return series
+- Names the information coefficient's $N \times T$ evidence advantage, and concedes the rigour being traded away
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: costs, capacity and live risk
+
+These 16 questions stand alone and do not depend on anything above. Each should take 2 to 5 minutes out loud. They are chosen for how often they come up in a portfolio management or quantitative research seat, not for how interesting they are. Answer them speaking, with the arithmetic said aloud.
+
+1. **Price a round trip** A 50 USD mid-cap trades with a 3 cent spread. Commissions and fees are 1 bp. Daily volatility is 2 percent, the impact coefficient is 0.5, and your order is 1 percent of average daily volume. Give the one-way cost in basis points, component by component, and the round-trip number. Say which components care about your size and which do not.
+
+2. **How does impact scale** Give the square-root law, define every symbol, and say what the fitted exponent actually is and on whose data. Then answer the follow-up: if per-unit cost goes as the square root of size, how does total cost in currency scale, and what does that imply about splitting an order? Finish by distinguishing temporary from permanent impact and saying how each one hits a round trip.
+
+3. **Gross to net, then defend it against leverage** A strategy holds 2 days, backtests at 20 percent gross, and costs 14 bp one way. Compute annual turnover, the cost drag and the net return out loud. Restate it per round trip. Then a manager proposes fixing the result with 3x leverage — respond in one sentence with the reason, and name the three things that could actually fix it.
+
+4. **Break-even and optimal holding period** A signal's expected return decays as $a_0e^{-t/\tau}$ with $a_0 = 6$ bp per day and $\tau = 10$ days, and one-way cost is 14 bp. Derive the gross return of a round trip, find the break-even holding period, and then find the holding period that maximizes annualized net return. Say in words what condition the optimum satisfies and why it is roughly 2.5 times break-even rather than equal to it.
+
+5. **Derive a capacity number** A strategy holds 200 names, nets 47.89 bp gross per round trip against 4 bp of fixed one-way cost, faces $Y = 0.5$ and 200 bp daily volatility, and the median name trades 50 million USD a day. Derive capacity from first principles and give the number. State what participation rate you are running at that size.
+
+6. **The size you would actually run** Given the capacity above, show why the profit-maximizing AUM is four ninths of it, and say what fraction of net alpha per round trip you are handing to impact at that point. Then: manager A runs this signal at 2 billion USD and posts worse percentage returns than manager B at 200 million USD. Is manager A worse? Answer from the formula.
+
+7. **Why the backtest Sharpe decayed** A strategy backtested at Sharpe 2 and is running live at 0.5. Do not say "overfitting". Enumerate the channels, size at least one of them with real arithmetic, and say which you would test first and how.
+
+8. **Turnover doubled when the universe grew** You added 200 names to a 200-name book and turnover roughly doubled with no change to the signal. Diagnose it. Give the estimator-side fix by name and the portfolio-side fix, and say which one addresses the cause rather than the symptom.
+
+9. **Derive partial adjustment** Start from mean-variance with a quadratic trading cost measured in the covariance metric. Derive the optimal trade, show it is a convex combination of the current and target portfolios, and give the adjustment speed in terms of the risk-aversion and cost-aversion constants. With $\lambda = 5$ and $\gamma = 15$, give the speed and the half-life of the gap.
+
+10. **Where does a no-trade band come from** Take one asset with proportional trading cost. Show why the usual first-order condition fails, derive the band, and give its half-width. Where do you trade to when the target leaves the band, and why is that not the target itself? Then say what a quadratic cost can never produce and why.
+
+11. **Defend a rebalancing policy** You run a 200-name equity market-neutral book with a signal whose half-life is about a week. Choose between monthly calendar rebalancing, a threshold band with trade-to-the-edge, and a quadratic penalty inside the optimizer. Commit to one, justify it from the shape of your actual cost function rather than from convenience, and state what your choice gives up before you are asked.
+
+12. **Attribution, and whether the alpha is real** A book returned 14 percent with loadings 0.35 on the market at 10 percent, 0.50 on value at 4 percent and 0.40 on momentum at 6 percent. Split the return. Then, with 8 percent residual volatility and one year of data, say whether the selection component is established, give the $t$-statistic, and say how many years you would need for a $t$ of 2.
+
+13. **Who is riskier** Manager A had a 40 percent maximum drawdown, manager B had 20 percent. Say what you need to know before answering, then answer for a nine-year and a one-year record at 15 percent volatility each. Give the expected-maximum-drawdown scaling you are using and why it grows with the length of the record.
+
+14. **Is VaR a good risk measure** Name the four coherence axioms, say which VaR fails, and build the two-independent-bond counterexample with the arithmetic said out loud. Then show expected shortfall passes on the same example, and say what that implies about summing desk-level VaRs across a firm.
+
+15. **When do you shut it down** A strategy backtested at Sharpe 1.0 and has run at 0.3 for two years. Do the standard-error arithmetic, give the $t$-statistic, and invert it to find how long detection would take. Then say what you monitor instead, and why those quantities converge faster.
+
+16. **Defend an execution choice** Your signal has a one-week half-life and your order is 5 percent of a name's daily volume. Choose between filling it in one day at high participation and spreading it over three days at low participation. Commit to one, quantify both sides of the trade — impact saved against alpha decayed — and say what would change your answer.
