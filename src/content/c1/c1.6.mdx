@@ -4,12 +4,18 @@ chapter: 1
 title: Trees & ensembles
 subtitle: CART, bagging/random forests, boosting/GBDT, stacking — bias-variance engineering
 refs: [3, 4, 5, 7]
-estimatedMinutes: 105
+estimatedMinutes: 115
 ---
 
 ## TL;DR
 
-Ensembles are **bias-variance engineering**. A single decision tree is a *low-bias, high-variance* learner — flexible enough to fit anything, unstable enough to fit noise. The two great ensemble families are the two ways to fix that, and they pull opposite levers. **Bagging / random forests** average many high-variance trees to crush **variance** — and the whole game is *decorrelating* the trees. **Boosting** adds many high-bias weak trees in sequence to crush **bias** — and the whole game is *fitting the negative gradient of the loss in function space*. Knowing which lever each pulls (and the one identity and one gradient that make each precise) is the single most-tested ensemble concept, and these models — gradient-boosted trees especially — still win most tabular problems.
+Ensembles are **bias-variance engineering**. Start with the base learner. A single decision tree is a *low-bias, high-variance* learner: flexible enough to fit anything, unstable enough to fit noise. There are exactly two ways to fix that, and they pull opposite levers.
+
+**Bagging / random forests** average many high-variance trees to crush **variance**. The whole game there is *decorrelating* the trees, and one identity tells you why.
+
+**Boosting** adds many high-bias weak trees in sequence to crush **bias**. The whole game there is *fitting the negative gradient of the loss in function space*, and one gradient tells you why.
+
+Knowing which lever each family pulls, plus the one identity and the one gradient that make each precise, is the single most-tested ensemble concept. It is also not a museum piece. These models, gradient-boosted trees especially, still win most tabular problems.
 
 ## What you'll be able to do after this lesson
 
@@ -23,6 +29,8 @@ Ensembles are **bias-variance engineering**. A single decision tree is a *low-bi
 ## Why trees & ensembles deserve their own chapter
 
 > **Goal — master the model family that actually wins on tabular data, and the bias-variance reasoning behind it.** Despite a decade of deep-learning hype, **gradient-boosted decision trees still beat tuned neural nets on most tabular problems** (Grinsztajn et al. 2022) — because trees handle uninformative features gracefully, match the axis-aligned structure of real tabular data, and fit irregular target functions that NN smoothness priors resist (the c1.1 "trees dominate tabular" claim, now with the citation). For interviews, ensembles are where you prove you understand bias-variance as an *engineering* discipline, not a slogan.
+
+Six words get used constantly in this lesson, and three of them sound like the same word. Get them straight before the math starts, so that later on a term is a label for something you already have in your hands rather than a thing you are trying to decode mid-derivation.
 
 > **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
 >
@@ -45,33 +53,45 @@ Imagine deciding whether a loan will default. A tree might ask:
 2. If yes, has the borrower missed a payment before?
 3. If no, is income below $50,000?
 
-Each internal node asks one yes/no question of the form $x_j\le s$. Each answer sends the row left or right. A **leaf** is the group of training rows that gave the same sequence of answers. For classification, the leaf predicts a class proportion; for regression, it predicts an average outcome.
+Nothing there is exotic. It is the same thing a credit officer does with a checklist, written down.
+
+Each internal node asks one yes/no question of the form $x_j\le s$. Read that condition out loud: "is feature number $j$ at most the threshold $s$?" One feature, one number, one comparison. Each answer sends the row left or right. A **leaf** is the group of training rows that gave the same sequence of answers. For classification, the leaf predicts a class proportion; for regression, it predicts an average outcome.
 
 This makes a tree a piecewise-constant model. It does not learn one global equation. It divides feature space into rectangular regions and gives every point in a region the same prediction. That is why trees naturally capture thresholds and interactions: “high debt is risky *only when* prior delinquencies are present” is simply a branch.
 
-<TreePartition2D caption="A depth-3 tree carving 2D feature space into axis-aligned rectangles, each shaded by its majority class. Two split conditions are labeled. Every leaf is a rectangle; every rectangle predicts one constant value. That's the whole 'piecewise-constant, axis-aligned, thresholds and interactions for free' story in one picture — logistic regression can't draw this partition, but a depth-3 tree learns it in one greedy pass." />
+Hold that comparison in mind against a linear model, which has to spend an explicit product term to say the same thing. The tree says it for free, because the second question is only ever asked of the rows that answered yes to the first.
+
+<TreePartition2D caption="A depth-3 tree carving 2D feature space into axis-aligned rectangles, each shaded by its majority class. Two split conditions are labeled. Look at the rectangles first, not the branches: every leaf is a rectangle, and every rectangle predicts one constant value. That's the whole 'piecewise-constant, axis-aligned, thresholds and interactions for free' story in one picture — logistic regression can't draw this partition, but a depth-3 tree learns it in one greedy pass." />
 
 ### What makes one question better than another?
 
-A useful split creates children whose outcomes are more alike than the parent's. **Impurity** is just a numerical score for how mixed a node is.
+At any node you have hundreds of candidate questions. You need a number that says which one is best, so start from what you actually want. A useful split creates children whose outcomes are more alike than the parent's. **Impurity** is just a numerical score for how mixed a node is.
 
-For a binary node that is 50% positive and 50% negative, Gini impurity is $0.5$—maximally mixed. For a pure node it is $0$. A split that turns one mixed group into two nearly pure groups has learned something useful. A split that produces two children with the same class proportions as the parent has learned nothing.
+Do the arithmetic on the two extremes before anything gets a formula. For a binary node that is 50% positive and 50% negative, Gini impurity is $0.5$—maximally mixed. For a pure node it is $0$. A split that turns one mixed group into two nearly pure groups has learned something useful. A split that produces two children with the same class proportions as the parent has learned nothing.
 
 A CART tree greedily splits the data with axis-aligned cuts. At each node it searches over (feature $j$, threshold $s$) to maximize the impurity decrease
 
 $$\Delta I = I(R) - \frac{N_L}{N}I(R_L) - \frac{N_R}{N}I(R_R)$$
 
+Read that left to right: take the parent's messiness, subtract the two children's messiness, and weight each child by the fraction of rows that landed in it. What is left over is how much mess the question removed.
+
 The child impurities are weighted by child size. Without the weights, a split could look excellent by creating one tiny pure leaf while leaving almost everyone in an unchanged mixed node.
 
-**Classification impurities** (with class fractions $p_k$): **Gini** $G = \sum_k p_k(1-p_k) = 1 - \sum_k p_k^2$ and **entropy** $H = -\sum_k p_k\log_2 p_k$ (information gain $= \Delta H$). Both are concave, so a split never increases impurity, and both reward pure children; Gini is cheaper (no log) and the two rarely disagree on which split to pick. (Misclassification error $1-\max_k p_k$ is concave too but piecewise-linear and insensitive to changes in node probabilities, so it's a poor *growing* criterion — it, or the Gini/entropy used for growing, is what's typically used for cost-complexity *pruning*.) **Regression impurity** is the within-node variance/SSE; the variance-reducing split is the one that minimizes $\sum(y_i - \bar y_R)^2$, and the leaf prediction is the mean $\bar y_R$ (the median under MAE — a callback to c1.2's mean-vs-median).
+Now the specific scores you can plug into $I(\cdot)$. **Classification impurities** (with class fractions $p_k$): **Gini** $G = \sum_k p_k(1-p_k) = 1 - \sum_k p_k^2$ and **entropy** $H = -\sum_k p_k\log_2 p_k$ (information gain $= \Delta H$). Both are concave, so a split never increases impurity, and both reward pure children; Gini is cheaper (no log) and the two rarely disagree on which split to pick. (Misclassification error $1-\max_k p_k$ is concave too but piecewise-linear and insensitive to changes in node probabilities, so it's a poor *growing* criterion — it, or the Gini/entropy used for growing, is what's typically used for cost-complexity *pruning*.) **Regression impurity** is the within-node variance/SSE; the variance-reducing split is the one that minimizes $\sum(y_i - \bar y_R)^2$, and the leaf prediction is the mean $\bar y_R$ (the median under MAE — a callback to c1.2's mean-vs-median).
 
 Do not over-interpret the difference between Gini and entropy. Both ask almost the same practical question: “Did the split make the labels more predictable?” In an interview, being able to compute one candidate split and explain the weighting matters more than claiming one criterion universally wins.
+
+So far this is a model that can fit almost anything. That is half the story, and the other half is the reason the rest of the lesson exists.
 
 **Why a single tree is low-bias/high-variance.** Grown deep, a tree interpolates the training data (bias $\to 0$), but the partition is a *discontinuous* function of the data — perturb a few points and a high split can flip, changing the entire downstream partition. That instability is precisely what makes trees the ideal base learner for **variance reduction by averaging**.
 
 The intuition is structural. If a few rows change which split wins at the root, every later question may be asked of a different subset of data. Two trees trained on nearly identical samples can therefore look entirely different. A deep tree can fit complicated truth (low bias), but we do not know which of many plausible trees a finite noisy sample will produce (high variance).
 
+One tree on its own therefore needs its capacity capped, which is what pruning does.
+
 **Pruning.** A fully grown tree overfits, so prune by **cost-complexity**: minimize $R_\alpha(T) = R(T) + \alpha|T|$ over subtrees, trading fit $R(T)$ against the number of leaves $|T|$. As $\alpha$ grows from 0 there's a finite nested sequence of optimal subtrees (sklearn: `ccp_alpha`). The same $\alpha|T|$ regularization reappears inside XGBoost.
+
+That objective says: your score is your error plus a rent of $\alpha$ per leaf you keep. Turn $\alpha$ up and leaves that were not paying for themselves get evicted.
 
 *Why penalize $|T|$ rather than depth?* Because leaves are how many independent constant-value regions the tree carves — that's the true capacity. Two depth-5 trees can have wildly different leaf counts (one balanced 32-leaf full tree; one lopsided 6-leaf skinny tree), so depth alone doesn't cap what the tree can memorize. Leaf count does.
 
@@ -83,31 +103,43 @@ The intuition is structural. If a few rows change which split wins at the root, 
 
 Suppose several analysts estimate the same quantity. If their errors point in different directions, averaging cancels much of the noise. If they all make the same mistake, averaging repeats it. Ensembles obey the same rule: averaging helps only to the extent that the trees' errors differ.
 
-We need multiple plausible training sets but possess only one. The **bootstrap** creates them by drawing $n$ rows with replacement from the observed $n$ rows. Some rows appear multiple times and some are absent. Fit a deep tree to each resample, then average their predictions. This is **bootstrap aggregating**, shortened to **bagging**.
+Here is the procedure you would run if the world were generous: draw many fresh training sets, fit a deep tree on each, average the predictions. The high variance of a single tree would wash out. You cannot run it. We need multiple plausible training sets but possess only one. The **bootstrap** creates them by drawing $n$ rows with replacement from the observed $n$ rows. Some rows appear multiple times and some are absent. Fit a deep tree to each resample, then average their predictions. This is **bootstrap aggregating**, shortened to **bagging**.
 
 **Bagging** (Breiman 1996): draw $B$ bootstrap samples (size $n$, with replacement), fit a tree on each, and average (regression) or vote (classification): $\hat f_{\text{bag}}(x) = \frac1B\sum_b \hat f^{*b}(x)$.
+
+The natural next question is how much this buys you, and whether cranking $B$ up buys more. Write down the variance of the average and the answer falls out.
 
 **The decorrelation identity — the key result.** If each tree has variance $\sigma^2$ and pairwise correlation $\rho$, the average of $B$ trees has variance
 
 $$\operatorname{Var}\!\left(\frac1B\sum_b X_b\right) = \rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$$
 
+Read the right-hand side as two separate bills. The first one, $\rho\sigma^2$, has no $B$ in it at all. The second one, $\frac{1-\rho}{B}\sigma^2$, has $B$ in the denominator, so it shrinks every time you add a tree.
+
 As $B\to\infty$ the second term vanishes, leaving a **floor of $\rho\sigma^2$**. So adding trees only helps until you hit $\rho\sigma^2$ — and **the correlation $\rho$ caps the whole benefit**. Identical trees ($\rho=1$) give no gain; independent trees ($\rho=0$) give $\sigma^2/B$. *This single inequality is the entire motivation for random forests.*
 
 Read the formula in two pieces. $(1-\rho)\sigma^2/B$ is the independent part of the noise, which averaging removes as $B$ grows. $\rho\sigma^2$ is the shared mistake, which survives forever. More trees reduce the first term; only more diverse trees reduce the floor.
 
-<DecorrelationVarianceFloor caption="Ensemble variance as a function of number of trees B, for four correlation values ρ ∈ {0, 0.2, 0.5, 0.9} — the decorrelation identity ρσ² + (1−ρ)σ²/B, made a floor you can point at. Every curve is dropping the second term as B grows, and every curve hits ρσ² and stops. Bagged trees (ρ ≈ 0.9) plateau near 0.9 — most of a single tree's variance survives no matter how many you average. Random forests (ρ ≈ 0.3) plateau much lower — the whole reason RF exists is to lower ρ by hiding features at each split." />
+<DecorrelationVarianceFloor caption="Ensemble variance as a function of number of trees B, for four correlation values ρ ∈ {0, 0.2, 0.5, 0.9} — the decorrelation identity ρσ² + (1−ρ)σ²/B, made a floor you can point at. Watch where each curve stops dropping, not how fast it drops: every curve is shedding the second term as B grows, and every curve hits ρσ² and flattens. Bagged trees (ρ ≈ 0.9) plateau near 0.9 — most of a single tree's variance survives no matter how many you average. Random forests (ρ ≈ 0.3) plateau much lower — the whole reason RF exists is to lower ρ by hiding features at each split." />
+
+If the floor is the problem, the fix has to be an intervention that makes trees disagree. That intervention is one line of code.
 
 **Random forests** (Breiman 2001) = bagging **+ a random subset of $m \le p$ features considered at each split**. Forcing each split to choose among different features makes the trees disagree more → **lowers $\rho$** → lowers the $\rho\sigma^2$ floor. The trade: smaller $m$ lowers $\rho$ (good) but weakens each tree (raises its bias) — so there's a sweet spot, classically $m=\sqrt p$ (classification) or $p/3$ (regression). Breiman proved that as $B\to\infty$ the generalization error *converges* (a law-of-large-numbers result over the tree randomness) — **adding more trees does not overfit a random forest**; it just converges.
 
-Why randomly hide features? If one predictor is overwhelmingly strong, ordinary bagged trees will choose it near the top again and again. The trees then inherit nearly the same structure and make correlated mistakes. Feature subsampling occasionally forces a tree to discover a different but useful route. The resulting individual tree may be slightly worse, yet the committee can be better because its members disagree productively.
+Why randomly hide features? If one predictor is overwhelmingly strong, ordinary bagged trees will choose it near the top again and again. The trees then inherit nearly the same structure and make correlated mistakes. Feature subsampling occasionally forces a tree to discover a different but useful route. The resulting individual tree may be slightly worse, yet the committee can be better because its members disagree productively. You make each member worse on purpose so the average gets better, and that trade is exactly what the tuning knob $m$ controls.
+
+Bootstrapping has a side effect that turns out to be worth money. Every tree ignored some rows. Those rows are a validation set that cost nothing.
 
 **OOB error and the $1/e$ result.** The probability a given row is missed by one bootstrap draw is $(1-\tfrac1n)^n \to e^{-1} \approx 0.368$, so **each tree leaves out ~37% of rows** (~63% in-bag). Scoring each row using only the trees that didn't see it yields a near-free, cross-validation-quality error estimate — the OOB error.
+
+Where does $(1-\tfrac1n)^n$ come from? One draw misses a specific row with probability $1-\tfrac1n$, and there are $n$ independent draws, so the row survives all of them untouched with that probability raised to the $n$.
 
 The same row is eligible to be drawn $n$ times, so “a bootstrap sample has $n$ rows” does not mean it contains $n$ distinct observations. Roughly 63.2% are distinct; the rest are duplicates. For each training row, the trees that omitted it form a temporary validation ensemble. OOB scoring combines those honest predictions across rows.
 
 > **Stop and think.** You add 5,000 trees to a random forest *and* to a gradient-boosted model. One degrades on the test set; one doesn't. Which, and why? *Hint: RF averages i.i.d.-randomized trees, so by the decorrelation identity / LLN it converges to a floor — more trees never hurt. Boosting fits the loss sequentially, so each added round further reduces bias and eventually fits noise — more rounds DO overfit. That's why RF needs no early stopping and GBDT does.*
 
-<RFvsGBDTErrorCurves caption="Train and test error as you add trees to RF (blue) vs GBDT (red). RF's test error drops fast, plateaus, and stays there — more trees only ever help (they push down the (1−ρ)σ²/B term of the variance identity). GBDT's train error keeps falling toward zero, but test error dips to a minimum and then rises — because each round is a bias-reducing gradient step that eventually fits noise. The dashed vertical is where early stopping catches it. RF ships with no early-stop knob because it doesn't need one; GBDT ships with one because it does." />
+<RFvsGBDTErrorCurves caption="Train and test error as you add trees to RF (blue) vs GBDT (red). Follow the two test curves and ignore the train curves for a moment. RF's test error drops fast, plateaus, and stays there — more trees only ever help (they push down the (1−ρ)σ²/B term of the variance identity). GBDT's train error keeps falling toward zero, but its test error dips to a minimum and then rises — because each round is a bias-reducing gradient step that eventually fits noise. The dashed vertical is where early stopping catches it. RF ships with no early-stop knob because it doesn't need one; GBDT ships with one because it does." />
+
+One more thing before leaving forests, because it is where the model most often gets misread in production. A fitted forest will happily hand you a ranked list of feature importances, and that list is not what most people think it is.
 
 **Feature importance — a trap (ties to c1.1 / c1.3).** Default **impurity (Gini/MDI) importance is biased toward high-cardinality and continuous features** (more candidate cut-points → more chances to look good by chance — Strobl et al. 2007) and is inflated by overfitting (it's computed on training data). Worse, **correlated features split their importance** (two collinear predictors each get ~half), so low importance ≠ irrelevant — the same redundancy that defeats drop-column leakage detection (c1.1) and inflates VIF (c1.3). Prefer **permutation importance on held-out data** — but note it too is distorted by collinearity (permuting one of two collinear features barely hurts), so cluster correlated features and permute jointly.
 
@@ -121,11 +153,21 @@ Bagging trains trees independently and averages them. Boosting trains trees sequ
 
 Think of writing an estimate in pencil and repeatedly adding small corrections rather than replacing the whole answer. Each shallow tree is intentionally limited: it contributes one modest pattern. The sum of many simple corrections can represent a complicated function while the learning rate controls how aggressively each correction is trusted.
 
+Notice what changed relative to Part 2. Bagged trees are deep and individually low-bias, and averaging attacks their variance. Boosted trees are shallow and individually high-bias, and the sequence attacks that bias. Same base learner, opposite pathology, opposite fix.
+
+The first algorithm to do this did not talk about gradients at all. It talked about weighting rows.
+
 **AdaBoost** (Freund & Schapire 1997). Start with uniform weights. Each round: fit a classifier $G_m$ to the weighted data, compute its weighted error $\text{err}_m$, give it vote
 
 $$\alpha_m = \ln\frac{1-\text{err}_m}{\text{err}_m}$$
 
 then up-weight the misclassified points and repeat; predict $\text{sign}(\sum_m \alpha_m G_m)$. A classifier at chance ($\text{err}=0.5$) gets weight 0; a perfect one gets $\infty$. The statistical view (Friedman, Hastie, Tibshirani 2000): **AdaBoost is forward-stagewise additive modeling under exponential loss** $L(y,f)=e^{-yf}$ — which is why it's fragile to label noise (a mislabeled point gets exponentially up-weighted).
+
+That vote is the log-odds of getting the answer right. Say it as a sentence: how often this classifier is right, divided by how often it is wrong, then take a log so the votes add instead of multiply. The two endpoints follow immediately. At $\text{err}=0.5$ the ratio is 1 and the log is 0, so a coin flip is given no say. As $\text{err}$ approaches 0 the ratio blows up and so does the vote.
+
+The label-noise clause is the practical consequence, and it is worth pausing on. A point the ensemble keeps getting wrong is, under exponential loss, a point whose weight grows without bound. If it is genuinely hard, fine. If the label is simply wrong, AdaBoost will spend the rest of its rounds chasing a typo.
+
+Reweighting rows is a trick that works for one specific loss. The generalization drops the trick and goes after the loss directly.
 
 **Gradient boosting** (Friedman 2001) generalizes this to *any* differentiable loss by reframing boosting as **gradient descent in function space**. At round $m$, compute the **pseudo-residual** (negative functional gradient) for each point,
 
@@ -133,23 +175,31 @@ $$r_{im} = -\left[\frac{\partial L(y_i, f(x_i))}{\partial f(x_i)}\right]_{f=f_{m
 
 fit a regression tree to the $\{(x_i, r_{im})\}$, and add it with a **shrinkage / learning rate** $\nu$: $f_m = f_{m-1} + \nu\, h_m$. For squared loss the pseudo-residual is just the ordinary residual $y - f$ (so "plain GB" = "fit the residuals"); for log loss it's $y - p$; for MAE it's $\text{sign}(y-f)$. Smaller $\nu$ with more rounds generalizes better (regularization), and **stochastic GB** (Friedman 2002) subsamples rows per round for extra variance reduction.
 
+Read the pseudo-residual out loud before moving on. For row $i$, it asks how the loss would change if you nudged that row's prediction up a little, then flips the sign so the number points downhill. The bracket with $f=f_{m-1}$ underneath means you evaluate that derivative at the ensemble you have built so far, not at some final answer you do not have yet.
+
 “Gradient descent in function space” sounds more exotic than it is. Ordinary gradient descent asks which direction to move each parameter. Gradient boosting asks which change to the current *prediction function* would decrease loss fastest on the training points. The pseudo-residual is that desired change evaluated row by row; the new tree approximates it using patterns in $X$.
+
+Turn the loss knob and watch what the correction asks for:
 
 - Under squared loss, a prediction 3 units too low requests a correction of $+3$.
 - Under log loss, the correction is $y-p$: a positive example predicted at $0.1$ requests a much larger upward move than one predicted at $0.9$.
 - Under MAE, only the direction of the error matters, not its magnitude, which is why MAE is more resistant to outliers.
 
+Gradient boosting uses the slope of the loss. The obvious follow-up is whether the curvature is worth using too, and one library's answer to that made it the tabular default for a decade.
+
 **XGBoost** (Chen & Guestrin 2016) uses a **second-order (Newton)** objective — gradient *and* Hessian — plus explicit regularization $\Omega(f)=\gamma T + \tfrac12\lambda\|w\|^2$. A 2nd-order Taylor expansion (with $g_i, h_i$ the first/second derivatives of the loss) makes each leaf a quadratic in its weight, so the **optimal leaf weight** and **split gain** are closed-form:
 
 $$w_j^\star = -\frac{G_j}{H_j + \lambda}, \qquad \text{Gain} = \tfrac12\!\left[\frac{G_L^2}{H_L+\lambda} + \frac{G_R^2}{H_R+\lambda} - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right] - \gamma$$
 
-where $G_j=\sum_{i\in I_j} g_i$, $H_j=\sum_{i\in I_j} h_i$. **This is exactly the c1.2 connection:** for squared loss $h_i=1$, so $w_j^\star$ is the (shrunk) mean residual — recovering plain GB; for **MAE the Hessian is zero**, so $w^\star=-G/\lambda$ is degenerate, which is why naive MAE breaks XGBoost and you reach for `reg:pseudohubererror` or the special-cased `reg:absoluteerror`. **LightGBM** (Ke et al. 2017) speeds this up with leaf-wise (best-first) growth, histogram binning, and gradient-based sampling (GOSS); **CatBoost** (Prokhorenkova et al. 2018) adds ordered boosting (to remove a target-leakage "prediction shift") and native categorical handling.
+where $G_j=\sum_{i\in I_j} g_i$, $H_j=\sum_{i\in I_j} h_i$. The leaf weight reads as slope over curvature, with a $\lambda$ added to the bottom to keep it modest. The gain reads as a score for the left child plus a score for the right child, minus the score of the leaf they replaced, minus a fixed toll $\gamma$ for adding a leaf at all. **This is exactly the c1.2 connection:** for squared loss $h_i=1$, so $w_j^\star$ is the (shrunk) mean residual — recovering plain GB; for **MAE the Hessian is zero**, so $w^\star=-G/\lambda$ is degenerate, which is why naive MAE breaks XGBoost and you reach for `reg:pseudohubererror` or the special-cased `reg:absoluteerror`. **LightGBM** (Ke et al. 2017) speeds this up with leaf-wise (best-first) growth, histogram binning, and gradient-based sampling (GOSS); **CatBoost** (Prokhorenkova et al. 2018) adds ordered boosting (to remove a target-leakage "prediction shift") and native categorical handling.
 
 The Hessian measures curvature: how quickly the gradient itself changes. XGBoost uses that information to scale corrections. A large aggregate Hessian means the local quadratic approximation has strong curvature, so a given gradient implies a smaller, more cautious step. The denominator $H_j+\lambda$ also shows regularization directly: larger $\lambda$ shrinks every leaf value toward zero.
 
 ## Part 4 — Stacking
 
 > **Goal — combine *different* model families with a learned meta-model — without leaking.** Train diverse level-0 base learners, then a level-1 meta-learner on their predictions (Wolpert 1992). The non-negotiable detail: the meta-learner must train on **out-of-fold (OOF)** predictions — for each base model, each row's meta-feature comes from a fold that did *not* train on that row. Otherwise an overfit base model (imagine a 1-NN with zero training error) looks perfect in-sample, the meta-learner over-weights it, and the stack collapses at test time. That's pure train/test leakage (c1.1), and OOF prediction is the fix.
+
+Bagging and boosting both combine copies of one model family. Stacking combines different families, and it learns the combination rule instead of fixing it in advance.
 
 The intuition is “learn whom to trust, and when.” A linear model may be reliable in smooth regions, while a tree catches threshold interactions. Their predictions become features for a simple meta-model. But the meta-model must see each base learner as it behaves on unseen data. Training predictions answer the wrong question—“how well can this model remember?”—and make the most overfit base learner look like the best expert.
 
@@ -166,6 +216,8 @@ The honest recipe is: split into folds; for each fold, fit every base model on t
 - **Why GBDT dominates tabular:** Grinsztajn et al. 2022 — robustness to uninformative features, rotational non-invariance matching tabular structure, and the ability to fit non-smooth targets.
 
 ## Tradeoff matrix
+
+The four rows below are the whole lesson compressed. The column that matters most in an interview is the third-from-right one, because it is the one candidates get backwards.
 
 | Method | Pulls down | Base trees | More estimators overfit? | Tuning burden | Reach for it when |
 |---|---|---|---|---|---|
@@ -185,6 +237,8 @@ The honest recipe is: split into folds; for each fold, fit every base model on t
 **Scenario D: a competition, chasing the last 0.5%.** **Stacking** diverse base models (GBDT + RF + linear + kNN) with a simple meta-learner — using OOF predictions to avoid leakage.
 
 ## Production failure modes
+
+Each of these is a place where the library's default disagrees with the theory above.
 
 1. **`RandomForestRegressor()` isn't a random forest by default.** In modern scikit-learn its `max_features=1.0` means *every* feature is considered at each split — that's **bagged trees** ($\rho$ high, variance floor high), not the textbook RF. Set `max_features="sqrt"` or `1/3` to actually decorrelate.
 2. **GBDT with no early stopping.** More boosting rounds reduce bias and then fit noise — train loss keeps dropping while validation loss turns up. Always early-stop on a validation set.
