@@ -69,6 +69,7 @@ export const CHAPTER_TITLES: Record<string, string> = {
   c7: "Probability & statistics",
   c8: "Time series & strategy statistics",
   c9: "Bias, variance & what makes an estimator good",
+  c10: "Portfolio construction",
 };
 
 /** Chapter directories under src/content, numerically sorted (c2 before c10). */

@@ -1,0 +1,399 @@
+---
+lessonId: c10.1
+chapter: 10
+title: Quiz — Mean-variance, and why it breaks
+description: Eight questions on the Markowitz closed form, the frontier hyperbola, tangency, error maximization, the Jagannathan-Ma equivalence, risk parity and the noise Sharpe.
+estimatedMinutes: 75
+---
+
+These eight questions test whether you can derive the Markowitz machinery cold, break it with a numerical example, and then defend a construction choice out loud. Do the algebra on paper before opening an answer, and say the arithmetic aloud rather than writing it. The rapid-fire section at the bottom stands on its own and depends on nothing above. If you drill only one part of this quiz, drill that one.
+
+<Quiz id="1">
+
+**Q1. The closed form, from scratch.** (a) Set up the minimum-variance program for a target return $m$ and derive $w = \Sigma^{-1}(\lambda\mu + \gamma\mathbf{1})$, defining every symbol. (b) Solve for the two multipliers in terms of $A = \mathbf{1}'\Sigma^{-1}\mu$, $B = \mu'\Sigma^{-1}\mu$, $C = \mathbf{1}'\Sigma^{-1}\mathbf{1}$, $D = BC - A^2$, and get $\sigma^2(m)$ without ever substituting $w$ back in. (c) Prove $D > 0$ and say exactly when it fails. (d) Complete the square and identify the curve, its centre, its vertex and its asymptote slopes.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Let $N$ be the number of assets, $\mu \in \mathbb{R}^N$ the vector of expected returns over one period, $\Sigma \in \mathbb{R}^{N \times N}$ the covariance matrix of those returns assumed symmetric positive definite, $w \in \mathbb{R}^N$ the vector of capital fractions, and $\mathbf{1}$ the vector of ones. Portfolio return is $w'\mu$, portfolio variance is $w'\Sigma w$.
+
+Maximising return alone is degenerate: it puts everything in the single highest-$\mu$ asset, and with shorting allowed it is unbounded. So fix a target return $m$ and minimise risk subject to it:
+
+$$\min_w \tfrac{1}{2}w'\Sigma w \quad \text{s.t.} \quad w'\mu = m, \ \ w'\mathbf{1} = 1$$
+
+The half is cosmetic and cancels a factor of two. The second constraint says all capital is deployed. With multipliers $\lambda$ on the return constraint and $\gamma$ on the budget constraint,
+
+$$L = \tfrac{1}{2}w'\Sigma w - \lambda(w'\mu - m) - \gamma(w'\mathbf{1} - 1)$$
+
+Since $\Sigma$ is symmetric, $\partial(w'\Sigma w)/\partial w = 2\Sigma w$, so the first-order condition is $\Sigma w - \lambda\mu - \gamma\mathbf{1} = 0$, giving $w = \Sigma^{-1}(\lambda\mu + \gamma\mathbf{1})$. The objective is convex and the constraints are linear, so this stationary point is the global minimum.
+
+**(b)** Substitute into the constraints. $w'\mu = \lambda\mu'\Sigma^{-1}\mu + \gamma\mathbf{1}'\Sigma^{-1}\mu = \lambda B + \gamma A = m$, and $w'\mathbf{1} = \lambda A + \gamma C = 1$. That is a $2\times 2$ linear system with determinant $BC - A^2 = D$, so
+
+$$\lambda = \frac{Cm - A}{D}, \qquad \gamma = \frac{B - Am}{D}$$
+
+The variance falls out without touching $w$ again. The first-order condition says $\Sigma w = \lambda\mu + \gamma\mathbf{1}$, so
+
+$$w'\Sigma w = \lambda(w'\mu) + \gamma(w'\mathbf{1}) = \lambda m + \gamma = \frac{Cm^2 - Am + B - Am}{D} = \frac{Cm^2 - 2Am + B}{D}$$
+
+That trick is the part worth remembering: you never invert anything a second time.
+
+**(c)** $\Sigma^{-1}$ is symmetric positive definite, so $\langle x, y\rangle = x'\Sigma^{-1}y$ is a genuine inner product. Then $B = \lVert\mu\rVert^2$, $C = \lVert\mathbf{1}\rVert^2$ and $A = \langle\mu,\mathbf{1}\rangle$ in that inner product, so $D = BC - A^2 \ge 0$ is exactly Cauchy-Schwarz, with equality if and only if $\mu$ and $\mathbf{1}$ are parallel. So $D > 0$ unless every asset has the same expected return, in which case the return constraint carries no information, the frontier degenerates to a single point, and the $2\times 2$ system is singular.
+
+**(d)** Since $B - A^2/C = D/C$,
+
+$$\sigma^2(m) = \frac{C}{D}\left(m - \frac{A}{C}\right)^2 + \frac{1}{C}$$
+
+Rearranged, $\dfrac{\sigma^2}{1/C} - \dfrac{(m - A/C)^2}{D/C} = 1$. That is a hyperbola in the $(\sigma, m)$ plane opening rightwards, centred at $(0, A/C)$, with vertex at $\sigma = 1/\sqrt{C}$ and asymptote slopes $\pm\sqrt{D/C}$. In $(\sigma^2, m)$ space it is a parabola instead, which is why the same object gets described two ways; the hyperbola is the one in the units people plot. The upper branch, $m \ge A/C$, is the efficient frontier.
+
+**Rubric:**
+- States why pure return maximization is degenerate before writing the program
+- First-order condition derived, with the convexity remark that makes it a minimum
+- Uses $\Sigma w = \lambda\mu + \gamma\mathbf{1}$ to get $\sigma^2 = \lambda m + \gamma$ rather than grinding through $w'\Sigma w$
+- $D > 0$ proved as Cauchy-Schwarz in the $\Sigma^{-1}$ inner product, with the equality case named
+- Completed square, and hyperbola identified with centre, vertex and asymptote slopes
+- Notices that the curve is a parabola in variance-space and a hyperbola in volatility-space
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. Two funds, then one.** (a) Show $w(m)$ is affine in $m$ and use that to prove two-fund separation. Check the two bookkeeping identities that make the decomposition legitimate. (b) Locate the global minimum variance portfolio and say what is remarkable about its inputs. (c) Add a risk-free asset and derive the tangency portfolio and the maximum Sharpe ratio, saying which constraint disappears and why. (d) Set $r_f = A/C$ and interpret what happens geometrically.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Substituting the multipliers into $w = \Sigma^{-1}(\lambda\mu + \gamma\mathbf{1})$ and collecting powers of $m$,
+
+$$w(m) = \underbrace{\frac{B\Sigma^{-1}\mathbf{1} - A\Sigma^{-1}\mu}{D}}_{g} + m\underbrace{\frac{C\Sigma^{-1}\mu - A\Sigma^{-1}\mathbf{1}}{D}}_{h}$$
+
+Check the bookkeeping: $g'\mathbf{1} = (BC - A^2)/D = 1$, so $g$ is a fully invested portfolio, and $h'\mathbf{1} = (CA - AC)/D = 0$, so $h$ is a self-financing tilt that moves return without spending capital. Without those two checks the decomposition is just algebra.
+
+Affinity does the rest. Take two distinct frontier portfolios $w(m_1)$ and $w(m_2)$ with $m_1 \ne m_2$. For any target $m$ set $\theta = (m - m_2)/(m_1 - m_2)$. Then $\theta m_1 + (1-\theta)m_2 = m$, and because $w$ is affine, $\theta w(m_1) + (1-\theta)w(m_2) = g + m h = w(m)$. Every efficient portfolio is a blend of any two others. This is two-fund separation, and it is a fact about a quadratic objective with two linear constraints, not a fact about markets. Any such program has a solution set that is a line in weight space.
+
+**(b)** Drop the return constraint. The same first-order condition with $\lambda = 0$ gives $w = \gamma\Sigma^{-1}\mathbf{1}$, and $w'\mathbf{1}=1$ forces $\gamma = 1/C$:
+
+$$w_{\text{GMV}} = \frac{\Sigma^{-1}\mathbf{1}}{\mathbf{1}'\Sigma^{-1}\mathbf{1}}, \qquad \sigma^2_{\text{GMV}} = \frac{1}{C}, \qquad m_{\text{GMV}} = \frac{A}{C}$$
+
+It sits at the hyperbola's vertex, and $\mu$ does not appear anywhere in it. That is the remarkable part, and it is the reason minimum variance survives estimation error better than anything on the rest of the frontier: it never uses the worst-estimated input.
+
+**(c)** Add an asset with known return $r_f$ and zero variance, and write the excess return vector $e = \mu - r_f\mathbf{1}$. Any leftover capital can now sit in the risk-free asset, so the budget constraint on the risky weights disappears. Maximise the Sharpe ratio, expected excess return per unit of volatility:
+
+$$S(w) = \frac{w'e}{\sqrt{w'\Sigma w}}$$
+
+$S$ is homogeneous of degree zero: scaling $w$ by any positive constant leaves it unchanged. So leverage is a separate decision and you optimize over direction only. Setting the gradient to zero,
+
+$$\frac{e}{\sqrt{w'\Sigma w}} - \frac{(w'e)\Sigma w}{(w'\Sigma w)^{3/2}} = 0 \ \Longrightarrow\ e = \frac{w'e}{w'\Sigma w}\Sigma w \ \Longrightarrow\ w \propto \Sigma^{-1}e$$
+
+Normalising the risky weights to sum to one,
+
+$$w_{\text{tan}} = \frac{\Sigma^{-1}(\mu - r_f\mathbf{1})}{\mathbf{1}'\Sigma^{-1}(\mu - r_f\mathbf{1})} = \frac{\Sigma^{-1}e}{A - r_fC}, \qquad S_{\max} = \sqrt{e'\Sigma^{-1}e} = \sqrt{B - 2r_fA + r_f^2C}$$
+
+Every mix of cash and one risky portfolio traces a straight line from $(0, r_f)$ whose slope is that portfolio's Sharpe. The best line is the steepest one that still touches the feasible set, so it is tangent to the hyperbola. Everyone holds the same risky portfolio and differs only in cash.
+
+**(d)** At $r_f = A/C$ the maximum squared Sharpe is $B - 2A^2/C + A^2/C = B - A^2/C = D/C$, which is exactly the squared asymptote slope. The denominator $A - r_fC$ of the tangency weights is zero, so the tangency point runs off to infinity along the frontier and the tangent line becomes the asymptote. Economically: if the risk-free rate equals the minimum-variance portfolio's mean, no finite tangency portfolio exists, and for $r_f > A/C$ the formula returns the *short* side of the frontier. Sign errors here are common and worth checking.
+
+**Rubric:**
+- Both identities $g'\mathbf{1}=1$ and $h'\mathbf{1}=0$ verified explicitly
+- Two-fund separation proved from affinity with an explicit $\theta$, and attributed to the program's structure rather than to markets
+- GMV derived by setting $\lambda = 0$, and the absence of $\mu$ called out as the point
+- Says the budget constraint is what the risk-free asset removes, and that scale invariance separates leverage from direction
+- $w \propto \Sigma^{-1}e$ and $S_{\max} = \sqrt{e'\Sigma^{-1}e}$
+- $r_f = A/C$ recovers $\sqrt{D/C}$, with the degeneracy and the sign flip for larger $r_f$
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Three assets, by hand.** Volatilities 10, 20 and 20 percent. Asset 1 is uncorrelated with the others; assets 2 and 3 have correlation 0.9. Expected returns are 4, 8 and 7 percent, and $r_f = 0$. (a) Write $\Sigma$, invert it, and compute $A$, $B$, $C$, $D$. (b) Give the minimum variance portfolio, its volatility and its mean. (c) Give the tangency portfolio, its mean, volatility and Sharpe. (d) Asset 3 has the second-highest expected return and gets a negative weight. Explain the mechanism, and say what this tells you about how the optimizer treats a universe with near-duplicates.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The covariance between 2 and 3 is $0.20 \times 0.20 \times 0.9 = 0.036$.
+
+$$\Sigma = \begin{pmatrix} 0.01 & 0 & 0 \\ 0 & 0.04 & 0.036 \\ 0 & 0.036 & 0.04\end{pmatrix}, \qquad \mu = (0.04,\ 0.08,\ 0.07)$$
+
+Block diagonal, so invert the blocks. The top block gives $1/0.01 = 100$. The lower block has determinant $0.04^2 - 0.036^2 = 0.0016 - 0.001296 = 0.000304$, so its inverse is $\frac{1}{0.000304}\begin{pmatrix}0.04 & -0.036\\ -0.036 & 0.04\end{pmatrix}$, entries $131.579$ on the diagonal and $-118.421$ off it.
+
+Then $\Sigma^{-1}\mathbf{1} = (100,\ 13.158,\ 13.158)$, since $131.579 - 118.421 = 13.158$, and $\Sigma^{-1}\mu = (4.000,\ 2.237,\ -0.263)$, since $131.579(0.08) - 118.421(0.07) = 10.526 - 8.289 = 2.237$ and $-118.421(0.08) + 131.579(0.07) = -9.474 + 9.211 = -0.263$. So
+
+$$A = \mathbf{1}'\Sigma^{-1}\mu = 5.974, \quad B = \mu'\Sigma^{-1}\mu = 0.3205, \quad C = \mathbf{1}'\Sigma^{-1}\mathbf{1} = 126.316$$
+
+and $D = 0.3205(126.316) - 5.974^2 = 40.488 - 35.685 = 4.802$.
+
+**(b)** $w_{\text{GMV}} = (100, 13.158, 13.158)/126.316 = (79.2\%,\ 10.4\%,\ 10.4\%)$, volatility $1/\sqrt{126.316} = 8.90\%$, mean $A/C = 5.974/126.316 = 4.73\%$. The mean is below asset 1's 4 percent plus something small, which is the expected trade: minimum variance loads on the low-volatility asset and gives up return.
+
+**(c)** With $r_f = 0$, $e = \mu$ and $w_{\text{tan}} = \Sigma^{-1}\mu/A = (4.000, 2.237, -0.263)/5.974 = (67.0\%,\ 37.4\%,\ -4.4\%)$. Mean $B/A = 0.3205/5.974 = 5.37\%$, volatility $\sqrt{B}/A = 0.5661/5.974 = 9.48\%$, Sharpe $\sqrt{B} = 0.566$. Sanity: $5.37/9.48 = 0.566$, consistent.
+
+**(d)** The optimizer is not ranking assets, it is solving for marginal contribution to risk-adjusted return. Assets 2 and 3 move almost identically, correlation 0.9, so the difference $r_2 - r_3$ is a low-volatility spread: its variance is $0.04 + 0.04 - 2(0.036) = 0.008$, a volatility of 8.9 percent against 20 percent for either leg alone. That spread has an expected return of 1 percent, so its standalone Sharpe is $0.01/0.089 = 0.112$, which is not huge but is free of the market direction the two share. The optimizer buys the spread, and buying a spread means shorting the cheap-looking leg. Asset 3 is used as a hedge, not ranked as an investment.
+
+What that tells you: with near-duplicates in the universe the answer is dominated by the small difference between them, and that difference is estimated from the residual after the common movement is removed. The mechanism producing the useful hedge in the true-parameter world is the same mechanism producing an unstable, high-gross, noise-driven position in the estimated-parameter world. This behaviour is the method working correctly and is also the seed of every problem in the rest of the lesson.
+
+**Rubric:**
+- Block-diagonal inversion done by hand, with $0.000304$ and the entries $131.579 / -118.421$
+- $A, B, C, D$ all correct to three figures
+- GMV weights, 8.90 percent volatility, 4.73 percent mean
+- Tangency weights, and Sharpe $\sqrt{B} = 0.566$ recognised as $\sqrt{B}$ rather than only computed numerically
+- Explains the short as a spread trade, ideally with the spread's own volatility of 8.9 percent
+- Connects the hedging behaviour to future instability rather than treating it as a bug
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. The error maximizer, with numbers.** (a) Two assets, both 20 percent volatility, correlation 0.9, risk-free rate zero, expected excess returns both 5 percent. Perturb to 5.5 and 4.5 percent and compute the new tangency weights. (b) Derive the closed form for $w_1$ under equal volatilities and correlation $\rho$ and confirm your number. (c) Do the eigen-decomposition and say precisely which direction gets amplified and by how much. (d) Separately, quantify the selection channel: 50 assets with identical true means, 20 percent volatility, ten years of data. How much fake alpha does the winner show?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** $\Sigma = \begin{pmatrix}0.04 & 0.036\\ 0.036 & 0.04\end{pmatrix}$ with determinant $0.000304$, so $\Sigma^{-1} = \begin{pmatrix}131.579 & -118.421\\ -118.421 & 131.579\end{pmatrix}$.
+
+With $e = (0.05, 0.05)$, $\Sigma^{-1}e = (0.658, 0.658)$ and the tangency portfolio is $(50\%, 50\%)$ by symmetry. Now $e = (0.055, 0.045)$, a shift of 50 basis points, one basis point being one hundredth of a percentage point:
+
+$$\Sigma^{-1}e = \begin{pmatrix}131.579(0.055) - 118.421(0.045)\\ -118.421(0.055) + 131.579(0.045)\end{pmatrix} = \begin{pmatrix}7.237 - 5.329\\ -6.513 + 5.921\end{pmatrix} = \begin{pmatrix}1.908 \\ -0.592\end{pmatrix}$$
+
+Sum $1.316$, so weights $(145\%,\ -45\%)$. Net exposure stays at 1.00 and gross exposure goes from 100 percent to 190 percent. Scale the input change against its own uncertainty: the standard error of a ten-year annual mean at 20 percent volatility is $0.20/\sqrt{10} = 6.32$ percentage points, so 50 basis points is $0.5/6.32 = 0.08$ standard errors. A perturbation the data cannot see at all flips the portfolio from balanced to heavily long-short.
+
+**(b)** With equal volatilities $\sigma$ and correlation $\rho$, $\Sigma^{-1} \propto \begin{pmatrix}1 & -\rho \\ -\rho & 1\end{pmatrix}$. Add the two components of $\Sigma^{-1}e$ to get a factor $(1-\rho)(e_1+e_2)$, subtract them to get $(1+\rho)(e_1-e_2)$. The weight is half the sum plus half the difference over the sum:
+
+$$w_1 = \frac{1}{2} + \frac{1}{2}\cdot\frac{1+\rho}{1-\rho}\cdot\frac{e_1 - e_2}{e_1 + e_2}$$
+
+The relative spread is $0.01/0.10 = 0.1$ and the multiplier $\frac{1.9}{0.1} = 19$, so $w_1 = 0.5 + 0.5(19)(0.1) = 1.45$. Confirms part (a). The lever is $\frac{1+\rho}{1-\rho}$, which blows up as $\rho \to 1$: at $\rho = 0.99$ it is 199.
+
+**(c)** By symmetry the eigenvectors are $(1,1)/\sqrt2$ and $(1,-1)/\sqrt2$, with eigenvalues $\sigma^2(1+\rho) = 0.04(1.9) = 0.076$ and $\sigma^2(1-\rho) = 0.04(0.1) = 0.004$. So $\Sigma^{-1}$ multiplies the first direction by $1/0.076 = 13.16$ and the second by $1/0.004 = 250$. The perturbation $(0.005, -0.005)$ lies entirely along the second eigenvector, the low-variance one, and is therefore magnified by 250 rather than 13. The ratio $0.076/0.004 = 19$ is the condition number of $\Sigma$, and it is the factor converting relative input error into relative output error.
+
+Generalise: $\Sigma^{-1}$ divides by eigenvalues, so it trusts the smallest-variance directions most. Those directions are portfolios of near-duplicate assets whose historical near-cancellation is determined by a handful of observations, which makes them the directions the data pins down worst. The optimizer trusts most exactly what it knows least. In realistic dimensions with fewer observations than assets, the sample covariance is singular and the null space consists of directions the optimizer believes have literally zero risk.
+
+**(d)** The estimation error on each mean has standard deviation $\sigma/\sqrt{T} = 0.20/\sqrt{10} = 6.32$ percentage points annually, where $T$ is the span in years. The 50 errors are 50 draws from that distribution. The expected maximum of 50 standard normals is about 2.25, so the best-looking asset carries roughly $2.25 \times 6.32 = 14.2$ percentage points of fictitious annual alpha. Nothing distinguishes it. It won a noise lottery, and the plug-in optimizer will hand it the largest position, because "highest estimated mean" and "largest weight" are the same criterion.
+
+The two channels are independent and multiply in practice. Selection puts the biggest positive error on the asset that gets the biggest weight, and $\Sigma^{-1}$ then amplifies whatever spread the errors created along the poorly determined directions.
+
+**Rubric:**
+- 145 / -45 computed from the explicit matrix multiplication, not asserted
+- The 50 basis points scaled against a 632 basis point standard error, giving 0.08
+- Closed form derived by adding and subtracting the components, with $\frac{1+\rho}{1-\rho}$ identified as the lever
+- Eigenvalues 0.076 and 0.004, amplification 250 on the perturbation direction, condition number 19
+- Explains why small eigenvalues are also the worst-estimated directions
+- Selection channel quantified: 6.32 percentage point standard error, 2.25 expected max, 14.2 points of fake alpha
+- Says the two channels are distinct and reinforcing
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. The Sharpe that noise manufactures.** (a) Assume the true $\mu$ is zero and derive $\mathbb{E}[\widehat{S}^2_{\text{in-sample}}]$ from $T$ observations on $N$ assets, stating the distributional facts you use. (b) Evaluate for 50 assets and 120 monthly observations, and annualize. (c) A portfolio manager asks why the live Sharpe is a third of the backtest Sharpe. Give the portfolio-construction part of the answer that most candidates miss, then complete the account. (d) Use the same expression to say how much history a plug-in optimizer would need for its estimation noise to be small relative to a true annual Sharpe of 0.5, and say which part of that answer you are willing to defend.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Suppose no asset has any edge, $\mu = 0$, and returns are independent across time with covariance $\Sigma$. The sample mean over $T$ periods satisfies $\hat\mu \sim N(0, \Sigma/T)$. The maximum attainable squared Sharpe using the estimates is $\hat\mu'\Sigma^{-1}\hat\mu$, from $S_{\max}^2 = e'\Sigma^{-1}e$ with $\hat\mu$ in place of $e$. Set $z = \sqrt{T}\,\Sigma^{-1/2}\hat\mu$, which is standard normal in $\mathbb{R}^N$. Then
+
+$$\hat\mu'\Sigma^{-1}\hat\mu = \frac{z'z}{T} \sim \frac{\chi^2_N}{T}, \qquad \mathbb{E}\left[\widehat{S}^2_{\text{in-sample}}\right] = \frac{N}{T}$$
+
+Facts used: normality of the sample mean, independence across periods, and $\mathbb{E}[\chi^2_N] = N$. The chi-squared also gives the spread, variance $2N/T^2$, so the quantity is not just large on average but reliably large.
+
+**(b)** $N/T = 50/120 = 0.417$ per month, so the in-sample monthly Sharpe is $\sqrt{0.417} = 0.646$ and the annualized figure is $0.646\sqrt{12} = 2.24$. Ten years of monthly data on fifty assets with exactly zero true edge produces an optimized in-sample Sharpe above two. Nothing was mined, no configurations were searched, and no code was buggy. This is the single optimization step.
+
+**(c)** The part most candidates miss: the optimization is itself a search over portfolios, and it manufactures $\sqrt{N/T}$ of Sharpe out of estimation noise before any signal is involved. That component is guaranteed to be zero out of sample, because it comes from fitting $\hat\mu$'s errors rather than from anything repeatable. Give the number for their $N$ and $T$ and it turns a vague conversation into an accounting exercise. Point72 and Cubist are reported to press specifically on why a backtest Sharpe decays, and the construction-side answer is the one that separates candidates.
+
+Then complete the account, because $\sqrt{N/T}$ is not the whole gap. Transaction costs and market impact, absent or optimistic in the backtest. Multiple testing across configurations that were tried and not logged. Alpha decay, since the signal may have been arbitraged since the sample period. Execution slippage and non-fills. Any look-ahead in feature or universe construction. The right structure of the answer is: name the deterministic component you can compute, compute it, and then enumerate the rest.
+
+**(d)** Set the noise Sharpe to a quarter of the target, so $0.125$ annualized, which is $0.125/\sqrt{12} = 0.036$ monthly. Then $N/T = 0.036^2 = 0.0013$ and $T = 50/0.0013 \approx 38{,}000$ months. That is roughly three thousand years, which is a statement about the method rather than a research plan.
+
+What I defend and what I do not: the quarter-of-target threshold is arbitrary and I would not defend it. The scaling is not arbitrary and I would. Required history grows linearly in $N$, so halving the universe halves the requirement, and it grows as the inverse square of the Sharpe you are trying to detect, so aiming at 0.25 instead of 0.5 costs four times as much data. DeMiguel, Garlappi and Uppal (2009) ran the same computation under their own calibration and reported roughly 3,000 months for 25 assets and 6,000 for 50, then showed empirically across fourteen datasets that sample-based mean-variance and a long list of refinements failed to reliably beat equal weighting out of sample. Different threshold, same order-of-magnitude verdict.
+
+**Rubric:**
+- $\hat\mu \sim N(0, \Sigma/T)$ and the whitening step to a $\chi^2_N$, not just the stated answer $N/T$
+- 0.417 monthly, 0.646 monthly Sharpe, 2.24 annualized
+- Names the optimizer itself as a source of in-sample Sharpe, distinct from data mining or bugs
+- Then enumerates costs, multiple testing and alpha decay rather than stopping at the clever part
+- 38,000 months computed, with the arbitrary threshold flagged as arbitrary
+- Defends the scaling laws, linear in $N$ and quadratic in inverse Sharpe, and cites DGU's numbers as corroboration
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. Constraints are priors in disguise.** (a) Solve minimum variance subject to $w \ge 0$ using KKT conditions and show the constrained solution equals the unconstrained solution for a modified covariance matrix. Give that matrix elementwise. (b) Interpret the modification: which assets are affected, in which direction, and why that is the right direction. (c) Apply a long-only constraint and separately a 60 percent position cap to the $(145\%, -45\%)$ portfolio from the two-asset example. (d) An interviewer says constraints throw away information, so a constrained optimizer must be worse than an unconstrained one. Respond, and then say when the objection is actually right.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Minimise $\tfrac12 w'\Sigma w$ subject to $w'\mathbf{1}=1$ and $w \ge 0$. Introduce a multiplier $\gamma$ for the budget constraint and a vector of multipliers $\delta \in \mathbb{R}^N$ with $\delta_i \ge 0$ for the non-negativity constraints. Stationarity gives
+
+$$\Sigma w = \gamma\mathbf{1} + \delta$$
+
+with complementary slackness $\delta_i w_i = 0$ for every $i$: an asset either sits strictly inside the constraint, where $\delta_i = 0$, or sits at the zero bound, where $w_i = 0$. Either way the product vanishes, so $\delta'w = 0$. Now define
+
+$$\tilde\Sigma = \Sigma - \delta\mathbf{1}' - \mathbf{1}\delta'$$
+
+and evaluate it at the solution:
+
+$$\tilde\Sigma w = \Sigma w - \delta(\mathbf{1}'w) - \mathbf{1}(\delta'w) = \gamma\mathbf{1} + \delta - \delta - 0 = \gamma\mathbf{1}$$
+
+That is exactly the first-order condition of the *unconstrained* minimum variance problem for $\tilde\Sigma$. Elementwise, $\tilde\Sigma_{ij} = \Sigma_{ij} - \delta_i - \delta_j$. This is the Jagannathan-Ma equivalence.
+
+**(b)** Only assets whose constraint binds have $\delta_i > 0$, and those are precisely the assets the unconstrained optimizer wanted to short, which are the assets whose estimated mean or estimated covariances looked most extreme. For those assets, every covariance with everything else is reduced, including the variance $\tilde\Sigma_{ii} = \Sigma_{ii} - 2\delta_i$.
+
+The direction is right because a large negative weight arises from an asset appearing to be an unusually good hedge, which means its estimated covariances with the rest were unusually large. Reducing them is shrinkage aimed exactly at the estimates that were driving the extreme position, with an intensity set endogenously by how hard the constraint had to push. A constraint is not information discarded; it is a data-adaptive covariance adjustment applied where the estimate was least trustworthy.
+
+**(c)** Long-only turns $(145\%, -45\%)$ into $(100\%, 0\%)$: with two assets, forcing $w_2 \ge 0$ and $w_1 + w_2 = 1$ pushes the solution to the corner. A 60 percent per-asset cap turns it into $(60\%, 40\%)$, since $w_1$ hits its bound and the remainder goes to asset 2. Both constrained portfolios are far closer to the unperturbed $(50\%, 50\%)$ than the unconstrained answer is, and both have gross exposure 100 percent instead of 190 percent.
+
+**(d)** The objection assumes the inputs are true. With true $\mu$ and true $\Sigma$ the unconstrained solution is optimal by construction and any constraint can only hurt; that much is correct, and saying so first shows you understand what you are arguing against. With estimated inputs the comparison is between two biased-and-noisy rules, and the constrained one has enormously lower variance in its output weights. Part (a) is the precise version: the constrained solution is not a degraded optimum, it is the exact optimum of a shrunk covariance matrix, and shrinkage is a bias-variance trade that wins whenever the estimate is noisy enough.
+
+When the objection is right: when the short leg is where the actual alpha lives, which is the normal case in a market-neutral equity book, a long-only constraint deletes half the strategy and the loss is a first-order loss of signal, not a second-order loss of efficiency. Also when the constraint binds on nearly every position, in which case the constraint set is the strategy and the optimizer is decoration. The diagnostic is simple: count what fraction of positions sit at a bound. If it is 90 percent, document the implied prior, because that prior and not the data is setting the portfolio.
+
+**Rubric:**
+- KKT set up with $\delta_i \ge 0$ and complementary slackness, and $\delta'w = 0$ derived rather than assumed
+- $\tilde\Sigma w = \gamma\mathbf{1}$ shown line by line, with $\tilde\Sigma_{ij} = \Sigma_{ij} - \delta_i - \delta_j$
+- Identifies binding assets as the ones the optimizer wanted to short, and the reduction as targeted shrinkage
+- Both constrained portfolios computed, with the gross exposure comparison
+- Concedes the objection under true inputs before rebutting it under estimated inputs
+- Names the market-neutral case and the everything-at-a-bound case as genuine failures of the defence
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Risk parity from first principles.** (a) Derive an exact additive decomposition of portfolio volatility into per-asset contributions, saying what property of $\sigma_p$ makes it exact. (b) State the risk-parity condition and prove that under equal pairwise correlation it is solved by inverse volatility. (c) For the three-asset example, solve risk parity exactly by exploiting symmetry. (d) Compare minimum variance, risk parity, inverse volatility and equal weight on that example by risk shares, then pick one for a multi-asset book and defend it out loud.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Portfolio volatility $\sigma_p(w) = \sqrt{w'\Sigma w}$ is homogeneous of degree one: $\sigma_p(tw) = t\sigma_p(w)$ for $t > 0$. Euler's theorem for homogeneous functions of degree one says $\sigma_p = \sum_i w_i \partial\sigma_p/\partial w_i$, and
+
+$$\frac{\partial\sigma_p}{\partial w_i} = \frac{(\Sigma w)_i}{\sigma_p}$$
+
+So defining the risk contribution $RC_i = w_i(\Sigma w)_i/\sigma_p$, the contributions sum exactly to $\sigma_p$ with no residual. Homogeneity is what makes this a decomposition rather than an approximation or a convention. The same construction on variance rather than volatility gives contributions $w_i(\Sigma w)_i$ summing to $w'\Sigma w$, which is why the risk-parity condition can be written either way.
+
+**(b)** The condition is
+
+$$w_i(\Sigma w)_i = w_j(\Sigma w)_j \quad \text{for all } i, j$$
+
+Under equal pairwise correlation $\rho$ and volatilities $\sigma_i$, try $w_i = c/\sigma_i$ so that every $w_j\sigma_j = c$. Then
+
+$$(\Sigma w)_i = w_i\sigma_i^2 + \rho\sigma_i\sum_{j\ne i}w_j\sigma_j = c\sigma_i + \rho\sigma_i(N-1)c = c\sigma_i\left[1 + \rho(N-1)\right]$$
+
+so $w_i(\Sigma w)_i = \frac{c}{\sigma_i}\cdot c\sigma_i[1+\rho(N-1)] = c^2[1+\rho(N-1)]$, independent of $i$. Inverse volatility *is* risk parity under equal correlation. The two diverge only when the correlation structure is uneven, and then risk parity penalises assets correlated with the rest of the book while inverse volatility, which never looks at an off-diagonal element, does not.
+
+**(c)** With $\Sigma$ from the three-asset example and assets 2 and 3 symmetric, set $w_2 = w_3 = x$ and $w_1 = 1-2x$. Then $(\Sigma w)_1 = 0.01(1-2x)$ and $(\Sigma w)_2 = 0.04x + 0.036x = 0.076x$. The condition $w_1(\Sigma w)_1 = w_2(\Sigma w)_2$ becomes
+
+$$0.01(1-2x)^2 = 0.076x^2$$
+
+Take positive roots: $0.1(1-2x) = 0.2757x$, so $0.1 = 0.2757x + 0.2x = 0.4757x$ and $x = 0.2102$. Weights $(58.0\%,\ 21.0\%,\ 21.0\%)$, portfolio volatility 10.04 percent. Check: $w_1(\Sigma w)_1 = 0.580(0.00580) = 0.00336$ and $w_2(\Sigma w)_2 = 0.210(0.01598) = 0.00336$, equal as required, and three equal contributions summing to the variance $0.01008 = 0.1004^2$.
+
+**(d)**
+
+| Rule | Weights | Portfolio vol | Risk shares |
+|---|---|---|---|
+| Minimum variance | 79.2 / 10.4 / 10.4 | 8.90% | 79.2 / 10.4 / 10.4 |
+| Risk parity | 58.0 / 21.0 / 21.0 | 10.04% | 33.3 / 33.3 / 33.3 |
+| Inverse volatility | 50.0 / 25.0 / 25.0 | 10.95% | 20.8 / 39.6 / 39.6 |
+| Equal weight | 33.3 / 33.3 / 33.3 | 13.42% | 6.2 / 46.9 / 46.9 |
+
+Read the last column, not the second. Equal weight, which looks like the neutral choice, puts 93.8 percent of the portfolio's risk in the correlated pair. Inverse volatility, which looks balanced, still puts 79.2 percent there, because it cannot see the 0.9 correlation. Risk parity is the only rule that delivers the balance the other two appear to promise, and it costs exactly one number of structure beyond the diagonal. Minimum variance is at the other extreme: its risk shares equal its weights, a property of the minimum-variance solution, and it concentrates in the low-volatility asset.
+
+The pick, and the defence matters more than the pick. For a multi-asset book across equities, rates, credit and commodities, I take **risk parity**. The reason is a matching argument, not a performance claim: the inputs it requires are the ones I can estimate. Volatilities and the broad correlation structure are estimable from a few years of daily data to a few percent relative error, while expected returns across asset classes are not estimable at all over any horizon I will be employed for. Risk parity uses exactly the estimable inputs and no others.
+
+What I give up, stated before I am asked. It needs leverage to reach a return target, since a risk-balanced portfolio dominated by low-volatility assets has low unlevered return, and leverage brings financing cost, margin calls at the worst moment and a drawdown profile — peak-to-trough decline in cumulative value — that the unlevered backtest does not show. It still uses $\Sigma$, so a bad correlation estimate hurts it, though it does not invert $\Sigma$ and so is far better conditioned than minimum variance. And it asserts that no asset deserves more risk than another, which is a strong prior and is wrong whenever I actually have a view. If I did have a defensible view I would express it as a tilt on top of risk parity rather than by switching to plug-in mean-variance, which keeps the estimable-inputs backbone and puts the fragile input in one visible place.
+
+**Rubric:**
+- Euler's theorem invoked by name with degree-one homogeneity as the reason the decomposition is exact
+- Marginal contribution $(\Sigma w)_i/\sigma_p$ derived, not quoted
+- Equal-correlation proof done by substitution, reaching $c^2[1+\rho(N-1)]$ independent of $i$
+- $0.01(1-2x)^2 = 0.076x^2$ set up from symmetry and solved to $x = 0.2102$
+- Reads the comparison off risk shares, noting equal weight's 93.8 percent concentration
+- Picks one rule and justifies it by which inputs are estimable, not by backtest performance
+- Volunteers leverage, financing and drawdown as the cost before being asked
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8. Which input do you fix first.** (a) Quantify the estimation asymmetry between $\mu$ and $\Sigma$, using ten years of data and 20 percent volatility, and explain why sampling more frequently helps one and not the other. (b) Write the shrinkage estimator for $\Sigma$, show what it does to eigenvalues, and work the two-asset case at $\alpha = 0.5$. (c) Write the shrinkage estimator for $\mu$ and find the intensity that matches what covariance shrinkage achieved. (d) You are handed 200 equities, 5 years of daily data and a mandate to build a long-short book. Give your construction pipeline in order and defend the ordering out loud, including what you would refuse to do.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The standard error of a sample mean return is $\sigma/\sqrt{T}$ where $T$ is the calendar span in years. At 20 percent volatility and ten years that is $0.20/\sqrt{10} = 6.32$ percentage points. Against a hypothesised 10 percent expected return that is $6.32/10 = 63$ percent relative error. Sampling more often does not change it: the numerator and denominator both rescale, and only calendar span enters.
+
+Variance is different. The relative error of a variance estimate is roughly $\sqrt{2/n}$ in the number of observations $n$, so the relative error of a volatility estimate is about $\sqrt{2/n}/2$. Ten years of *daily* data gives $n = 2520$ and $\sqrt{2/2520}/2 = 1.4$ percent relative error. Moving to five-minute bars improves that number further and improves the mean's not at all.
+
+The mechanism behind the asymmetry: variance is filled in by the sampling itself, since quadratic variation accumulates within the interval, while the mean is determined only by the endpoints of the calendar span. So $\mu$ deserves harsher treatment than $\Sigma$, and any procedure that treats them symmetrically is mis-specified.
+
+**(b)** Replace the sample covariance $S$ with a convex combination of it and a structured target $F$:
+
+$$\hat\Sigma = (1-\alpha)S + \alpha F, \qquad \alpha \in [0,1]$$
+
+Targets in use: a scaled identity, a constant-correlation matrix, or a factor model's implied covariance. With $F = \bar\lambda I$ and $\bar\lambda = \operatorname{tr}(S)/N$ the average eigenvalue, the eigenvectors are unchanged and eigenvalues map as $\lambda_i \mapsto (1-\alpha)\lambda_i + \alpha\bar\lambda$. Large eigenvalues come down, small ones go up, and the condition number falls toward one, so $\Sigma^{-1}$ stops amplifying.
+
+Two-asset case at $\alpha = 0.5$: eigenvalues $0.076$ and $0.004$ have average $0.040$, and map to $0.5(0.076) + 0.5(0.040) = 0.058$ and $0.5(0.004) + 0.5(0.040) = 0.022$. Condition number falls from 19 to $0.058/0.022 = 2.64$. In correlation terms, $\rho = (0.058 - 0.022)/(0.058 + 0.022) = 0.45$, half the original 0.9. Feeding that into the closed form,
+
+$$w_1 = 0.5 + 0.5\cdot\frac{1.45}{0.55}\cdot 0.1 = 0.5 + 0.132 = 63.2\%$$
+
+Weights $(63.2\%, 36.8\%)$ instead of $(145\%, -45\%)$. The estimator that picks $\alpha$ by minimising expected squared distance to the true covariance is Ledoit-Wolf shrinkage, and its usual role in an interview is as the *name* you supply, not something you derive.
+
+**(c)** Shrink toward the cross-sectional mean $\bar\mu$: $\hat\mu_{\text{shr}} = (1-\theta)\hat\mu + \theta\bar\mu\mathbf{1}$. That leaves the average alone and scales the spread by $(1-\theta)$, and the spread is the only thing the closed form uses. Matching the 63.2 percent weight requires $0.5(19)(0.1)(1-\theta) = 0.132$, so $1-\theta = 0.139$ and $\theta = 0.86$. Given a 63 percent relative error on $\hat\mu$, an intensity of 0.86 is not extreme, and the two knobs are substitutes in the sense that either one can produce the same final portfolio.
+
+The principled version of $\mu$ shrinkage does not shrink toward the cross-sectional mean but toward the expected returns that would make market-capitalisation weights optimal, obtained by reverse-optimizing $\mu_{\text{implied}} = \kappa\Sigma w_{\text{mkt}}$ for a risk-aversion scalar $\kappa$, then blends in explicit views with explicit confidences. That is Black-Litterman, and its real contribution is forcing you to state the prior and the confidence separately instead of hiding them in an intensity parameter.
+
+**(d)** Order of operations, with the ordering as the substance.
+
+First, inputs. $N = 200$ and $T = 1260$ daily observations, so the aspect ratio is $200/1260 = 0.159$. The sample covariance is invertible, which is not the same as usable, and its smallest eigenvalues are badly estimated. I shrink toward a factor structure rather than the identity, because equities have an actual factor structure and the target should encode what I believe rather than what is convenient. I check the smallest eigenvalue and the condition number before anything else runs.
+
+Second, dimension. I do not estimate 200 free expected returns from 1260 days. I map assets onto a small number of characteristics and let many assets share few parameters, which is the only genuine way to improve the noise Sharpe of $\sqrt{N/T}$ instead of merely coping with it. Here that noise Sharpe is $\sqrt{200/1260} = 0.398$ daily, which annualizes to $0.398\sqrt{252} = 6.3$. Anything I do not shrink hard I will be measuring against that.
+
+Third, restrict the optimizer. Position caps, gross and net exposure limits, sector and factor exposure limits. From the Jagannathan-Ma argument these are covariance adjustments applied exactly where the estimate is extreme, so they cost less than they appear to.
+
+Only then, the objective, and I would still compare the result against equal weight and against risk parity on the same universe over the same walk-forward windows. If the optimized book does not beat those on out-of-sample risk-adjusted terms after costs, the optimizer is not earning its complexity.
+
+What I refuse: I will not run an unconstrained plug-in mean-variance on 200 raw sample means; I will not report an in-sample optimized Sharpe as the strategy's Sharpe, since $\sqrt{N/T}$ says what fraction of it is manufactured; and I will not rebalance to a re-estimated $\hat\mu$ every day without first measuring how much turnover survives holding $\hat\mu$ fixed, because turnover driven by noise is a pure cost.
+
+**Rubric:**
+- 6.32 percentage point standard error and 63 percent relative error on $\mu$, against about 1.4 percent on volatility from daily data
+- Explains why frequency helps variance and not the mean
+- Eigenvalue map under shrinkage, condition number 19 to 2.64, resulting weights 63.2 / 36.8
+- Ledoit-Wolf named as the intensity chooser and positioned as a name, not a derivation
+- $\mu$ shrinkage written, $\theta = 0.86$ computed, Black-Litterman described as prior plus views
+- Pipeline ordered inputs, dimension, constraints, objective, with the ordering defended
+- Computes the noise Sharpe for the actual $N$ and $T$ given
+- States explicit refusals, not only recommendations
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: portfolio construction
+
+These 16 questions stand alone and do not depend on anything above. Each should take 2 to 5 minutes out loud. They are chosen for how often they come up in a portfolio management or quantitative research seat, not for how interesting they are. Answer them speaking, with the arithmetic said aloud.
+
+1. **Derive the frontier cold** Minimise $w'\Sigma w$ subject to $w'\mu = m$ and $w'\mathbf{1} = 1$. Give the solution, define $A$, $B$, $C$, $D$, and state the variance of the optimal portfolio as a function of $m$. Then say what curve that is in mean-volatility space and where its vertex sits.
+2. **Two-fund separation in one minute** What is two-fund separation, and why is it true? Give the argument from the form of the solution, not from an economic story, and say what changes when a risk-free asset is added.
+3. **The minimum variance portfolio** Write $w_{\text{GMV}}$ and say what input it does not use. Why does that make it more robust in practice, and what does it still get wrong?
+4. **Tangency and the maximum Sharpe** Derive $w \propto \Sigma^{-1}(\mu - r_f\mathbf{1})$ and give the maximum attainable Sharpe ratio in closed form. What happens if the risk-free rate equals the minimum variance portfolio's expected return?
+5. **The 145 / minus 45 portfolio** Two assets, 20 percent volatility each, correlation 0.9, expected excess returns 5.5 and 4.5 percent, risk-free rate zero. Compute the max-Sharpe weights out loud. Then say how many standard errors that 50 basis point spread represents on ten years of data, and what that implies.
+6. **Why it is called an error maximizer** Explain the two distinct channels by which estimation error becomes extreme weights. Name the role of the eigenvalues of $\Sigma$ in one of them and the role of selection on the upper tail in the other.
+7. **Fifty assets, one winner** Fifty assets have identical true expected returns and 20 percent volatility, estimated over ten years. How much fake alpha does the best-looking one show? Give the standard error, the expected maximum of fifty standard normals, and the product.
+8. **The Sharpe that noise builds** Assume every true expected return is zero. What in-sample Sharpe does an optimizer find from $T$ observations on $N$ assets? Derive it, then evaluate for 50 assets and 120 months and annualize.
+9. **Why the backtest Sharpe decayed** A live strategy is running at a third of its backtest Sharpe. Give the portfolio-construction component of the answer with a number attached, then complete the account with everything else that contributes.
+10. **Does long-only throw away information** Someone claims a constrained optimizer must be worse than an unconstrained one. Answer with the algebra: what covariance matrix does the constrained solution exactly solve, and which entries change?
+11. **Your covariance matrix is noisy** What do you do? Give the estimator, say what it does to the eigenvalues, name the method that picks the intensity, and give two alternatives that are not shrinkage.
+12. **Shrink $\mu$ or shrink $\Sigma$** Which input deserves harsher shrinkage and why? Support it with the standard error of a mean against the relative error of a volatility over the same ten years, and say why sampling more often changes only one of them.
+13. **Risk parity versus inverse volatility** When are they the same portfolio? Prove it. Then say what risk parity does differently when the universe contains a cluster of correlated assets.
+14. **Reading risk shares** A three-asset book holds equal weights. Two of the three have 20 percent volatility and 0.9 correlation; the third has 10 percent volatility and is uncorrelated with them. Roughly what share of portfolio risk sits in the correlated pair, and what does that tell you about equal weighting as a neutral choice?
+15. **Pick a rule and defend it** You must allocate across asset classes with no reliable expected-return estimates. Choose among minimum variance, risk parity, inverse volatility and equal weight. Commit to one, justify it by which inputs are estimable rather than by backtest results, and state the cost of your choice before you are asked for it.
+16. **How would you beat one over N** Equal weighting is hard to beat out of sample. Say why, with the noise-Sharpe scaling behind it, then say what you would actually change to get past it. Defend why your route attacks the real problem rather than the solver.
