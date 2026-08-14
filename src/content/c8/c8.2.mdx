@@ -107,7 +107,7 @@ $$
 
 Real numbers, since interviewers want these instantly. $\phi = 0.5$ gives $h = 1$ day. $\phi = 0.9$ gives $0.6931/0.10536 = 6.6$ days. $\phi = 0.95$ gives $13.5$ days. $\phi = 0.98$ gives $0.6931/0.02020 = 34.3$ days. $\phi = 0.99$ gives $69$ days.
 
-Variance is where stationarity bites. Iterating the recursion, $\mathrm{Var}(y_t) = \sigma^2(1 + \phi^2 + \phi^4 + \cdots)$, which sums to
+Now the variance. Iterating the recursion, $\mathrm{Var}(y_t) = \sigma^2(1 + \phi^2 + \phi^4 + \cdots)$, which sums to
 
 $$
 \mathrm{Var}(y_t) = \frac{\sigma^2}{1-\phi^2}
@@ -119,7 +119,7 @@ and that geometric series converges only when $|\phi|$ is less than 1. Three reg
 2. $\phi = 1$. A unit root, i.e. a random walk. The variance formula blows up; the correct statement is $\mathrm{Var}(y_t) = t\sigma^2$, growing without bound. Shocks are permanent and there is no mean to revert to. Half-life is infinite.
 3. $|\phi| > 1$. Explosive. Shocks amplify, the series leaves any bounded region, and nothing in finance stays here for long.
 
-The half-life is not a curiosity. It is the number that sizes a mean-reversion trade. A spread with $\phi = 0.98$ takes about 34 days to travel halfway home, so a strategy that round-trips it every two days is paying costs 17 times over to collect the same reversion.
+The half-life is the number that sizes a mean-reversion trade. A spread with $\phi = 0.98$ takes about 34 days to travel halfway home, so a strategy that round-trips it every two days is paying costs 17 times over to collect the same reversion.
 
 > **Stop and think.** You estimate $\phi = 0.98$ on a spread and quote a 34-day half-life. Now suppose the estimate is off by one hundredth in each direction. Compute the half-life at $0.97$ and at $0.99$ before reading on, and decide whether a point estimate is a defensible thing to hand a trader. (Whether the series is a unit root at all is a testing question, and that is c8.1.)
 
@@ -141,7 +141,7 @@ A sharp $-0.5$ at lag 1 that appeared after you differenced means you difference
 
 ## Part 5 — The one empirical fact that matters
 
-Run the machinery above on daily equity index returns and the result is almost embarrassing. Sample autocorrelations of returns are tiny at every lag, typically between $-0.05$ and $+0.05$ at lag 1 and smaller after, which with $T = 2520$ sits at or inside the $\pm 0.039$ noise band. Fit ARIMA to returns and you get a model indistinguishable from "tomorrow's return is unforecastable." That is an equilibrium, not an accident: a lag-1 autocorrelation of $0.2$ in a liquid index is a trivially tradable trend rule, and trading it removes the autocorrelation.
+Run the machinery above on daily equity index returns and you find almost nothing. Sample autocorrelations of returns are tiny at every lag, typically between $-0.05$ and $+0.05$ at lag 1 and smaller after, which with $T = 2520$ sits at or inside the $\pm 0.039$ noise band. Fit ARIMA to returns and you get a model indistinguishable from "tomorrow's return is unforecastable." That is an equilibrium, not an accident: a lag-1 autocorrelation of $0.2$ in a liquid index is a trivially tradable trend rule, and trading it removes the autocorrelation.
 
 Now square the returns and rerun the same code. The ACF of $r_t^2$ at lag 1 is commonly $0.15$ to $0.25$, still clearly positive at lag 20, and often detectable past lag 100. Absolute returns $|r_t|$ show the same pattern, usually stronger. The decay is slow, closer to hyperbolic than geometric.
 
@@ -238,7 +238,7 @@ What GARCH does not give you:
 
 ## Part 7 — Where the fat tails come from
 
-Daily equity returns have far more extreme observations than a normal distribution allows. The interesting claim is that you can generate a good chunk of that without assuming anything fat-tailed in the model.
+Daily equity returns have far more extreme observations than a normal distribution allows. You can generate a good part of that without assuming anything fat-tailed in the model.
 
 Let $z_t$ be standard normal, so the *conditional* distribution of $r_t$ given yesterday is exactly Gaussian. The unconditional distribution is a mixture of Gaussians with different widths. Compute its kurtosis using the fact that $\sigma_t$ is known at $t-1$ and independent of $z_t$:
 
