@@ -1,0 +1,205 @@
+---
+id: c3.3
+chapter: 3
+title: Inference, serving and cost
+subtitle: KV cache arithmetic, prefill vs decode, continuous batching, speculative decoding, quantization — and how to budget a serving fleet out loud
+refs: []
+estimatedMinutes: 80
+---
+
+## TL;DR
+
+Serving an LLM is not a compute problem. It is a **memory problem wearing a compute costume**. Generating one token requires reading every weight in the model out of GPU memory and doing only about two floating-point operations per byte read — roughly 300 times less arithmetic than the GPU can do per byte it can fetch. So decode speed is set by memory bandwidth, not by FLOPs, and every serious inference optimization is an answer to one of two questions: *how do I move fewer bytes per token* (quantization, GQA, speculative decoding) or *how do I amortize the bytes I already moved across more tokens* (batching).
+
+The second half of the story is the **KV cache**: the per-request tensor of past keys and values that makes decode $O(n)$ instead of $O(n^2)$. It is linear in context length and linear in concurrency, it is not shared between requests, and at long context it can exceed the size of the model weights. That makes it, not the weights, the thing that caps how many users one GPU can serve. If you can write down the cache formula, plug in a spec an interviewer hands you, and turn the number into a concurrency limit and a dollar figure, you have cleared the bar that most candidates fail.
+
+## What you'll be able to do after this lesson
+
+- Write the KV-cache size formula from memory and compute it in bytes for a model spec you have never seen.
+- Explain why prefill is compute-bound and decode is memory-bandwidth-bound, using arithmetic intensity rather than hand-waving.
+- Derive an upper bound on tokens/second per GPU from bandwidth alone, before you have run anything.
+- Explain continuous batching, PagedAttention and prefix caching in terms of the specific waste each removes.
+- State why speculative decoding is mathematically exact, and compute its expected speedup from an acceptance rate.
+- Compare INT8, INT4, GPTQ and AWQ, and say what degrades and which phase each helps.
+- Turn any of the above into a concurrency limit, a GPU count and a dollar figure.
+
+> **Vocabulary primer.** Define these once, use them for the rest of the lesson.
+>
+> - **Prefill** — the forward pass over the whole prompt, done once, all tokens in parallel. Produces the first output token.
+> - **Decode** — the one-token-at-a-time loop after that. One forward pass per output token.
+> - **TTFT** (time to first token) — latency of prefill. **TPOT** / **ITL** (time per output token, inter-token latency) — latency of one decode step. Total latency $= \text{TTFT} + \text{TPOT} \times \text{(output tokens)}$.
+> - **HBM** — high-bandwidth memory, the GPU's main memory (80 GB on an H100, ~3.35 TB/s). **SRAM** — the tiny on-chip scratchpad (~20 MB, ~100× faster). "Memory bandwidth" almost always means HBM bandwidth.
+> - **Arithmetic intensity** — FLOPs performed per byte read from HBM. Compare it to the GPU's **ridge point** (peak FLOP/s ÷ peak bytes/s). Above the ridge point you are **compute-bound**; below it you are **memory-bandwidth-bound** and adding FLOPs buys nothing.
+> - **dtype byte widths** — FP32 = 4 bytes, FP16/BF16 = 2, FP8/INT8 = 1, INT4 = 0.5.
+> - **n_heads vs n_kv_heads** — the number of query heads versus the number of distinct key/value head groups. In classic multi-head attention they are equal. **GQA** (grouped-query attention) makes `n_kv_heads` smaller, so several query heads share one K/V pair. This distinction *is* GQA, and it is the most common point of confusion in this whole topic.
+
+## Part 1 — What one decode step actually costs
+
+At decode step $t$, attention needs the query of the new token against the keys of *all* previous tokens, then a weighted sum of *all* previous values. Nothing else about those earlier tokens matters — their queries are never used again, because causal masking means no earlier position attends forward. Their keys and values also never change.
+
+That is the whole justification for the cache. Recomputing $K$ and $V$ for the full prefix at every step is $O(n^2)$ work over a generation; storing them makes each step $O(n)$.
+
+Be precise about what this buys. **The KV cache does not make attention cheaper per token in FLOPs terms.** The step still attends over $n$ positions. It removes *redundant recomputation*. It is a memory-for-compute trade, and at long context you end up wishing you had the memory back.
+
+### The formula
+
+For every layer you store one key tensor and one value tensor, each of shape (batch, n_kv_heads, seq, d_head). So:
+
+$$\text{bytes} = 2 \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_{\text{head}} \times \text{seq} \times \text{batch} \times \text{dtype\_bytes}$$
+
+The leading 2 is K and V. Note what is *absent*: `n_heads`. The cache is sized by `n_kv_heads`, which is exactly why GQA works.
+
+### Worked example — a 70B-class model
+
+Take a spec of the kind an interviewer hands you: 80 layers, 64 query heads, **8 KV heads**, $d_{\text{head}} = 128$ (so $d_{\text{model}} = 8192$), FP16 cache, 70B parameters.
+
+Per token, per layer: $2 \times 8 \times 128 \times 2 = 4096$ bytes = 4 KiB.
+
+Per token, all layers: $4096 \times 80 = 327{,}680$ bytes ≈ **320 KiB per token**.
+
+That single number is worth memorizing as a unit. Now scale it:
+
+| Context | KV cache, one request |
+|---|---|
+| 2K | 0.66 GB |
+| 32K | 10.5 GB |
+| 100K | **32.8 GB** |
+
+The weights are $70 \times 10^9 \times 2 = 140$ GB. So **one** 100K-context conversation costs you 23% of the weight memory. Four of them cost more than the model.
+
+Now redo it with MHA, where `n_kv_heads` = `n_heads` = 64: multiply by 8. Per token that is 2.6 MiB, and at 100K context it is **262 GB** — nearly twice the weights, for a single user. This is the quantitative answer to "why did Llama-2 70B adopt GQA": it cuts the cache 8× at a small quality cost, and the cache is what caps concurrency. MQA (`n_kv_heads` = 1) cuts it 64× but loses more quality, which is why GQA at 8 groups is the settled compromise.
+
+The framing that scores: *GQA cuts the KV cache 8×, therefore at fixed HBM I can hold 8× the concurrent sessions at the same context length.* Not "GQA is more efficient."
+
+```python
+def kv_cache_bytes(n_layers, n_kv_heads, d_head, seq, batch, dtype_bytes=2):
+    return 2 * n_layers * n_kv_heads * d_head * seq * batch * dtype_bytes
+
+# 70B-class, GQA-8, 100K context, one request
+kv_cache_bytes(80, 8, 128, 100_000, 1) / 1e9   # -> 32.77 GB
+# same model with full MHA
+kv_cache_bytes(80, 64, 128, 100_000, 1) / 1e9  # -> 262.1 GB
+```
+
+## Part 2 — Prefill and decode are different machines
+
+Both phases run the same weights. They sit on opposite sides of the ridge point.
+
+**Prefill** processes $P$ prompt tokens at once, costing about $2NP$ FLOPs for $N$ parameters ($N$ multiply-accumulates per token, 2 FLOPs each) while reading the weights only once, $2N$ bytes in FP16. Arithmetic intensity is $2NP/2N = P$ FLOPs per byte. A 2000-token prompt gives ~2000, far above an H100's ridge point of $989 \times 10^{12} / 3.35 \times 10^{12} \approx 295$. **Prefill is compute-bound**, and more FLOP/s improves TTFT.
+
+**Decode** produces one token per sequence: $2N$ FLOPs per sequence, but still $2N$ bytes read, because you cannot multiply by a matrix you have not loaded. Intensity is $2NB/2N = B$, the batch size. At $B = 1$ that is **1 FLOP per byte**, roughly 300× below the ridge point. **Decode is memory-bandwidth-bound**, and a GPU twice as fast at math generates tokens at exactly the same rate.
+
+### The bandwidth bound as a number
+
+An H100 has 80 GB of HBM, so 140 GB of FP16 weights needs at least two of them. Tensor-parallel across 2 GPUs gives ~6.7 TB/s aggregate. Per decode step you must stream the weights once:
+
+$$\text{TPOT}_{\min} = \frac{140\text{ GB}}{6.7\text{ TB/s}} \approx 21\text{ ms} \;\Rightarrow\; \approx 48 \text{ tokens/s}$$
+
+That is a hard ceiling at batch 1, before any kernel inefficiency, set entirely by bandwidth. The crucial part: those 21 ms are spent *once for the whole batch*. At batch 32 you still pay ~21 ms (plus cache reads) and get 32 tokens out, so aggregate throughput is ~1500 tokens/s. Per-user speed unchanged; total output up 32×.
+
+**That is why batching is the highest-leverage lever in LLM serving, and why it is nearly free until you run out of KV cache memory.** You are amortizing a fixed byte-movement cost over more work, walking intensity up toward the ridge point. Once $B$ exceeds ~300 on this hardware you are compute-bound and further batching costs latency for no throughput.
+
+Do TTFT the same way. Same 70B, a 10K-token prompt, 2 H100s at a realistic 40% of peak:
+
+$$\frac{2 \times 70\times10^9 \times 10^4}{2 \times 989\times10^{12} \times 0.4} = \frac{1.4\times10^{15}}{7.9\times10^{14}} \approx 1.8\text{ s}$$
+
+TTFT ~1.8 s, then ~48 tokens/s. Given an 8-second p95 complaint, that decomposition tells you immediately which term to attack.
+
+## Part 3 — Continuous batching
+
+Static batching collects $B$ requests, runs them together, and returns when the *longest* one finishes. If one request generates 800 tokens and seven generate 40, seven slots sit idle for 760 steps computing padding, and a request arriving one microsecond after launch waits for the whole batch.
+
+**Continuous batching** (in-flight batching) operates at token granularity instead of request granularity. After every decode step the scheduler evicts finished sequences and admits waiting ones into their slots. Reported gains over static batching are several-fold, and essentially all of it is recovered idle slots.
+
+The blocker is memory. Each admitted sequence needs its own cache and you do not know in advance how long it will get. Naive allocators reserve `max_seq_len` per slot — 32.8 GB per user at 100K here — so you can admit almost nobody. **PagedAttention** (vLLM) borrows virtual memory: the cache is split into fixed-size blocks (say 16 tokens), a per-sequence block table maps logical positions to physical blocks, and blocks are allocated on demand. Fragmentation drops to under a block, and blocks can be *shared* copy-on-write between requests.
+
+That sharing is **prefix caching**: if 10,000 requests share a 2,000-token system prompt, you prefill it once and reuse those blocks. For a chat product with a long tool-definition preamble this is often the largest single cost win available, and it is pure bookkeeping.
+
+One scheduling tension is worth naming. A long prefill hogs the GPU, so every decoding user stalls for its duration and their inter-token latency spikes. **Chunked prefill** splits a long prompt and interleaves the pieces with decode steps, trading slightly worse TTFT for smooth ITL. That is the throughput-versus-latency dial in its most concrete form.
+
+## Part 4 — Speculative decoding
+
+Decode wastes the GPU: intensity 1 when the hardware wants 300. Speculative decoding spends that slack. A small **draft** model (say 1B) generates $k$ candidate tokens cheaply and autoregressively. The big **target** model then scores all $k$ in a *single* forward pass, which costs barely more than scoring one token, because the expensive part was reading the weights and you read them once either way.
+
+**Why it is exact.** Interviewers probe this, and "an approximation that's usually fine" is the wrong answer. For each drafted token $x$ with draft probability $q(x)$ and target probability $p(x)$, accept with probability $\min(1, p(x)/q(x))$; if rejected, resample from the normalized residual $\propto \max(0, p(x) - q(x))$. That is rejection sampling, and the resulting distribution is provably identical to sampling from $p$. A worse draft model does not make the answer worse, only the *speedup* worse.
+
+**Expected speedup.** With per-token acceptance rate $\alpha$ and draft length $k$, the expected tokens per target forward pass is
+
+$$\mathbb{E}[\text{tokens}] = \frac{1 - \alpha^{k+1}}{1 - \alpha}$$
+
+At $\alpha = 0.8$, $k = 4$: $(1 - 0.8^5)/0.2 = 0.672/0.2 = 3.36$ tokens per target pass. So ~3.4× fewer expensive passes, minus the draft's own cost. Realistic end-to-end: 2-3×.
+
+The constraint argument: speculative decoding converts unused FLOPs into tokens, **so it helps most at small batch and least when you are already batching heavily**, because a large batch has consumed the slack. Excellent for a latency-sensitive single-user workload; near-useless at batch 256.
+
+## Part 5 — Quantization
+
+Quantization stores numbers in fewer bits. Decode time is bytes-moved ÷ bandwidth, so halving the bytes roughly halves TPOT, and the freed HBM becomes KV cache, which raises concurrency.
+
+**Weight-only quantization** is the default: weights stored in INT8 or INT4, dequantized to FP16 inside the kernel, math still in FP16. Our 70B is 140 GB in FP16, 70 GB in INT8, 35 GB in INT4. INT4 is what makes single-GPU serving of a 70B possible at all.
+
+**It does not speed up prefill.** Prefill is compute-bound and the arithmetic is still FP16, so TTFT is unchanged. Candidates routinely claim "quantization makes everything 4× faster"; it makes *decode* faster and *memory* smaller.
+
+**GPTQ** quantizes layer by layer, using second-order (Hessian) information from a small calibration set to choose each weight's rounding so the layer's *output* error is minimized, updating the not-yet-quantized weights to compensate for error already introduced. **AWQ** starts from the observation that a small fraction of weight channels matter far more than the rest, identifies them by *activation* magnitude rather than weight magnitude, and rescales them before quantizing so they survive INT4 intact. Both are post-training. AWQ tends to be less sensitive to the calibration set.
+
+**What breaks.** Activation quantization is much harder than weight quantization: transformer activations have extreme per-channel outliers, so naive INT8 activations destroy the model. LLM.int8() keeps outlier channels in FP16; SmoothQuant migrates the difficulty from activations into weights with a per-channel scaling. Quantizing the *KV cache* to INT8/FP8 directly buys concurrency, but **keys are more sensitive than values** — RoPE-rotated keys carry strong outlier channels, and key errors pass through a softmax that amplifies them while value errors get averaged. And perplexity hides the damage: INT4 often costs a few hundredths of perplexity while measurably degrading long-context recall, multi-step arithmetic, and structured-output adherence. Evaluate on your task, not on WikiText.
+
+## Part 6 — Putting it together: budget a fleet out loud
+
+Context length has two separate costs and interviewers like to see you separate them.
+
+1. **KV cache: linear in context.** 320 KiB per token here. Concurrency at fixed HBM is inversely proportional to context length.
+2. **Prefill attention: quadratic in context.** Causal attention costs about $2 \times n_{\text{layers}} \times s^2 \times d_{\text{model}}$ FLOPs, versus $2Ns$ for everything else. Those are equal when $s = N / (n_{\text{layers}} \cdot d_{\text{model}}) = 70\times10^9 / (80 \times 8192) \approx 107{,}000$ tokens. Below ~100K, attention is a minority of prefill cost and the "quadratic" panic is overstated; above it, attention dominates and FlashAttention (IO-aware tiling, exact, saves HBM traffic not FLOPs) and chunked prefill stop being optional.
+
+**Now the dollar figure.** Two H100s at roughly \$2/GPU-hour = \$4/hour. From Part 2, at batch 32 the pair produces ~1500 output tokens/s.
+
+$$1500 \text{ tok/s} \times 3600 = 5.4\text{M tokens/hour} \Rightarrow \frac{\$4}{5.4\text{M}} \approx \$0.74 \text{ per 1M output tokens}$$
+
+At 50% fleet utilization that is ~\$1.50 per 1M output tokens, which is the right order of magnitude versus published API pricing for models this size. Input tokens are far cheaper per token because prefill is parallel; that asymmetry is why every vendor prices input and output separately, and why prefix caching is priced cheaper still.
+
+Sanity-check the concurrency limit too. 160 GB of HBM minus 140 GB of weights leaves ~20 GB for cache. At 8K context (2.6 GB per request) that is 7 concurrent requests. That number, not the FLOPs, is what your autoscaler is actually gated on. Quantize weights to INT8 and you free 70 GB, taking concurrency from 7 to ~34. State it that way in an interview: the optimization changed a concurrency number, which changed a GPU count, which changed a bill.
+
+### The \$50k/month, 8-second-p95 question
+
+Decompose before acting: measure the split between TTFT and generation. If TTFT dominates, prefix-cache the system prompt, shorten the prompt, chunk the prefill, or disaggregate prefill onto separate GPUs from decode. If generation dominates, it is $N_{\text{out}} \times \text{TPOT}$: cut output tokens (terser instructions, stop sequences, streaming so perceived latency falls), cut TPOT with quantization and speculative decoding, or route the easy 80% of traffic to a smaller model. For cost, continuous batching and prefix caching raise tokens per GPU-hour at zero quality risk, quantization raises it further at some risk, and the smaller-model route usually beats both. Name the tension out loud: batching improves cost and *worsens* per-user latency.
+
+## Tradeoff matrix
+
+| Technique | Helps prefill | Helps decode | Saves memory | Quality risk | Main cost |
+|---|---|---|---|---|---|
+| KV cache | no | **yes, hugely** | **no — costs memory** | none | HBM, linear in context × concurrency |
+| GQA / MQA | slightly | yes (less cache traffic) | **yes, 8×/64×** | small / moderate | Baked into the model, not a serving knob |
+| Continuous batching | yes | yes (throughput) | no | none | Higher per-user ITL; scheduler complexity |
+| PagedAttention | no | yes (via concurrency) | **yes (fragmentation)** | none | Kernel complexity |
+| Prefix caching | **yes, hugely** | no | costs memory | none | Only helps shared prefixes |
+| Speculative decoding | no | **yes, 2-3× at low batch** | no | **none — exact** | Draft model memory; useless at high batch |
+| INT8 weights | no | yes (~2×) | **yes (2×)** | small | Calibration; kernel support |
+| INT4 (GPTQ/AWQ) | no | yes (~3-4×) | **yes (4×)** | moderate, task-dependent | Long-context and reasoning regressions |
+| KV-cache quant | no | yes | **yes (2-4×)** | keys sensitive | Accuracy on long context |
+| FlashAttention | **yes** | yes | **yes (no $n^2$ matrix)** | **none — exact** | Nothing; use it |
+
+## Production failure modes
+
+1. **Sizing the fleet on weights alone.** "70B in FP16 is 140 GB, so 2×H100" ignores the KV cache and you OOM at the third concurrent user. Budget weights + cache + activations + fragmentation.
+2. **Preallocating `max_seq_len` of cache per slot.** Advertise a 128K window, reserve for it, and concurrency drops to one or two. This is the exact waste PagedAttention exists to remove.
+3. **Long prefills starving decode.** One user pastes a 100K-token document and every other user's stream stutters for seconds. Fix with chunked prefill or prefill/decode disaggregation.
+4. **Batch size tuned for throughput on a latency-sensitive product.** Aggregate tokens/s looks great on the dashboard while p95 TTFT quietly triples. Set a max batch and a queue-time SLO, not just a throughput target.
+5. **Shipping INT4 after checking only perplexity.** The regression surfaces weeks later in tool-call JSON validity and long-context retrieval, somewhere your eval never looked.
+6. **Speculative decoding on a heavily batched throughput fleet.** There were no idle FLOPs to spend, so you paid a draft model's memory for roughly nothing.
+7. **Prefix caching silently defeated.** Someone injects a timestamp or user ID at the top of the system prompt, every prefix hash misses, and prefill cost jumps overnight with no code change to blame.
+
+## Interview gotchas
+
+- **"What is the KV cache and what shapes are stored?"** Per layer, K and V of shape (batch, n_kv_heads, seq, d_head). It removes redundant recomputation of the prefix, turning generation from $O(n^2)$ to $O(n)$ total. It does **not** reduce per-step attention FLOPs — it trades memory for compute.
+- **"Compute the cache size for this model."** Recite $2 \times L \times n_{kv} \times d_{head} \times s \times B \times \text{bytes}$, do it per token first (320 KiB above), then scale. Compare it to weight memory unprompted.
+- **"GQA vs MQA at 100K context — how much do you save?"** 8 KV heads instead of 64 is 8×: 262 GB → 33 GB per request. MQA is 64× but costs more quality. Frame it as a concurrency multiplier.
+- **"Why is LLM inference memory-bound?"** Decode does $2N$ FLOPs per sequence while reading $2N$ bytes of weights: intensity ≈ batch size, against a ridge point near 300. Not because "models are big."
+- **"Why does vLLM beat a naive server?"** Continuous batching removes idle slots; PagedAttention removes cache fragmentation and enables prefix sharing. Both are memory-management wins, not faster math.
+- **"Is speculative decoding an approximation?"** No. Accepting with probability $\min(1, p/q)$ and resampling from the residual makes the output distribution exactly the target's.
+- **"Is FlashAttention an approximation?"** Also no, and it does not reduce FLOPs. It tiles the computation in SRAM so the $n \times n$ attention matrix is never written to HBM. It attacks memory traffic and the $O(n^2)$ *memory* cost.
+- **"INT8 vs INT4 vs GPTQ vs AWQ?"** INT8/INT4 are formats; GPTQ and AWQ are methods for choosing the quantized values. GPTQ uses per-layer Hessian-based error compensation; AWQ protects the channels activations say matter.
+- **"Your cache is too big during long generation."** In order: GQA if you control the model, paged cache, quantize the cache (keys carefully), sliding window or eviction if the task tolerates it, CPU offload as a last resort, cap context.
+- **"Design a batching system so 100 requests take as long as 1."** They do *if and only if* you stay memory-bound. So: a continuous-batching scheduler, a paged KV allocator, an admission policy that stops adding requests when cache memory runs out or intensity crosses the ridge point, and separate SLOs for TTFT and ITL. Say the batch ceiling out loud and where it comes from.
+
+## Take the quiz
+
+Twelve questions on cache arithmetic, the memory-bandwidth argument, batching design, and the two "is it an approximation?" traps. **[Take the quiz →](/c/c3/c3.3/quiz)**

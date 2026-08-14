@@ -1,0 +1,302 @@
+---
+lessonId: c3.2
+chapter: 3
+title: Quiz — What changed since the original paper
+description: Eight hard questions on pre-norm, RMSNorm, RoPE and context extension, SwiGLU, GQA/MQA cache arithmetic, MoE economics, FlashAttention, and tokenization.
+estimatedMinutes: 45
+---
+
+These eight questions test whether each architectural edit is load-bearing for you, not whether you can list it. Almost every one ends in arithmetic, because that is where the interview follow-up goes. Answer out loud first, including the number, and only then open the model answer.
+
+<Quiz id="1">
+
+**Q1. Two independent normalization changes.** Modern models changed both *where* normalization happens and *what* it computes. (a) Write the post-norm and pre-norm residual updates and explain, in terms of the backward pass, why pre-norm trains at 100 layers without a fragile warmup. (b) Write RMSNorm, say exactly what it drops relative to LayerNorm, and justify why that is worth doing when normalization is well under 1% of model FLOPs. (c) Separately from all of the above, why do transformers use LayerNorm rather than BatchNorm?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Placement.** Post-norm, the 2017 form: $x \leftarrow \text{LN}(x + \text{Sublayer}(x))$. Pre-norm: $x \leftarrow x + \text{Sublayer}(\text{LN}(x))$.
+
+In post-norm the residual stream passes through a LayerNorm on every hop, so the "identity" path is not an identity. Going backward through $L$ layers, the gradient is multiplied by a LayerNorm Jacobian at every one of them, and those factors compound; at 24-plus layers the run either diverges in the first few thousand steps or survives only with a carefully tuned linear warmup that keeps early updates tiny.
+
+In pre-norm the output is a plain sum of branch outputs, $x_L = x_0 + \sum_\ell \text{Sublayer}_\ell(\text{LN}(x_\ell))$, so there is an unobstructed additive path from the loss back to layer 1. That is why pre-norm needs no warmup or a very short one, and why every open-weights model since GPT-2 uses it.
+
+The cost: the residual stream grows in magnitude with depth, so later layers contribute proportionally less and pre-norm is slightly worse at matched depth. Models add a final norm before the unembedding to compensate.
+
+**(b) RMSNorm.** LayerNorm re-centers and rescales, with a gain and a bias:
+
+$$
+\text{LN}(x) = \gamma \odot \frac{x-\mu}{\sqrt{\sigma^2+\epsilon}} + \beta
+$$
+
+RMSNorm drops the mean subtraction and the bias, keeping only the rescale:
+
+$$
+\text{RMSNorm}(x) = \gamma \odot \frac{x}{\sqrt{\frac1d\sum_i x_i^2 + \epsilon}}
+$$
+
+Empirically re-centering contributes almost nothing; the variance normalization does the work.
+
+The FLOP objection misses the point. A norm is elementwise, so it has very low **arithmetic intensity** (FLOPs performed per byte moved from memory), which makes it memory-bandwidth-bound rather than compute-bound. Its cost is measured in passes over the tensor, and RMSNorm removes one reduction pass plus one parameter tensor per norm. Cheap FLOPs are not cheap time.
+
+**(c) LayerNorm vs BatchNorm.** BatchNorm normalizes across the batch dimension, so it needs batch statistics. In a transformer those are unstable with variable sequence lengths, and at decode time the batch is often a single sequence generating a single token, where a batch statistic is meaningless. LayerNorm normalizes within one token's feature vector, so it behaves identically at batch 1 and batch 256, with no train/inference statistics mismatch. The answer is batch-independence at inference, not "it works better."
+
+**Rubric:**
+- Both update rules written correctly, with the norm inside the branch for pre-norm
+- Backward argument: post-norm puts a LayerNorm Jacobian on the residual path at every layer; pre-norm leaves a clean additive path
+- Names the pre-norm cost (growing residual magnitude, final norm added)
+- RMSNorm drops mean subtraction and bias; keeps the rescale
+- Justifies it by bandwidth / arithmetic intensity, not FLOPs
+- LayerNorm chosen for batch-independence at decode and variable sequence length
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. Why attention needs position, and why RoPE won.** (a) State precisely the property attention has without position information, and give a concrete two-sentence example of what breaks. (b) Absolute encodings, sinusoidal or learned, fail past the training length. Say why for each. (c) Derive the one property that makes RoPE relative, and explain why RoPE is compatible with a KV cache while a naive relative-bias scheme is more awkward.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Attention without position information is **permutation-equivariant**: permute the input tokens and you get exactly the same output vectors, permuted the same way. The logit between positions $i$ and $j$ depends only on the two tokens' content, not on where they sit. So "dog bites man" and "man bites dog" produce the same set of representations, and the model cannot tell them apart.
+
+**(b)** A **learned** position table has one row per slot. Train to 2048 and there is simply no row for position 5000; the parameter does not exist. **Sinusoidal** encodings are defined at every position, so nothing crashes, but the model has never seen those phase combinations during training, and attention quality degrades immediately past the trained length. Both are absolute: they tag a slot with an identity rather than encoding a distance.
+
+**(c)** RoPE adds nothing to the embedding. It rotates $q$ and $k$ only, right before the dot product. Pair up the head dimensions, give pair $i$ frequency $\theta_i = b^{-2i/d}$, and rotate the pair at position $m$ by $m\theta_i$. Rotations compose and $R_m^\top = R_{-m}$, so
+
+$$
+(R_m q)^\top (R_n k) = q^\top R_m^\top R_n k = q^\top R_{n-m} k
+$$
+
+The logit depends on positions only through $n-m$. Absolute rotations in, relative scores out, with zero parameters and zero extra memory.
+
+**KV cache compatibility.** RoPE is applied to a key once, at the moment that token is processed, and the rotated key is what you store. Nothing needs to be recomputed when the query position advances, because the relative behavior falls out of the algebra at dot-product time. A relative scheme that adds a bias term indexed by $i-j$ (or otherwise depends on the query's position) has to touch the score matrix at every step instead; it works, but it is an extra per-step term rather than a property of the cached tensor. ALiBi is the clean version of that route: add $-m|i-j|$ to the logits. It extrapolates gracefully but is monotonic in distance and lost to RoPE on long-range quality.
+
+**Rubric:**
+- Names permutation-equivariance and defines it, with an ordering example
+- Learned table: no parameter at unseen positions. Sinusoidal: defined but out of distribution
+- Derives $R_m^\top R_n = R_{n-m}$ and concludes the logit depends only on $n-m$
+- Notes RoPE is applied to Q and K only, per layer, and that the rotated key is what gets cached
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Stretching context after training.** A model was trained at 4K and you want it to work at 32K. (a) Explain mechanically why it fails at 32K, in terms of RoPE frequencies. (b) Describe position interpolation, NTK-aware base scaling, and YaRN, and say what each one is trading. (c) Llama 3 shipped with RoPE base $b = 500000$ instead of 10000. Which of the three does that correspond to, and why does raising the base work? (d) Name the production failure mode when a serving stack and a checkpoint disagree about scaling.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** RoPE frequencies span a wide range. High-frequency pairs (small $i$) rotate fast and resolve local ordering; low-frequency pairs rotate slowly and carry long-range position. Training at 4K means the slow pairs never complete much of a cycle. At 32K those angles land in a region of the circle the model has never seen, so the low-frequency dimensions are out of distribution and attention degrades. The fast dimensions are fine, because they wrapped around many times during training already.
+
+**(b)** **Position interpolation** divides every position index by the scale factor: for 4K to 32K, feed $m/8$. Every angle is now inside the trained range. The trade is that all frequencies get compressed, including the high ones that were doing local resolution, so nearby positions become harder to distinguish and you need a short fine-tune to recover.
+
+**NTK-aware base scaling** notices that only the slow dimensions were ever out of range, and raises the base $b$ instead. Since $\theta_i = b^{-2i/d}$, increasing $b$ stretches the low-frequency dimensions a lot and the high-frequency ones almost not at all. It often works with no fine-tuning at moderate extension factors.
+
+**YaRN** makes the split explicit: fully interpolate the low-frequency dimensions, leave high-frequency ones untouched, ramp between them, and add an attention temperature scale to compensate for the entropy change from having more tokens in the softmax. Best quality of the three, most moving parts.
+
+**(c)** $b = 500000$ is NTK-aware base scaling, baked into the released checkpoint. It works because the base sets the geometric spacing of the frequency ladder; a larger base pushes the whole low end slower, so positions far beyond the old window still map into angles the model has effectively seen.
+
+**(d)** The scaling config is part of the model, not a serving flag. If the checkpoint was trained or fine-tuned under one scheme and the inference stack applies a different one (or none), the model quietly degrades rather than erroring: perplexity looks acceptable, but retrieval accuracy collapses in the middle of long contexts. The same happens when RoPE scaling is applied post-hoc with no fine-tune at a large factor. Catch it with a needle-in-a-haystack style eval across context depths, not with a loss number.
+
+**Rubric:**
+- Explains failure as low-frequency dimensions being out of distribution, not "the model has no position for it"
+- PI: divide indices, uniform compression, hurts local resolution, needs fine-tune
+- NTK: raise base, stretches slow dims selectively
+- YaRN: frequency-dependent interpolation plus attention temperature
+- Identifies $b=500000$ as NTK-style base scaling
+- Failure mode is silent quality loss mid-context, caught by position-stratified retrieval evals
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. The KV-cache budget, and what GQA buys.** Take a 70B-class model: 80 layers, 64 query heads, $d_{head} = 128$, fp16 weights of about 140 GB. (a) Distinguish `n_heads` from `n_kv_heads` and define MHA, GQA and MQA in those terms. (b) Write the KV-cache byte formula and compute the cache for one sequence at 100K context under MHA, GQA with 8 KV heads, and MQA. (c) Turn those numbers into a serving decision on an 8xH100 node with 640 GB. (d) What do you actually give up, and why is 8 the standard group count?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** `n_heads` is the number of **query** heads. `n_kv_heads` is the number of distinct key/value head pairs. MHA sets them equal. **MQA** sets `n_kv_heads = 1`: every query head attends against one shared key and one shared value. **GQA** sets it in between, typically 8, with each group of query heads sharing a KV head. Only KV heads are cached, so the cache shrinks by exactly `n_heads / n_kv_heads`. This is the single most common point of confusion in the topic: GQA does not reduce the number of query heads at all.
+
+**(b)** 
+
+$$
+\text{bytes} = 2 \times n_{layers} \times n_{kv} \times d_{head} \times \text{seq} \times \text{batch} \times \text{dtype bytes}
+$$
+
+The leading 2 is keys and values. Dtype bytes: 4 fp32, 2 fp16/bf16, 1 fp8/int8.
+
+MHA, $n_{kv} = 64$, batch 1, seq $10^5$, fp16:
+
+$$
+2 \times 80 \times 64 \times 128 \times 10^5 \times 2 = 2.62\times10^{11}\ \text{bytes} \approx 262\ \text{GB}
+$$
+
+GQA-8: divide by 8, about **33 GB**. MQA: divide by 64, about **4.1 GB**.
+
+The headline comparison to make out loud: under MHA, one user's cache at 100K is nearly twice the size of the entire 140 GB model.
+
+**(c)** 640 GB minus 140 GB of weights leaves roughly 500 GB, and in practice less after activations, fragmentation and workspace. MHA gives you one concurrent 100K request, and not comfortably. GQA-8 gives you about fifteen. MQA would give you over a hundred if quality held. That is the entire argument for why every 70B-plus model since Llama 2 uses GQA, and it is why the question is always asked as "how much does it save," never "what is it."
+
+**(d)** You give up representational diversity in keys and values: fewer distinct subspaces for the attention pattern to use. MQA measurably degrades quality and is less stable to train. GQA at 8 groups captures nearly the full memory saving at close to no quality cost, which is the empirical reason 8 became the default. If Multi-head Latent Attention comes up, one sentence: DeepSeek compresses KV into a low-rank latent rather than sharing heads. Same goal, different mechanism.
+
+**Rubric:**
+- `n_kv_heads` vs `n_heads` stated crisply, GQA defined as sharing KV across query-head groups
+- Formula written with the factor of 2 and per-layer term
+- 262 GB / 33 GB / 4 GB computed, with the comparison to 140 GB of weights
+- Converts to concurrency on a real node
+- Names the quality tradeoff and why 8 is the sweet spot
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Why is the FFN width 11008?** Llama-family model cards list feed-forward widths like 11008 and 14336 rather than $4d$. (a) Write the original FFN and the SwiGLU replacement, and say what the gate buys. (b) Derive the $\frac83$ rule and show it produces 11008 for $d = 4096$. (c) Why is this a satisfying interview answer even though nobody asks it directly very often?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Original: $W_2\,\text{ReLU}(W_1 x)$, two matrices, $d_{ff} = 4d$. SwiGLU:
+
+$$
+\text{SwiGLU}(x) = W_2\big(\text{SiLU}(W_g x) \odot (W_1 x)\big), \qquad \text{SiLU}(z) = z\sigma(z)
+$$
+
+Three matrices. One branch produces values, the other a multiplicative gate, and the elementwise product gives a cheap second-order interaction between two learned projections that a single matmul plus pointwise nonlinearity cannot express. It is worth roughly a percent of loss at matched parameters, which is a large return on a one-line change.
+
+**(b)** Two matrices at $d_{ff} = 4d$ cost $2 \cdot d \cdot 4d = 8d^2$ parameters. Three matrices cost $3 d\, d_{ff}$. Setting them equal:
+
+$$
+3 d\, d_{ff} = 8d^2 \implies d_{ff} = \tfrac{8}{3} d
+$$
+
+For $d = 4096$: $\frac83 \times 4096 = 10922.7$, and Llama ships 11008, the nearest multiple of 256 for kernel and tensor-parallel alignment. Without the parameter match you would be adding 50% to the FFN, which dominates the parameter count in a transformer, and any quality gain would be confounded with the extra capacity.
+
+**(c)** Because it demonstrates the habit interviewers are actually testing: you saw a strange number on a model card and reconstructed the constraint that produced it. The same move is what makes the KV-cache and MoE answers land. Nobody wants the trivia; they want to see that architectural choices resolve into arithmetic for you.
+
+**Rubric:**
+- Writes both forms, notes three matrices instead of two
+- Explains the gate as a multiplicative interaction, not "a better activation"
+- Derives $d_{ff} = \frac83 d$ from parameter matching and rounds to 11008
+- Mentions the alignment rounding
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. What mixture of experts actually saves.** (a) Describe top-$k$ routing precisely, including the granularity at which routing happens. (b) Mixtral 8x7B stores 46.7B parameters and activates about 12.9B per token. State what that buys and what it does not, and give the fp16 memory numbers. (c) Explain expert collapse and write the standard load-balancing loss. (d) Give two situations where MoE is a worse choice than a dense model of equal quality.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Replace the single FFN in a block with $E$ parallel FFNs plus a router, a small linear layer producing $E$ logits. Take the top $k$ (usually 2), softmax over just those $k$ scores, run the token through those experts, and sum their outputs weighted by the normalized scores. Routing is **per token per layer**, not per sequence: the same sentence uses different experts at different depths, and adjacent tokens routinely take different experts.
+
+**(b)** Total parameters and per-token FLOPs decouple. With the $2N$ rule for forward FLOPs, Mixtral costs like a 13B model per token and stores like a 47B one, roughly a 3.6x FLOP saving. In fp16 that is about 94 GB of weights you must hold resident, versus 26 GB for the dense 13B whose speed you are getting.
+
+So: **MoE buys compute, not memory.** Every expert has to be in VRAM because you cannot predict which tokens will need which. It changes your GPU count, not your per-token latency. Candidates get this backwards constantly, usually by saying MoE "makes the model smaller."
+
+**(c) Expert collapse.** The router is trained jointly with the experts, so an expert picked slightly more often early gets more gradient, gets better, and is picked more. Left alone, routing concentrates on a few overloaded experts and the rest become dead parameters. The auxiliary loss:
+
+$$
+\mathcal{L}_{aux} = \alpha E \sum_{i=1}^{E} f_i P_i
+$$
+
+where $f_i$ is the fraction of batch tokens routed to expert $i$ and $P_i$ is the mean router probability for expert $i$. The product is minimized when both are uniform. Using $P_i$ rather than $f_i$ alone keeps the term differentiable, since $f_i$ comes from a hard top-$k$ selection. Implementations also set a **capacity factor**, a hard cap on tokens per expert per batch; tokens over the cap are dropped and their residual passes through unchanged. Newer models bias the router logits based on recent load instead of adding a loss, which avoids the auxiliary gradient perturbing quality.
+
+**(d)** First, **memory-constrained serving**: if you are fitting a model onto a fixed GPU budget, MoE gives you the worst of it, since you pay full VRAM for the total parameter count. Second, **large-batch throughput serving**: at high batch a single layer's tokens collectively touch most experts anyway, so the FLOP saving erodes while you still move many expert weight matrices per step. MoE's advantage is sharpest at low-to-moderate batch where per-token FLOPs dominate.
+
+**Rubric:**
+- Routing described per token per layer, with top-$k$ then softmax over selected scores
+- 47B stored / 13B active with fp16 byte figures, and the explicit "compute not memory" statement
+- Collapse mechanism as a feedback loop; auxiliary loss written with $f_i$ and $P_i$ and why both appear
+- Capacity factor and token dropping mentioned
+- Two credible situations where dense wins
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. FlashAttention, stated correctly.** (a) Define HBM and SRAM and give rough sizes and speeds. (b) Walk through what naive attention moves through memory at $n = 100000$, and give a byte number. (c) Explain how tiling plus online softmax avoids it, including the rescaling step. (d) Answer the two claims candidates get wrong: is it an approximation, and does it reduce FLOPs? (e) Give one real production surprise it causes.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** **HBM** is high-bandwidth off-chip GPU memory: tens of gigabytes at a few TB/s. **SRAM** is on-chip scratchpad, roughly 20 MB across the chip, one to two orders of magnitude faster. Arithmetic is nearly free next to an HBM round trip; kernels are judged on bytes moved.
+
+**(b)** Naive attention computes $S = QK^\top$ and writes the full $n \times n$ score matrix to HBM, reads it back to softmax, writes the result, reads it again to multiply by $V$. At $n = 10^5$ in fp16, that intermediate is $10^{10} \times 2 = 20$ GB, per head, per sequence. This is the point most people miss: attention is $O(n^2)$ in **memory**, not only in time, and the memory wall is the one you hit first.
+
+**(c)** FlashAttention tiles $Q$, $K$ and $V$ into blocks sized to fit in SRAM and never materializes $S$. For a block of queries it walks over key blocks, maintaining a running max $m$, a running softmax denominator $\ell$, and a running output accumulator. When a new block raises the max from $m$ to $m'$, the accumulated numerator and denominator are multiplied by $e^{m-m'}$ before the new block's contribution is added, which is exactly the online-softmax identity. At the end you have the same weighted sum you would have gotten from the full matrix. The backward pass recomputes tiles from the stored $m$ and $\ell$ instead of reading back a saved attention matrix.
+
+**(d)** It is **exact**, not an approximation: same values up to floating-point associativity, not a sparse or low-rank stand-in for softmax attention. And it does **not reduce FLOPs**; it slightly increases them, because the backward recomputes. What it reduces is HBM traffic, from $O(n^2)$ to roughly $O(n^2 d/M)$ with $M$ the SRAM size, and peak memory from $O(n^2)$ to $O(n)$. Two to four times faster on typical shapes, and the memory change is what makes long context feasible at all.
+
+**(e)** Because it reorders floating-point accumulation, outputs are not bit-identical to the naive kernel. Regression tests that assert exact logit equality across kernel or library versions start failing, and that is not a bug. Sampling at temperature can then diverge into a visibly different completion from a tiny last-bit difference, which reads as a model change to whoever is looking at the output.
+
+**Rubric:**
+- HBM vs SRAM defined with rough capacity and speed
+- Computes the 20 GB intermediate and states $O(n^2)$ memory explicitly
+- Describes tiling with running max/sum and the $e^{m-m'}$ rescale
+- Says exact, and says FLOPs are not reduced (slightly increased); names HBM traffic and peak memory as what changes
+- One concrete non-bit-identical consequence
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8. Tokenization as a product constraint.** (a) Describe BPE training and encoding in a few sentences, and say what byte-level BPE changed. (b) Your product serves Hindi and Thai users on a per-token-priced API. Give three separate consequences and quantify the multiplier. (c) Name two model behaviors that are tokenization artifacts rather than reasoning failures, and say how one of them was fixed. (d) With $d = 4096$ and a 128K vocabulary, compute the embedding memory and the prefill logits memory for an 8K prompt, and say what production does about the second one.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** BPE starts from a base vocabulary, counts adjacent symbol pairs across a corpus, merges the most frequent pair into a new symbol, and repeats until the vocabulary hits its target size. The ordered merge list *is* the tokenizer; encoding replays those merges in order on new text. GPT-2's change was **byte-level** BPE: the base alphabet is the 256 byte values, so every possible input string is representable and there is no unknown-token case, ever. Every modern tokenizer is byte-level BPE or a close variant.
+
+**(b)** Merges were learned on an English-heavy corpus, so the same paragraph in Hindi or Thai costs roughly two to five times the tokens of its English translation. Three consequences, all scaling by the same factor: your **API bill** multiplies; **time-to-first-token** multiplies, because prefill is proportional to token count; and your **effective context window divides**, so retrieval-augmented prompts that fit in English overflow in Thai. It is simultaneously a cost problem, a latency problem and a fairness problem, and you should measure tokens-per-document on your own corpus rather than guessing.
+
+**(c)** **Arithmetic**: if "1234" is one token and "12345" is a different single token, the model has no positional view of the digits, so multi-digit arithmetic is learned per token string rather than compositionally. Llama's tokenizer splits numbers into individual digits specifically for this, and it measurably improves multi-digit arithmetic. **Character counting**: "how many r's in strawberry" is hard because the model sees a few opaque token IDs, not letters. Neither is a reasoning deficit; both are input-representation artifacts. A third worth naming: **domain mismatch**, where legal, medical, chemical and long-identifier code text shatters into many tokens under a general tokenizer, inflating cost and weakening the representation of exactly the terms that matter most.
+
+**(d)** Embedding matrix: $128000 \times 4096 = 5.24\times10^8$ parameters, about **1 GB** in fp16, and the unembedding is another 1 GB unless you tie the weights. Prefill logits for an 8K prompt: $8192 \times 128000 \times 2 = 2.1\times10^9$ bytes, about **2.1 GB** for a single sequence, and more if the kernel materializes them in fp32 for the softmax. That transient is why production computes logits only at the final position during decode, why prefill is chunked into segments rather than run in one shot, and why fused cross-entropy kernels that never materialize the full logits tensor exist. It is also the honest answer to "vocabulary of 100K, how would you optimize the architecture": tie embeddings, do not materialize logits you will not sample from, and chunk.
+
+**Rubric:**
+- BPE described as an ordered merge list, learned by frequency, replayed at encode time
+- Byte-level means no UNK, base alphabet is 256 bytes
+- 2-5x multiplier applied to cost, TTFT and effective context, with the instruction to measure on your own corpus
+- Digit tokenization and character counting named as artifacts, with the digit-splitting fix
+- 1 GB embedding and 2.1 GB logits computed, with tying / final-position logits / chunked prefill as the responses
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: What changed since the original paper
+
+These 16 questions stand on their own, so you can study this section without reading anything above it. Each should take two to five minutes to answer out loud, and most of them expect a number somewhere in the answer. They are chosen for how often they get asked, not for how interesting they are.
+
+1. **The diff since 2017** Walk me through what a 2026 production LLM changed relative to the original Transformer paper. Give the edits in order of how much serving cost they touch, and for each one say what constraint forced it rather than just naming it.
+2. **LayerNorm vs BatchNorm** Why do transformers use LayerNorm instead of BatchNorm? Give the two reasons that are about inference, not about training quality, and say what specifically breaks if you tried BatchNorm in a decode loop.
+3. **Pre-norm vs post-norm** Write both residual updates and say which one modern models use. Then explain, in terms of the backward pass, why the other one needed a carefully tuned learning-rate warmup to train deep.
+4. **RMSNorm** What does RMSNorm drop relative to LayerNorm, and why is that safe? Then answer the obvious objection: normalization is a rounding error in the FLOP budget, so why does anyone care about making it cheaper?
+5. **Why position at all** Why does attention need position information injected explicitly? Name the property it has without it, and give an example sentence pair the model could not distinguish.
+6. **RoPE over the alternatives** Why did rotary embeddings replace learned and sinusoidal absolute position encodings? Give the algebraic property that makes RoPE relative, and say why learned tables fail past the training length in a different way than sinusoids do.
+7. **Implement RoPE** Sketch RoPE from scratch on a whiteboard, in PyTorch or NumPy, given a tensor of shape (batch, heads, seq, d_head) and a position index. Say which tensors you apply it to, at what point in the block, and whether it has any learned parameters.
+8. **128K context** How do modern LLMs handle 128K-plus context windows? Name the three mechanically separate things that all had to change, and say which one addresses which bottleneck. Naming only one is the common incomplete answer.
+9. **Extending a 4K model** You have a model trained at 4K and you need 32K next month. Explain position interpolation and NTK-aware base scaling, say which one Llama 3's base of 500000 is, and say what you would fine-tune and what you would eval to know it worked.
+10. **KV cache in bytes** Size the KV cache for a 70B-class model: 80 layers, 64 heads, head dim 128, fp16, one sequence at 100K tokens. Write the formula first, then the number, then compare it to the model weights.
+11. **GQA vs MQA** Define MHA, GQA and MQA in terms of `n_heads` and `n_kv_heads`. Then say how much cache each saves at 100K context on that same 70B, what quality you trade for it, and why 8 KV heads became the industry default.
+12. **From cache size to concurrency** You have an 8xH100 node, 640 GB, serving a 70B at 100K context. How many concurrent requests fit under MHA and under GQA-8? Then say what levers you would reach for next if that number is still too low.
+13. **FlashAttention** What problem does FlashAttention solve, and is it an approximation? Say whether it reduces FLOPs, what it does reduce, and what the complexity was before and after in both time and memory.
+14. **MoE economics** Explain dense vs sparse models using Mixtral's 47B stored and 13B active. Say what that saves and what it does not, and how it changes the GPU count you would provision versus the latency you would quote.
+15. **MoE routing** Explain top-k routing, load balancing and expert collapse. Say what goes wrong without a balancing term, what a capacity factor does, and what happens to a token that exceeds capacity.
+16. **Tokenizer failure modes** How does BPE work, and what are its failure modes? Cover numbers and arithmetic, character-counting questions, and non-English token inflation, and say what the last one does to your bill, your latency and your usable context window.

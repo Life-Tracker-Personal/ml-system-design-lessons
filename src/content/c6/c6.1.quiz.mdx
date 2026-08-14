@@ -1,0 +1,194 @@
+---
+lessonId: c6.1
+chapter: 6
+title: Quiz — What to measure and how
+description: Reference-based metrics and their limits, building and validating an LLM judge, human agreement, and benchmark contamination.
+estimatedMinutes: 40
+---
+
+These questions test whether you can define a measurement that survives contact with a generative system. Naming a metric is easy. Saying what it fails to capture, and proving your judge agrees with a human, is the part that gets probed.
+
+<Quiz id="1">
+
+**Q1. Why the classification playbook does not transfer.** You built classifiers for years. Now you have to evaluate a summarization system.
+
+**(a)** Name three properties of classification evaluation that quietly stop holding.
+
+**(b)** A colleague suggests using accuracy against a reference summary. What breaks?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** First, **the output space is not finite**, so there is no confusion matrix and no notion of "the" correct label to compare against. Second, **there are many correct answers**, so a single reference is one sample from a large set of acceptable outputs and disagreeing with it is not the same as being wrong. Third, **quality is multidimensional**: a summary can be factually correct but too long, fluent but unfaithful, faithful but useless. Classification collapses to one scalar because the label space is discrete, and that collapse is not available here.
+
+**(b)** Exact match against a reference gives essentially zero for any competent paraphrase. It measures string identity, not correctness. You would be scoring a model down for producing a better summary that happens to use different words, and the metric provides no gradient toward improvement because near-misses and total failures score identically.
+
+**Rubric:**
+- (a) Infinite output space, many valid answers, multidimensional quality
+- (b) Exact match rewards string identity, punishes valid paraphrase
+- (b) Notes the metric is flat, so it cannot distinguish near-miss from disaster
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. The judge's three biases.** You build an LLM-as-judge that scores answers pairwise.
+
+**(a)** Name the three systematic biases and give a concrete way to detect each.
+
+**(b)** For each, give a mitigation and say what it costs.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)**
+
+- **Position bias.** The judge favors whichever response appears first (or second). Detect it by scoring the same pair in both orders and measuring how often the verdict flips. On a well-behaved judge the flip rate should be near the rate you would expect from genuine ties.
+- **Verbosity bias.** The judge favors longer answers regardless of quality. Detect it by regressing the judge's score on response length, or by padding a known-worse answer with irrelevant but fluent text and watching the score rise.
+- **Self-preference bias.** The judge favors outputs from its own model family. Detect it by having judge A and judge B score the same set, and checking whether each rates its own family higher.
+
+**(b)**
+
+- Position: **swap and average**, running every comparison in both orders and counting only consistent verdicts as decisive. Costs 2× inference and turns some comparisons into ties.
+- Verbosity: **length-control** by including length in the rubric explicitly, or by matching lengths, or by reporting the length-conditioned effect. Costs rubric complexity and can suppress genuinely useful detail.
+- Self-preference: **use a judge from a different family** than any model under test, or use an ensemble of judges. Costs money and introduces disagreement you then have to adjudicate.
+
+**Rubric:**
+- (a) All three named, each with an operational detection method rather than a definition
+- (b) Swap-and-average for position, with the 2× cost acknowledged
+- (b) A third-party or ensemble judge for self-preference
+- Credit for noting mitigations trade cost or rubric complexity, not free fixes
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Validate the judge like a classifier.** Your judge outputs pass/fail on groundedness. You have 300 human-labeled examples.
+
+**(a)** How do you decide whether the judge is good enough to use?
+
+**(b)** The judge agrees with humans 85% of the time. Is that good?
+
+**(c)** What do you do with the disagreements?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Treat the judge as a binary classifier against human labels as ground truth, and report the full picture: precision, recall, and agreement, not accuracy alone. Compute agreement corrected for chance with **Cohen's kappa**, since raw agreement is inflated when the classes are imbalanced. Also check calibration if the judge emits scores rather than a hard label, and check stability by running the judge twice on the same items.
+
+**(b)** It depends entirely on the base rate and on the human ceiling. If 85% of examples are grounded, a judge that says "pass" every time also scores 85% and is worthless, which is why kappa matters. And if two humans only agree with each other 88% of the time, then 85% is close to the ceiling and the judge is roughly as good as a person. Without those two numbers, 85% is uninterpretable.
+
+**(c)** Read them. Disagreements are the highest-information items you have. Sort them into judge errors, human errors, and genuinely ambiguous items where the rubric is underspecified. The third category is usually the largest and the most valuable, because it tells you the rubric, not the judge, is the thing to fix. Then re-label, tighten the rubric, and re-measure.
+
+**Rubric:**
+- (a) Treats the judge as a classifier: precision/recall plus chance-corrected agreement
+- (b) Says 85% is uninterpretable without the base rate and the human-human ceiling
+- (b) Gives the majority-class counterexample
+- (c) Triages disagreements three ways, and identifies rubric ambiguity as the usual culprit
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. Reference-based metrics.** Explain what BLEU and ROUGE actually compute, then give two concrete cases where a better output scores lower than a worse one. When are these metrics still the right tool?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**BLEU** is precision-oriented n-gram overlap against one or more references, with a brevity penalty to stop the model gaming precision by emitting almost nothing. **ROUGE** is the recall-oriented mirror, measuring how much of the reference's n-grams the candidate recovered; ROUGE-L uses longest common subsequence instead of fixed n-grams.
+
+**Case one:** a correct paraphrase that shares no vocabulary with the reference scores near zero, while a fluent copy of the reference with one negation inserted ("the drug does not reduce mortality") scores nearly perfect. N-gram overlap is blind to meaning inversion, which is the failure mode that matters most for factuality.
+
+**Case two:** an extractive summary that copies sentences verbatim from the source beats an abstractive one that compresses correctly, because the reference was itself built from the source's vocabulary. You end up selecting for copying.
+
+They remain the right tool when there is genuinely one canonical form and you need a cheap, deterministic, reproducible number: machine translation against professional references, or a regression check that output has not drifted structurally. They are defensible as a **guardrail** against drift, not as a quality score.
+
+**Rubric:**
+- Correct mechanics: BLEU precision with brevity penalty, ROUGE recall, ROUGE-L via LCS
+- The negation example, or an equivalent meaning-inversion case
+- Notes the bias toward extraction and copying
+- Concedes a real use: cheap deterministic drift detection with a canonical reference
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Benchmark contamination.** A new model reports 92% on a public benchmark your team also uses.
+
+**(a)** Why might that number be inflated, and how would you test it?
+
+**(b)** What does this imply about how you should build your own eval set?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The benchmark is public, so it is very likely in the pretraining corpus, and the model may be recalling rather than reasoning. Tests that separate the two: check performance on a **held-out variant** built after the model's training cutoff; **perturb** the items (rename entities, change numbers, reorder multiple-choice options) and see whether the score collapses, since genuine capability should survive relabeling; compare performance on the canonical phrasing versus a paraphrase; and look for suspiciously low variance across item difficulty, which suggests memorization rather than graded competence.
+
+**(b)** Your own eval set should be **private, sourced from your own traffic, and regenerated over time**. Public benchmarks tell you about general capability under contamination risk; they tell you nothing about your task. Keep a private held-out set that never appears in a prompt, a bug report, or a public repo, and treat any leak of it as invalidating. Version it and refresh it as the distribution moves.
+
+**Rubric:**
+- (a) Names training-corpus contamination as the mechanism
+- (a) Gives at least two operational tests: post-cutoff data, perturbation, paraphrase
+- (b) Private, task-specific, refreshed set; leakage invalidates it
+- Credit for noting the set must never be pasted into a prompt or committed publicly
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. Pairwise or pointwise.** You need to compare two candidate models on open-ended answer quality.
+
+**(a)** Compare pairwise preference judging against pointwise scoring on a rubric. What does each give you that the other does not?
+
+**(b)** You have five models to rank. What breaks about pairwise, and what would you do?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** **Pairwise** asks which of two responses is better. It is much easier for both humans and judges, because relative comparison needs no absolute scale, and it produces higher agreement. What it does not give you is an absolute level: you learn B beats A but not whether either is acceptable, so you cannot set a shipping threshold from it, and you cannot compare across time as the pool of models changes.
+
+**Pointwise** scoring on a rubric gives an absolute number you can gate on and track across releases. The cost is scale drift, both between annotators and within one annotator over a session, and lower agreement in general.
+
+**(b)** Pairwise comparisons grow as $\binom{k}{2}$, so five models is 10 pairs, and with both orderings and repeats it multiplies quickly. Worse, pairwise preferences are not guaranteed transitive, so you can get A beats B beats C beats A and no consistent ranking exists.
+
+The standard fix is to fit a latent-strength model to the pairwise outcomes, **Bradley-Terry** or an Elo-style rating, which produces a single scale from sparse noisy comparisons and does not require every pair. That is what public LLM leaderboards do. Pair it with a small pointwise absolute check so you know whether the top of the ranking is actually good enough to ship.
+
+**Rubric:**
+- (a) Pairwise is easier and higher agreement but gives no absolute level or threshold
+- (a) Pointwise gives a gateable absolute number, at the cost of scale drift
+- (b) Quadratic growth *and* intransitivity, not just cost
+- (b) Names Bradley-Terry or Elo, and keeps an absolute check alongside
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: what to measure and how
+
+These 15 questions stand alone. Each should take 2 to 5 minutes to answer out loud. They are chosen for how often they come up when you have to defend a measurement.
+
+1. **Why not just use accuracy.** You evaluated classifiers for years and now you have a summarizer. Name three things about classification evaluation that stop holding, and say what you use instead.
+2. **What BLEU actually measures.** Explain BLEU and ROUGE mechanically, then give a case where a better answer scores lower than a worse one. When would you still use them?
+3. **Build me a judge.** Walk through standing up an LLM-as-judge for answer groundedness: what is in the prompt, what does it output, and what is the first thing you do before trusting a single score from it?
+4. **The three judge biases.** Name them and give a concrete detection method for each, not just a definition. Which one is fixed by running every comparison twice?
+5. **Is 85% agreement good.** Your judge agrees with human labels 85% of the time. Say why that number alone is uninterpretable, and name the two other numbers you need before you can answer.
+6. **Why kappa and not accuracy.** Explain what Cohen's kappa corrects for and construct a case where raw agreement is 90% but kappa is near zero.
+7. **Read the disagreements.** Your judge and your humans disagree on 45 of 300 items. What do you do with those 45, and what is the most common thing you find?
+8. **Pairwise or pointwise.** Compare them for judging open-ended quality. Which gives you something you can gate a deploy on, and why does the other one still get used?
+9. **Ranking five models.** Pairwise comparison across five models: what breaks, both practically and logically? What do public leaderboards actually fit to get one number?
+10. **Contamination.** A model reports 92% on a public benchmark. Give two concrete tests to check whether it memorized the benchmark rather than learned the task.
+11. **Where eval sets come from.** Your PM asks you to write 200 eval examples from imagination. Push back and describe where the set should actually come from. Why does a set built from your own traffic beat a set you invented?
+12. **Reference-free metrics.** What can you measure with no reference answer at all? Name two, and say what each is blind to.
+13. **The judge and the model share a family.** You are using GPT-family as judge to compare a GPT-family model against a Claude-family model. State the specific risk and what you would change.
+14. **Human eval that is worth the money.** You can afford 200 human labels. How do you spend them to get the most value, and what do you use them for besides reporting a number?
+15. **Defend the choice.** You picked an LLM judge over human eval for your main quality metric. An interviewer pushes back that it is circular to have a model grade a model. Give your actual answer.

@@ -1,0 +1,290 @@
+---
+lessonId: c3.1
+chapter: 3
+title: Quiz — Attention and the transformer block
+description: Seven questions on the attention derivation, the scaling argument, masking, and what one block costs.
+estimatedMinutes: 60
+---
+
+These seven questions test whether you can rebuild attention and price it, not whether you can recite the formula. Work each one on paper or in an editor before opening the answer. The rapid-fire section at the bottom stands alone and is the part to drill out loud.
+
+<Quiz id="1">
+
+**Q1. The $\sqrt{d_k}$ divisor.** (a) Prove that $\mathrm{Var}(q \cdot k) = d_k$ under the standard initialization assumptions, and state those assumptions explicitly. (b) Take $d_k = 128$ and two positions whose unscaled scores differ by one standard deviation. Compute the softmax probability of the larger one, then the softmax Jacobian term at that probability, and compare it to the scaled case. (c) An interviewer says "so it is for numerical stability." What is wrong with that answer? (d) During training, key vectors drift to per-component standard deviation 3. What happens, and what fix has been adopted?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) The variance.** Assume query and key components are independent of each other, with mean 0 and variance 1. That is what standard initialization plus a normalization layer immediately before the QKV projection buys you.
+
+$$q \cdot k = \sum_{t=1}^{d_k} q_t k_t$$
+
+Each term: $E[q_t k_t] = E[q_t]E[k_t] = 0$ by independence, and since the mean is 0, $\mathrm{Var}(q_t k_t) = E[q_t^2 k_t^2] = E[q_t^2]E[k_t^2] = 1 \times 1 = 1$. The $d_k$ terms are independent, so variances add:
+
+$$\mathrm{Var}(q \cdot k) = d_k, \qquad \mathrm{sd}(q \cdot k) = \sqrt{d_k}$$
+
+Dividing by $\sqrt{d_k}$ returns logits to unit variance at any head width. This is also why the constant is $\sqrt{d_k}$ and not $d_k$ or $\log d_k$: you are matching a standard deviation, not a variance.
+
+**(b) The numbers.** At $d_k = 128$, $\mathrm{sd} = \sqrt{128} \approx 11.3$. Two logits one standard deviation apart give a softmax ratio of $e^{11.3} \approx 8.1 \times 10^4$, so the larger position gets probability $\approx 0.99999$.
+
+The softmax Jacobian is
+
+$$\frac{\partial p_i}{\partial z_j} = p_i(\delta_{ij} - p_j)$$
+
+At $p = 0.99999$ the diagonal term is $p(1-p) \approx 1.2 \times 10^{-5}$. With the divisor, the same one-standard-deviation gap becomes a gap of 1 in logit space, giving $p \approx 0.73$ and a Jacobian term of $0.73 \times 0.27 \approx 0.2$. That is a factor of roughly 16,000 in the gradient reaching $W_Q$ and $W_K$.
+
+The failure mode this describes: at initialization the unscaled model picks an essentially random hard assignment over positions and then receives almost no gradient to revise it. It is stuck, not merely noisy.
+
+**(c) Why "numerical stability" is wrong.** Numerical stability would mean overflow or precision loss, and the standard softmax implementation already subtracts the row max, which handles that. The real problem happens in exact arithmetic: the softmax saturates, and a saturated softmax has a vanishing Jacobian, so learning stops. It is an optimization argument about gradient flow, not a floating-point argument. (fp16 overflow in the score matrix is a genuine and separate problem, but it is not the reason the $\sqrt{d_k}$ constant exists.)
+
+**(d) Drift.** The derivation assumed unit-variance components. If keys drift to per-component standard deviation 3, then $\mathrm{Var}(q \cdot k) = 9 d_k$ and the effective softmax temperature has moved by a factor of 3 in standard deviation, 9 in variance. Nothing in the architecture pushes it back, so attention can slowly saturate mid-training and the model plateaus or diverges. The fix adopted in several 2024-2026 recipes is QK-norm: apply an explicit RMSNorm or LayerNorm to Q and K after projection, which re-imposes the assumption the constant was derived under.
+
+**Rubric:**
+- States the independence and unit-variance assumption before using it
+- Derives $\mathrm{Var}(q_t k_t) = 1$ term by term, then adds $d_k$ of them
+- Gets $p \approx 0.99999$ and the Jacobian $\approx 10^{-5}$ versus $\approx 0.2$, with an order-of-magnitude comparison
+- Names softmax saturation and the vanishing Jacobian as the mechanism, and rejects "numerical stability"
+- Identifies that the argument is only valid while activations stay near unit variance, and names QK-norm
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. Write it.** Implement batched multi-head self-attention with a causal mask in PyTorch, from scratch, without `nn.MultiheadAttention` or `F.scaled_dot_product_attention`. Input is $(B, N, D)$. Then: (a) state the shape at every intermediate step out loud, (b) name three things a grader is specifically checking, and (c) explain what goes wrong if you reshape $(B,N,D)$ straight to $(B, h, N, d_k)$ with a single `view`.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+```python
+import torch, torch.nn as nn
+
+class MHA(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        assert d_model % n_heads == 0
+        self.h, self.dk = n_heads, d_model // n_heads
+        self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        self.out = nn.Linear(d_model, d_model, bias=False)
+
+    def forward(self, x):                      # x: (B, N, D)
+        B, N, D = x.shape
+        q, k, v = self.qkv(x).split(D, dim=-1) # each (B, N, D)
+        q = q.view(B, N, self.h, self.dk).transpose(1, 2)   # (B, h, N, dk)
+        k = k.view(B, N, self.h, self.dk).transpose(1, 2)
+        v = v.view(B, N, self.h, self.dk).transpose(1, 2)
+
+        att = (q @ k.transpose(-2, -1)) / (self.dk ** 0.5)  # (B, h, N, N)
+        causal = torch.ones(N, N, dtype=torch.bool, device=x.device).tril()
+        att = att.masked_fill(~causal, float('-inf'))
+        att = att.softmax(dim=-1)
+
+        y = att @ v                                         # (B, h, N, dk)
+        y = y.transpose(1, 2).contiguous().view(B, N, D)    # (B, N, D)
+        return self.out(y)
+```
+
+**(a) Shapes.** `x` is $(B,N,D)$. The fused QKV projection gives $(B,N,3D)$, split into three $(B,N,D)$. Each becomes $(B,N,h,d_k)$ by `view`, then $(B,h,N,d_k)$ by `transpose(1,2)`. The score matrix is $(B,h,N,N)$, and the mask broadcasts from $(N,N)$ across batch and head. After softmax, $\text{att} @ v$ contracts the second-to-last dimension of $v$: $(B,h,N,N) \times (B,h,N,d_k) \rightarrow (B,h,N,d_k)$. Transpose back to $(B,N,h,d_k)$, merge the last two axes into $(B,N,D)$, and project.
+
+**(b) The three checks.** First, `transpose(1,2)` after the reshape, so that heads sit in a batch dimension and the matmul is genuinely per-head. Second, the mask applied *before* the softmax, not after. Third, `.contiguous()` before the final `view`, because the transposed tensor is not contiguous in memory and `view` will throw (or, if you reach for `reshape`, silently copy while you fail to notice the axis order was the point).
+
+Two more that separate a good answer: dividing by $\sqrt{d_k}$ and not $\sqrt{d_{model}}$, and building the mask on `x.device` so the code does not crash on GPU.
+
+**(c) The single-`view` bug.** Memory layout for a $(B,N,D)$ tensor is row-major, so along the last axis the $D$ features of one token are contiguous. `view(B, h, N, dk)` reinterprets those bytes as: head 0 owns the first $N \cdot d_k$ values, which is the *first fraction of the sequence's flattened features*, not the first $d_k$ features of every token. You get head slices that mix tokens and features. The shapes are right, nothing throws, autograd is happy, and the model trains to garbage. This is the reason the two-step `view` then `transpose` exists.
+
+**Rubric:**
+- Runs correctly for arbitrary $B$, $N$, $D$, $h$; asserts divisibility
+- Mask constructed with `tril`, applied pre-softmax, broadcast over batch and heads, on the right device
+- Scaling by $\sqrt{d_k}$
+- Head split is `view` to $(B,N,h,d_k)$ then `transpose`, and the candidate can explain the memory-layout reason
+- `.contiguous()` (or `reshape`) before the merge back
+- Narrates shapes without prompting
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Three projections.** (a) Why three learned projections rather than scoring with raw $X$ on both sides? Give the algebraic property that breaks and a linguistic example where it matters. (b) Why is $V$ a separate projection from $K$? (c) Which of $Q$ and $K$ is which — is that a real distinction? (d) What is the rank of the bilinear form the scores implement, and what does that imply?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Asymmetry.** With raw $X$ on both sides the score matrix is $XX^\top$, which is symmetric: score$(i,j) =$ score$(j,i)$. Attention weights would be forced toward mutual attention, since after the row softmax the only thing distinguishing rows is the normalizer. Language is not symmetric. In "the trophy did not fit in the suitcase because it was too large", the pronoun *it* must attend hard to *trophy*; *trophy* has no reason to attend back to *it* at all. Separate $W_Q$ and $W_K$ break the symmetry.
+
+**(b) Address versus payload.** $K$ is what makes a token findable; $V$ is what a token contributes once found. There is no reason those should be the same vector. "Paris" should be retrievable by queries about capitals, cities, and France, and what you want to read out of it is geographic and entity content. Those are different subspaces of the residual stream, and tying them would force one to compromise for the other. Concretely, with $K = V$ you could not have a token that is easy to find but contributes little, or vice versa.
+
+**(c) Convention.** Which matrix you call Q and which K is pure naming. Swap the names and you transpose the score matrix; the function class is identical, and training would find the transposed solution. What is *not* convention: that there are two rather than one, and that $V$ is a third. If an interviewer asks this, they are checking whether you memorized labels or understand roles.
+
+**(d) Rank.** The scores are $X W_Q W_K^\top X^\top$, and $W_Q W_K^\top$ is $d_{model} \times d_{model}$ but factored through $d_k$, so it has rank at most $d_k$. The head can only implement a rank-$d_k$ bilinear similarity. This is the real cost of making heads narrow: at $d_{model} = 4096$ and 64 heads, $d_k = 64$ and each head's scoring function is quite constrained. It is also why $Q$ and $K$ can be materialized at $d_k$ rather than $d_{model}$ without loss — the product is what matters, not the factors.
+
+**Rubric:**
+- Names symmetry of $XX^\top$ as the specific broken property, with a directional example
+- Key-as-address, value-as-payload, with a concrete token
+- Correctly identifies Q-versus-K naming as convention while three projections is not
+- States rank $\le d_k$ for $W_Q W_K^\top$ and connects it to the head-width tradeoff
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. Why more than one head.** (a) Show that multi-head attention with $h$ heads of width $d_{model}/h$ has the same parameter count and the same projection FLOPs as one head of width $d_{model}$. (b) Given that, what does the second head actually buy you? Be mechanical. (c) Show that concat-then-project equals a sum of per-head terms, and say what that explains. (d) What is the cost of pushing $h$ up? (e) What is $n_{kv\_heads}$ and how does it differ from $n_{heads}$?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Same cost.** Each of the $h$ heads has $W_Q, W_K, W_V$ of shape $d_{model} \times (d_{model}/h)$. Summed over heads, each of the three projections totals $h \times d_{model} \times (d_{model}/h) = d_{model}^2$ parameters, exactly the single-head case. In practice they are stored as one $d_{model} \times d_{model}$ matrix and sliced. $W_O$ is $d_{model} \times d_{model}$ either way. The projection matmuls are the same size, so the FLOPs match too. The $QK^\top$ and $AV$ FLOPs also match: $h$ heads each doing $n^2 (d_{model}/h)$ work.
+
+**(b) What it buys.** One softmax produces one probability distribution over positions, so a single head gives each token exactly one convex combination of value vectors. If a token needs its syntactic subject, the preceding punctuation, and an earlier coreferent mention, one head must express all three as a single weighting. Averaging three sharp distributions gives one blurry distribution, and the resulting pooled value vector is a contaminated mixture that no downstream layer can un-mix. Eight heads give eight independent routing decisions per token per layer. The gain is in the number of simultaneous *routing patterns*, not in capacity measured by parameters.
+
+**(c) Additivity.** Write the concatenated output as blocks and $W_O$ as vertically stacked blocks $W_O^{(i)} \in \mathbb{R}^{d_k \times d_{model}}$. Then
+
+$$\mathrm{Concat}(\mathrm{head}_1,\dots,\mathrm{head}_h) W_O = \sum_{i=1}^{h} \mathrm{head}_i W_O^{(i)}$$
+
+So each head writes its own additive contribution into the residual stream. That explains why heads can be pruned one at a time with graceful degradation rather than catastrophic failure, and why "this head does X" statements are even coherent.
+
+**(d) The cost.** Each head's score matrix is a rank-$\le d_k$ bilinear form. Increasing $h$ at fixed $d_{model}$ shrinks $d_k$ and makes each head's similarity function weaker and its attention less able to be sharp. Real models sit at $d_k$ of 64 to 128 and choose $h$ to fill the width.
+
+**(e) $n_{kv\_heads}$.** $n_{heads}$ counts *query* heads. The number of distinct key/value head pairs is a separate hyperparameter, $n_{kv\_heads}$. When they are equal you have plain multi-head attention. When $n_{kv\_heads}$ is smaller, groups of query heads share one K/V pair — that is grouped-query attention, and $n_{kv\_heads}=1$ is multi-query attention. It changes almost nothing about quality per FLOP and everything about how many bytes the KV cache holds, since the cache is sized by $n_{kv\_heads}$, not $n_{heads}$.
+
+**Rubric:**
+- Arithmetic showing $h \cdot d_{model} \cdot (d_{model}/h) = d_{model}^2$
+- "One softmax is one distribution" argument, with a concrete multi-target example
+- Derives or states the sum-of-heads identity and draws the pruning/interpretability consequence
+- Names per-head rank as the cost, with realistic $d_k$ values
+- Clean separation of query-head count from KV-head count, and states the KV cache depends on the latter
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Causal masking and its bugs.** (a) Why does a decoder need a mask at all, given that you could just run $n$ separate forward passes? (b) Where exactly does the mask go, and what precisely goes wrong if you apply it one step later? (c) You use `float('-inf')` and get NaN loss on some batches but not others. Diagnose it. (d) A batched inference server returns different outputs for the same request depending on which other requests were batched with it. What is the bug?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Parallelism.** The mask exists so that one forward pass over a length-$n$ sequence produces $n$ honest next-token predictions at once. Running $n$ separate prefixes would give the same loss but cost $O(n)$ forward passes instead of one, throwing away the whole reason transformers are trainable at scale. Unmasked, position $i$ can read position $i+1$, which contains the label; the loss drops to near zero and the model learns nothing useful.
+
+**(b) Placement.** Set score $(i,j) \leftarrow -\infty$ for $j > i$ *before* the softmax. Exponentiation sends those entries to exactly 0 and the row renormalizes over the visible positions only, so each row is still a proper distribution.
+
+Applied *after* the softmax, you zero the forbidden weights but the row now sums to less than 1. Row $i$ sums to whatever fraction of the original mass fell on positions $\le i$, so each token's output is silently scaled down by a position-dependent factor. Position 0 is hit hardest — it keeps roughly $1/n$ of its mass — and the effect shrinks along the sequence. The model trains anyway, to a quietly worse optimum, and the symptom is quality that degrades toward the beginning of sequences. Nothing crashes, which is what makes it dangerous.
+
+**(c) NaN rows.** Combine a causal mask with a key-padding mask and some row can end up fully masked — for example a padded query position, all of whose keys are also masked. Then every logit is $-\infty$, the softmax computes $e^{-\infty}/\sum e^{-\infty} = 0/0$, and you get NaN. The NaN propagates through the matmul into every downstream token and into the gradients, so one bad row poisons the whole batch. It appears only on batches containing a sequence with the offending padding pattern, which is why it looks intermittent. Fixes: use a large finite negative constant (around $-10^9$ in fp32, and note that $-10^9$ overflows fp16 so pick a dtype-appropriate value), or guarantee every row has at least one visible key, or mask out the padded query rows from the loss entirely.
+
+**(d) Missing key-padding mask.** Requests of different lengths are padded to the batch maximum. Without a key-padding mask, real tokens attend to pad tokens, which carry embedding values. The amount of padding depends on the longest sequence in the batch, so the output for a given request depends on its batch-mates. This is invisible when you test single requests and non-reproducible under load, which is the classic version of this bug. The causal mask does not save you: pad positions can sit at indices below the query index.
+
+**Rubric:**
+- Frames masking as buying $n$ training targets from one pass, not just "hiding the future"
+- Mask before softmax; explains the after-softmax case as row-sum less than 1 with a position-dependent, front-loaded scaling
+- Correctly diagnoses NaN as a fully-masked row producing $0/0$, and notes it poisons the batch
+- Names the padding-mask omission and explains why the symptom is batch-composition dependence
+- Mentions dtype-appropriate mask constants
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. Price one layer.** For a decoder layer with width $d$, sequence length $n$, $d_{ff} = 4d$: (a) count the forward FLOPs, separating terms linear in $n$ from the quadratic term, and find the crossover $n$. Evaluate at $d = 4096$. (b) Compute the activation memory of the score matrix at $n = 8192$, 32 heads, batch 1, fp16. (c) A candidate says "attention is $O(n^2)$, so long context is compute-expensive." Correct them precisely. (d) What does FlashAttention change, and what does it not change?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) FLOPs.** Counting a multiply-add as 2 FLOPs, a matmul of $(n \times a)$ by $(a \times b)$ costs $2nab$.
+
+- Q, K, V, O projections: four of $(n \times d)(d \times d)$, so $4 \times 2nd^2 = 8nd^2$
+- FFN: up-projection $(n\times d)(d \times 4d)$ and down-projection $(n \times 4d)(4d \times d)$, so $2 \times 8nd^2 = 16nd^2$
+- $QK^\top$: $2n^2 d$. The $AV$ product: $2n^2 d$. Total $4n^2 d$
+
+Linear terms: $24nd^2$. Quadratic term: $4n^2d$. They are equal when $4n^2 d = 24 n d^2$, that is $n = 6d$. At $d = 4096$ that is $n \approx 24{,}600$ tokens. Below roughly 24K context, most of the FLOPs are in the projections and the FFN, not in attention.
+
+**(b) Memory.** The score matrix is $n \times n$ per head per sequence in the batch:
+
+$$32 \times 8192^2 \times 2\ \text{bytes} = 32 \times 67.1\text{M} \times 2 \approx 4.29\ \text{GB}$$
+
+for a single layer, batch 1. Training keeps it for the backward pass, and there is one per layer. That is why a model that trains fine at 2K context OOMs at 8K: the $n^2$ buffers grew 16x while the parameter memory did not move at all.
+
+**(c) The correction.** The quadratic term is real but it does not dominate the FLOPs until $n \approx 6d$, around 24K tokens for a 7B-class model, and most production serving runs shorter than that. The binding quadratic constraint at ordinary context lengths is *memory*, not compute: the $n \times n$ score matrix, and during generation the KV cache, whose size grows linearly per token and is read in full every decode step. The right framing is that attention's quadratic cost shows up in bytes long before it shows up in arithmetic.
+
+**(d) FlashAttention.** It is exact — bitwise-comparable up to reassociation, not an approximation. It never materializes the $n \times n$ score matrix in HBM (the GPU's off-chip memory, tens of GB at a few TB/s). Instead it tiles the computation into blocks that fit in on-chip SRAM (tens of MB, roughly 100x the bandwidth), streams the softmax with a running max and running normalizer, and in the backward pass recomputes the block scores rather than storing them. So it reduces HBM traffic and peak activation memory, and it slightly *increases* FLOPs because of recomputation. Claiming it is an approximation, or that it reduces FLOPs, is the common candidate error.
+
+**Rubric:**
+- Uses $2nab$ per matmul and gets $8nd^2$, $16nd^2$, $4n^2d$ separately
+- Solves for $n = 6d$ and evaluates to about 24K tokens at $d=4096$
+- Gets 4.29 GB with the arithmetic shown, and notes it is per layer and retained for backward
+- Distinguishes where the quadratic cost lands in FLOPs versus in memory, and refuses the "compute-bound" framing at typical context lengths
+- FlashAttention: exact, IO-aware tiling plus recomputation, cuts bytes not FLOPs
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Everything that is not attention.** (a) Write the residual-plus-norm form of a modern decoder layer and show, from the Jacobian, what the residual connection guarantees. (b) Why LayerNorm rather than BatchNorm? Give the inference-time argument, not a quality claim. (c) Pre-norm versus post-norm, and what RMSNorm drops. (d) Attention output is a weighted average of value vectors — so what is the FFN for, and what fraction of the parameters does it hold? (e) In one sentence, why does attention need positional information at all?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Residual.** The pre-norm layer is
+
+$$x \leftarrow x + \mathrm{Attn}(\mathrm{Norm}(x)), \qquad x \leftarrow x + \mathrm{FFN}(\mathrm{Norm}(x))$$
+
+With $y = x + F(x)$, the Jacobian is $\partial y/\partial x = I + \partial F/\partial x$, so
+
+$$\frac{\partial L}{\partial x} = \frac{\partial L}{\partial y}\left(I + \frac{\partial F}{\partial x}\right)$$
+
+The identity term guarantees a path of gain exactly 1 through every layer. Backpropagating through 80 layers therefore does not multiply 80 sub-unit Jacobians together, which is what killed deep plain stacks. The same additivity is what makes attention heads and FFN outputs *contributions* to a shared residual stream rather than transformations of it.
+
+**(b) LayerNorm.** LayerNorm normalizes across the feature dimension of a single token: subtract that token's own mean over its $d$ features, divide by its own standard deviation, then apply learned scale and shift. BatchNorm normalizes each feature across the batch.
+
+The reason transformers use LayerNorm is that BatchNorm's statistics depend on the other examples in the batch. At inference you decode one token at a time, frequently at batch 1, so there is no batch to compute statistics over; you would fall back to running averages estimated on a training distribution with different sequence lengths and different padding. Sequence length varies too, so per-feature statistics are pooled over a varying number of positions. LayerNorm's statistics are a function of one token's own vector, so training and inference compute the identical function at any batch size and any length. Say batch-independence at inference and variable length. Do not say "it works better."
+
+**(c) Placement and RMSNorm.** Post-norm, the 2017 arrangement, is $\mathrm{Norm}(x + F(x))$: the normalization sits on the main path, so the clean identity path from (a) is interrupted at every layer, and deep stacks need learning-rate warmup and careful initialization to train at all. Pre-norm, $x + F(\mathrm{Norm}(x))$, leaves the residual path unobstructed and trains at 80+ layers without that fragility, which is why essentially every large model since about 2020 uses it. The reported cost is a small quality loss in some settings.
+
+RMSNorm drops the mean subtraction and the bias, keeping only division by the root-mean-square of the features times a learned gain. It is cheaper (one pass, no mean) and matches LayerNorm quality, which is evidence that re-centering was never the active ingredient — rescaling was.
+
+**(d) FFN.** Once the attention weights are fixed, the attention output is *linear* in $V$: it is a convex combination of value vectors, and the only nonlinearity in the whole operation is the softmax that produced the weights. Nothing mixes a single token's own features nonlinearly. The FFN supplies exactly that: expand to $d_{ff} = 4d$, apply a pointwise nonlinearity, project back.
+
+Parameters per layer: attention has $4d^2$ ($W_Q, W_K, W_V, W_O$), the FFN has $2 \times 4d^2 = 8d^2$. So two-thirds of a transformer's parameters live in the feedforward layers. That is why mixture-of-experts replaces the FFN and not attention — that is where the weights are.
+
+**(e) Position.** Attention is permutation-equivariant: permute the input rows and the output rows come back permuted the same way and otherwise unchanged, so the operation cannot distinguish "dog bites man" from "man bites dog" and position has to be injected explicitly.
+
+**Rubric:**
+- Writes the pre-norm form and derives $I + \partial F/\partial x$, naming the gain-1 path
+- LayerNorm justified by batch-independence at decode and variable length, explicitly not by quality
+- Pre-norm keeps the residual path clean and removes warmup fragility at depth; post-norm named as the original
+- RMSNorm: drops mean subtraction and bias, keeps RMS scaling
+- Identifies attention as linear in $V$ given the weights, and gives $8d^2$ versus $4d^2$ with the MoE consequence
+- One clean sentence on permutation equivariance
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: attention and the transformer block
+
+These 15 questions do not depend on anything above, so this section stands on its own. Each should take 2 to 5 minutes to answer out loud, and they are chosen for how often they actually get asked, not for how interesting they are. If you only drill one part of this quiz, drill this one.
+
+1. **Why $\sqrt{d_k}$** Why do we divide the attention scores by $\sqrt{d_k}$, and what happens if you don't? Get to the answer through the variance of $q \cdot k$, put a number on the softmax probability and the gradient at $d_k = 128$, and do not say "for numerical stability."
+2. **Q, K and V** Explain query, key and value in attention. Say what each one is for, why there are three separate projections instead of one, and which parts of the setup are convention versus load-bearing.
+3. **Attention from scratch** Implement scaled dot-product self-attention — $\mathrm{softmax}(QK^\top/\sqrt{d_k})V$ — in PyTorch or NumPy, no library attention call. Narrate the shape at each step.
+4. **Multi-head, batched, causal** Now write full multi-head attention: batched input $(B, N, D)$, $h$ heads, causal mask, without `nn.MultiheadAttention`. Say why the head split is a `view` followed by a `transpose` and not a single `view`.
+5. **Causal masking** What is causal masking, why does a decoder need it, and where exactly in the computation does it go? Then say what specifically breaks if you apply the mask after the softmax instead of before.
+6. **Why multiple heads** Why use multiple attention heads instead of one wide one, given that the parameter count and FLOPs are identical? What do you give up as you add more heads?
+7. **LayerNorm vs BatchNorm** Why do transformers use LayerNorm instead of BatchNorm? Answer with the property of BatchNorm that fails, specifically at inference time, rather than a claim about quality.
+8. **Pre-norm, post-norm, RMSNorm** What is the difference between pre-norm and post-norm placement, and why did pre-norm win for deep models? Then: what does RMSNorm drop, and why does dropping it not hurt?
+9. **Where the quadratic cost lands** Attention is $O(n^2)$ — so is long context compute-bound? Work out at roughly what sequence length the quadratic term overtakes the projections and the FFN for a model with $d = 4096$, and say what the actual binding constraint is below that.
+10. **Activation memory** For one layer at 8K context, 32 heads, batch 1, fp16, how many bytes does the attention score matrix take? Do the arithmetic out loud, then explain why a model that trains fine at 2K OOMs at 8K when the parameter count has not changed.
+11. **FlashAttention** What is FlashAttention and what problem does it solve? Say whether it is exact or an approximation, whether it reduces FLOPs, and what it actually does with HBM and SRAM.
+12. **Why position at all** Why does a transformer need positional information injected explicitly? Name the property of attention that makes this necessary, and say in one sentence why RoPE replaced sinusoidal encodings.
+13. **Where the parameters are** For a transformer layer of width $d$ with $d_{ff} = 4d$, how many parameters are in attention versus the FFN? Give the split, and use it to explain why mixture-of-experts replaces the FFN rather than attention.
+14. **n_heads vs n_kv_heads** What is the difference between the number of attention heads and the number of key/value heads in a model config? Say what happens when they differ, what it is called, and which resource it changes.
+15. **Trace a forward pass** Walk me through what happens to one token inside a decoder layer, end to end: embedding, positional information, the QKV projections, attention, the output projection, residual, norm, FFN. At each step say the tensor shape and what the step is for.
