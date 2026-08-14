@@ -1,0 +1,440 @@
+---
+lessonId: c10.2
+chapter: 10
+title: Quiz — Factor models and where risk comes from
+description: Eight questions on the parameter collapse, beta, factor architectures, risk contributions, tracking error, the fundamental law, alpha attribution and covariance validity.
+estimatedMinutes: 75
+---
+
+These eight questions test whether you can run the arithmetic cold and then defend the modelling choice out loud, which is the part interviewers actually grade. Work each one on paper before opening the answer, and say the reasoning aloud rather than writing it. The rapid-fire section at the bottom does not depend on anything above and stands on its own. If you only drill one part of this quiz, drill that one.
+
+<Quiz id="1">
+
+**Q1. The counting problem and what structure buys.** (a) For $N = 500$ assets and five years of monthly returns, count the free parameters in the covariance matrix, count the observations, give the rank of the sample estimate, and say what the null space means to an optimizer. (b) A colleague proposes switching to daily data. Does that fix it? Answer with numbers. (c) Derive $\Sigma = B\Sigma_f B^\top + D$ from $r = \alpha + Bf + \varepsilon$, naming every assumption at the point it is used. (d) Recount the parameters at $K = 10$, state the exact condition under which $\Sigma$ is positive definite rather than merely positive semi-definite, and say what that buys computationally.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** A covariance matrix is symmetric, so the free entries are the diagonal plus one triangle: $N$ variances and $N(N-1)/2$ distinct covariances, $N(N+1)/2$ in total. At $N = 500$ that is $500 \times 501/2 = 125{,}250$. Five years of monthly data is $T = 60$ periods, so the panel holds $60 \times 500 = 30{,}000$ numbers: **0.24 observations per parameter**.
+
+Quote the rank result rather than re-deriving it: $\mathrm{rank}(\hat\Sigma) \le \min(N, T-1) = 59$, so at least $500 - 59 = 441$ eigenvalues are exactly zero. The sharp statement is about the null space, not about invertibility: every $w$ in it satisfies $w^\top\hat\Sigma w = 0$, so the data asserts that 441 independent directions in portfolio space carry literally zero risk, and an optimizer minimizing estimated variance will find those directions and lever them without bound. The failure is not noise, it is a structurally false object.
+
+**(b)** No. Five years of daily returns is $T \approx 1{,}260$, which clears $N = 500$ and gives a nominally invertible matrix. But $30{,}000$ becomes $630{,}000$ observations against $125{,}250$ parameters, which is **5.0 observations per parameter**, and an estimate at five observations per parameter is noise wearing a full-rank costume. Worse, buying $T$ by lengthening the window in calendar time spans regimes over which the truth changed, so you are averaging different covariance matrices. Sampling frequency is not the lever. A free covariance matrix has too many parameters to be worth estimating freely at any frequency, so you impose structure instead. The contrast to close with: a ten-factor model on that same daily panel gets $630{,}000/5{,}555 = 113$ observations per parameter.
+
+**(c)** Write $r$ for the $N \times 1$ vector of returns, $\alpha$ an $N \times 1$ vector of asset-specific expected returns, $B$ the $N \times K$ loading matrix with $B_{ik}$ asset $i$'s exposure to driver $k$, $f$ the $K \times 1$ vector of factor returns, and $\varepsilon$ the $N \times 1$ idiosyncratic vector. Set $\mu_f = \mathbb{E}[f]$, $\Sigma_f = \mathrm{Cov}(f)$.
+
+Assumption one, $\mathbb{E}[\varepsilon] = 0$, so $\mathbb{E}[r] = \alpha + B\mu_f$. Since $\alpha$ is constant it drops out of any covariance:
+
+$$\Sigma = \mathbb{E}\bigl[(B(f-\mu_f) + \varepsilon)(B(f-\mu_f) + \varepsilon)^\top\bigr]$$
+
+Expanding gives four terms. The first is $B\,\mathbb{E}[(f-\mu_f)(f-\mu_f)^\top]\,B^\top = B\Sigma_f B^\top$. Assumption two, $\mathrm{Cov}(f, \varepsilon) = 0$, kills both cross terms $B\,\mathbb{E}[(f-\mu_f)\varepsilon^\top]$ and its transpose; this is what "specific" means. Assumption three, $\mathrm{Cov}(\varepsilon) = D$ with $D$ **diagonal** and $D_{ii} = d_i$, gives the last term. So
+
+$$\Sigma = B\Sigma_f B^\top + D$$
+
+The third assumption is the strong one and the whole model rests on it: after removing the $K$ factors, no two assets share anything at all.
+
+**(d)** $B$ has $NK = 5{,}000$ entries, $\Sigma_f$ has $K(K+1)/2 = 55$, and $D$ has $N = 500$. Total $5{,}555$, a $22.5\times$ reduction from 125,250 and 5.4 observations per parameter instead of 0.24.
+
+$B\Sigma_f B^\top$ has rank at most $K = 10$ and is hopelessly singular on its own. Adding $D$ fixes it: for any $w \neq 0$,
+
+$$w^\top\Sigma w = (B^\top w)^\top\Sigma_f(B^\top w) + \sum_i w_i^2 d_i$$
+
+The first term is non-negative whenever $\Sigma_f$ is positive semi-definite. The second is strictly positive as long as **every $d_i > 0$**, and that is the exact condition, necessary as well as sufficient. Set one specific variance to zero and the matrix is only positive semi-definite, which in portfolio language means you have declared some combination riskless and invited the optimizer to lever it. Computationally, the factor model always hands the optimizer an invertible matrix, which the sample covariance at $T$ below $N$ never does, and the Woodbury identity turns the $N \times N$ inverse into a $K \times K$ one, so inversion costs $O(NK^2)$ rather than $O(N^3)$.
+
+**Rubric:**
+- 125,250 against 30,000, stated as 0.24 observations per parameter
+- Rank $\le \min(N, T-1) = 59$, and the null space described as zero-risk portfolios, not just "cannot invert"
+- Refuses the daily-data fix with the 5.0-observations-per-parameter number and the regime argument
+- All three assumptions named at the point of use, especially diagonal $D$ as the load-bearing one
+- 5,000 + 55 + 500 = 5,555 computed
+- Positive definiteness stated as *if and only if* every $d_i > 0$, plus Woodbury
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. Beta, and the two kinds of risk.** (a) Derive the CAPM beta as an OLS slope and show it equals $\rho_{im}\sigma_i/\sigma_m$. Say precisely why beta is not correlation. (b) Split total variance into systematic and specific, and relate the systematic share to a regression quantity. (c) For $\beta = 1.2$, $\sigma_m = 16\%$, $\sigma_\varepsilon = 25\%$, compute total volatility and the systematic share. Then redo it for an equally weighted portfolio of 50 such names with beta 1 and uncorrelated residuals. (d) You regress $y$ on $x$ to get slope $\beta_{yx}$, then $x$ on $y$ to get $\beta_{xy}$. What is the product, and what does it tell you about the two fitted lines?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** With one factor, the market excess return $f = r_m - r_f$ where $r_f$ is the risk-free rate, the model for asset $i$ is
+
+$$r_i - r_f = \alpha_i + \beta_i(r_m - r_f) + \varepsilon_i$$
+
+This is a univariate regression, so the loading is the OLS slope, covariance over variance of the regressor:
+
+$$\beta_i = \frac{\mathrm{Cov}(r_i, r_m)}{\mathrm{Var}(r_m)} = \frac{\rho_{im}\sigma_i\sigma_m}{\sigma_m^2} = \rho_{im}\frac{\sigma_i}{\sigma_m}$$
+
+Beta is correlation **scaled by the volatility ratio**. Correlation is a pure co-movement number bounded in $[-1,1]$ and unit-free; beta is unbounded and carries the units of the ratio. A stock correlating 0.5 with the index but running three times its volatility has beta 1.5, so a high beta can come from tight co-movement, from high volatility, or from either alone. Practically: estimate it on two to five years of weekly or monthly excess returns, treat it as a slope with a standard error like any other, and shrink short-window estimates toward 1 because they are noisy.
+
+**(b)** Take variances of both sides. $\varepsilon_i$ is uncorrelated with the market by assumption, so the cross term vanishes:
+
+$$\sigma_i^2 = \beta_i^2\sigma_m^2 + \sigma_{\varepsilon i}^2$$
+
+The first term is **systematic risk**, common to everything holding the factor, and no asset escapes it. The second is **idiosyncratic** or **specific** risk. The systematic share $\beta_i^2\sigma_m^2/\sigma_i^2$ is exactly the $R^2$ of that regression, which is the fraction of variance explained by the factor.
+
+**(c)** Systematic variance is $(1.2 \times 0.16)^2 = 0.192^2 = 0.036864$. Specific variance is $0.25^2 = 0.0625$. Total $0.099364$, so $\sigma_i = \sqrt{0.099364} = 31.5\%$. Systematic share $0.036864/0.099364 = 37.1\%$. **For a single stock, most of the risk is its own.**
+
+Now 50 equally weighted names, each beta 1, specific volatility 25%, residuals uncorrelated. Weights are $1/50$, so the portfolio residual variance is $50 \times (1/50)^2 \times 0.0625 = 0.0625/50 = 0.00125$, residual volatility $0.25/\sqrt{50} = 3.54\%$. Systematic variance is $1.0^2 \times 0.16^2 = 0.0256$, unchanged, because averaging assets with beta 1 gives a portfolio with beta 1. Total $0.02685$, $\sigma_p = 16.39\%$, specific share $0.00125/0.02685 = 4.7\%$, so systematic is 95.3%. Fifty names turned a 37% systematic share into 95%. **Diversification removes one term and leaves the other untouched**, which is why a factor model is worth building at all: the part you cannot diversify away is the part the model describes.
+
+**(d)** $\beta_{yx} = \mathrm{Cov}(x,y)/\mathrm{Var}(x)$ and $\beta_{xy} = \mathrm{Cov}(x,y)/\mathrm{Var}(y)$, so
+
+$$\beta_{yx}\,\beta_{xy} = \frac{\mathrm{Cov}(x,y)^2}{\mathrm{Var}(x)\mathrm{Var}(y)} = \rho^2 = R^2$$
+
+Since $R^2 \le 1$, at least one of the two slopes is below 1 in magnitude, which is regression to the mean stated algebraically. The two fitted lines, plotted on the same axes, coincide only when $R^2 = 1$; otherwise each is tilted toward the axis of its own dependent variable, and the angle between them widens as $R^2$ falls. This is reported at Point72 and Cubist.
+
+**Rubric:**
+- $\beta = \mathrm{Cov}/\mathrm{Var}$ shown to equal $\rho\sigma_i/\sigma_m$, with the units argument for why it is not correlation
+- Systematic share identified as $R^2$, not just described in words
+- 31.5% total volatility and 37.1% systematic share computed
+- The 50-name case worked to 16.39% and a 95% systematic share, with the residual $1/\sqrt{n}$ scaling shown
+- Product of the two slopes derived as $\rho^2$, not asserted
+- States the two lines coincide only at $R^2 = 1$
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Three architectures.** (a) State the three ways to build a factor model in terms of which side of $r = \alpha + Bf + \varepsilon$ you observe, and give the regression direction each one implies. (b) Why is a statistical model the best pure risk model per parameter, and what two things does it cost you? (c) A company listed six weeks ago and is entering the universe. Which architectures can risk it today, and why? (d) You are building the risk model for a long-horizon fundamental equity book with a monthly rebalance and a risk committee that asks what the portfolio is exposed to. Pick an architecture and defend the choice out loud, including what you give up.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The three differ in which side is observed.
+
+**Statistical.** Neither $B$ nor $f$ observed. Extract both from the return panel by principal component analysis: take the top $K$ eigenvectors of the sample covariance and call them factors. No regression, an eigendecomposition.
+
+**Fundamental.** $B$ observed from asset characteristics: log market capitalization, book-to-market, trailing beta, momentum, leverage, industry membership. With $B$ known each period, factor returns come from a **cross-sectional** regression of that period's asset returns on the exposure columns, one regression per period. Barra and Axioma are built this way.
+
+**Macroeconomic.** $f$ observed as economic series: inflation surprises, industrial production, the term spread, the credit spread, oil. Exposures come from a **time-series** regression of each asset's return history on those series, one regression per asset. Chen, Roll and Ross (1986) is the canonical version.
+
+The compact rule: observed factors and unknown exposures means regress through time; observed exposures and unknown factors means regress across the cross-section; neither observed means PCA.
+
+**(b)** Principal components are, by construction, the directions of maximum remaining variance, so no other choice of $K$ vectors explains more of the return panel. If the only thing you are scored on is variance explained per parameter spent, PCA wins by definition.
+
+Two costs. First, the factors have no names. You cannot tell a risk committee or an allocator that the book is long a factor whose economic content is "the third eigenvector of last quarter's return panel," and you cannot form a view about whether that exposure is one you want. Second, eigenvectors are unstable: they flip sign freely, and when two eigenvalues are close the pair rotates arbitrarily within its plane. Recompute monthly and the model reports an exposure change when nothing happened but a change of basis, and a portfolio managed against it trades on that phantom. The first principal component of an equity panel has all-positive, roughly equal loadings and behaves like a market factor, which is reassuring, but that interpretability does not survive past the first component or two.
+
+**(c)** Only the **fundamental** model. A statistical model needs a return history to put the asset in the panel at all, and a macroeconomic model needs a return history to run the time-series regression that estimates its betas. Both have literally nothing to say about a six-week-old listing, and the usual fallback of proxying with a peer is an admission of that. The fundamental model needs no history: the company's market capitalization, book-to-market, sector and leverage are known today from its filings, so its row of $B$ is filled in immediately and the factor covariance $\Sigma_f$ is estimated from everybody else. This generalizes past new listings to any thin-history asset, which is why commercial risk vendors are fundamental.
+
+**(d)** **Fundamental**, and the defence has three parts.
+
+The mandate demands attribution, not just a number. The committee's question is "what are we exposed to," and only an architecture whose factors carry names can answer. A model that cannot produce the sentence "62% of your tracking error is an unintended small-cap tilt" fails the job description regardless of its variance-explained statistic.
+
+The horizon matches. Monthly rebalancing on a fundamental signal means the exposures I care about are the slow characteristic tilts, which is exactly what a characteristic-based $B$ measures. A statistical model's advantage is residualizing returns at short horizons, and I am not trading at short horizons.
+
+Exposures are stable by construction, because market capitalization and book-to-market do not rotate between windows the way eigenvectors do. That directly suppresses model-driven turnover, which at a monthly rebalance is pure cost.
+
+What I give up, stated plainly. Variance explained per factor is lower than PCA, so for a given $K$ my risk forecasts are worse in a pure mean-squared sense. The factor set is a modelling choice I have to defend, and if I have omitted a real driver its effect lands in the residuals as correlated noise the diagonal $D$ assumes away. And every exposure needs point-in-time data with the right availability lag, because book value at fiscal period end was not public for another 45 to 90 days; getting that wrong makes every backtest look better than reality. The mitigation is to run a statistical model in parallel purely as a diagnostic and check whether its leading components are spanned by my factor set. If they are not, I am missing a factor and I want to know before the risk committee does.
+
+**Rubric:**
+- All three named with the correct observed side and correct regression direction
+- PCA's optimality stated as a construction fact, not a claim
+- Both PCA costs given, including sign flips and rotation under close eigenvalues
+- Identifies fundamental as the only one that handles a new listing, and says exactly why the other two cannot
+- Picks an architecture and ties it to the mandate rather than reciting all three
+- Names concrete costs of the pick, including the point-in-time data requirement
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. Splitting the risk.** (a) Write portfolio variance under a factor model and define the exposure vector. (b) Two factors, market and value, portfolio exposures $x = (1.0,\ 0.3)$, market volatility 16%, value factor volatility 8%, correlation $-0.2$; 60 equally weighted names each with specific volatility 30%. Compute portfolio volatility and the factor share. (c) Your risk report lists factor volatility 15.70% and specific volatility 3.87%. A colleague adds them. What is wrong, and what is the general rule? (d) Define marginal contribution to risk, prove that contributions sum exactly to total volatility, and compute them for $w = (0.6, 0.4)$, $\sigma_1 = 20\%$, $\sigma_2 = 30\%$, $\rho = 0.4$.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** With $w$ the $N \times 1$ weight vector, $\sigma_p^2 = w^\top\Sigma w$. Substituting $\Sigma = B\Sigma_f B^\top + D$,
+
+$$\sigma_p^2 = \underbrace{x^\top\Sigma_f x}_{\text{factor}} + \underbrace{\sum_{i=1}^N w_i^2 d_i}_{\text{specific}}, \qquad x = B^\top w$$
+
+where $x$ is the $K \times 1$ vector of the portfolio's net factor exposures. Its $k$-th entry is the weighted sum of holdings' loadings on factor $k$, so a portfolio's beta to a factor is the average of its assets' betas.
+
+**(b)** The off-diagonal of $\Sigma_f$ is $-0.2 \times 0.16 \times 0.08 = -0.00256$. Factor variance is the quadratic form:
+
+$$1.0^2(0.0256) + 2(1.0)(0.3)(-0.00256) + 0.3^2(0.0064) = 0.0256 - 0.001536 + 0.000576 = 0.024640$$
+
+The cross term is negative because the value factor is negatively correlated with the market, so the value tilt is partly hedging the market exposure. Specific variance: $d_i = 0.09$, $w_i = 1/60$, and the sum is $60 \times (1/60)^2 \times 0.09 = 0.09/60 = 0.0015$. Total variance $0.026140$, so $\sigma_p = \sqrt{0.026140} = 16.17\%$. Factor share $0.024640/0.026140 = 94.3\%$, specific 5.7%. At 60 names the book is a factor bet, and any conversation about stock selection is a conversation about 5.7% of the risk.
+
+**(c)** He is adding volatilities, and volatilities do not add. $\sqrt{0.024640} = 15.70\%$ and $\sqrt{0.0015} = 3.87\%$ sum to 19.57%, but the true total is 16.17%. **Variances add, volatilities do not**, because volatility is the square root of a sum and the square root is concave. The general rule is that any additive decomposition of risk has to be done in variance units and only then converted, or done through marginal contributions if you insist on volatility units. Every risk report that prints a factor volatility beside a specific volatility invites this error, and the overstatement is largest when the two components are of similar size.
+
+**(d)** Portfolio volatility is not a sum over assets in any obvious way, so define asset $i$'s marginal contribution as the derivative of volatility with respect to its weight. From $\sigma_p = (w^\top\Sigma w)^{1/2}$, the chain rule gives
+
+$$MCR_i = \frac{\partial\sigma_p}{\partial w_i} = \frac{(\Sigma w)_i}{\sigma_p}$$
+
+and the contribution to risk is $CR_i = w_i \cdot MCR_i$. These sum exactly:
+
+$$\sum_i CR_i = \frac{\sum_i w_i(\Sigma w)_i}{\sigma_p} = \frac{w^\top\Sigma w}{\sigma_p} = \frac{\sigma_p^2}{\sigma_p} = \sigma_p$$
+
+The reason it is exact rather than approximate is that $\sigma_p(\lambda w) = \lambda\sigma_p(w)$: volatility is homogeneous of degree 1 in the weights. Differentiating that identity in $\lambda$ at $\lambda = 1$ gives $w^\top\nabla\sigma_p = \sigma_p$, Euler's theorem for homogeneous functions. Any risk measure with the same scaling property admits the same exact attribution, which is why the construction also works for value-at-risk and expected shortfall.
+
+Numbers. Covariance is $0.4 \times 0.20 \times 0.30 = 0.024$. Then $(\Sigma w)_1 = 0.04(0.6) + 0.024(0.4) = 0.024 + 0.0096 = 0.0336$ and $(\Sigma w)_2 = 0.024(0.6) + 0.09(0.4) = 0.0144 + 0.036 = 0.0504$. Portfolio variance $0.6(0.0336) + 0.4(0.0504) = 0.02016 + 0.02016 = 0.04032$, so $\sigma_p = 20.08\%$. Contributions are $0.02016/0.2008 = 10.04\%$ each, summing to 20.08% as promised.
+
+The point of the example is the coincidence in the middle: asset 2 holds **40% of the capital and 50% of the risk**, and asset 1 holds 60% of the capital and 50% of the risk. Weight is not risk. Choosing weights so that contributions are equal rather than capital is equal is what risk parity does, and this two-asset case is the whole idea in miniature.
+
+**Rubric:**
+- Decomposition written with $x = B^\top w$ defined
+- Factor variance carried through with the correct sign on the cross term, reaching 16.17% and 94.3%
+- Rejects adding volatilities and states the variance-additivity rule with the 19.57% versus 16.17% gap
+- $MCR_i = (\Sigma w)_i/\sigma_p$ derived, not quoted
+- Euler's theorem named and the homogeneity argument given as the reason the sum is exact
+- 20.08% and the 40%-of-capital, 50%-of-risk observation, connected to risk parity
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Active risk and whether you believe the manager.** (a) Define active weights and tracking error, and write tracking error under a factor model. (b) An active book has a size-factor exposure of 0.25 against a size factor with 12% volatility, and 100 names at 1% absolute active weight each with 30% specific volatility. Compute tracking error and the factor share. (c) The manager expects 2% of active return. Compute the information ratio and say how long a track record you would need before the number means anything. (d) Over the last 36 months the model predicted 4% annual tracking error while realized monthly active returns had a standard deviation of 1.62%. Diagnose this quantitatively and say what you do about it.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** With $w_b$ the benchmark weights and $w_p$ the portfolio weights, the **active weights** are $w_a = w_p - w_b$. Both sets sum to 1 when fully invested, so $w_a$ sums to zero: the active portfolio is a long-short book overlaid on the benchmark, funded by underweights rather than by cash. Active return is $R_a = w_a^\top r$, and **active risk**, universally called **tracking error**, is its standard deviation:
+
+$$TE = \sqrt{w_a^\top\Sigma w_a} = \sqrt{x_a^\top\Sigma_f x_a + \sum_i w_{a,i}^2 d_i}, \qquad x_a = B^\top w_a$$
+
+Every tool from the absolute case carries over with $w_a$ in place of $w$, including marginal contributions, which is how a risk report attributes tracking error to specific unintended tilts.
+
+**(b)** Factor part: $(0.25 \times 0.12)^2 = 0.03^2 = 0.0009$. Specific part: $d_i = 0.09$, $|w_{a,i}| = 0.01$, so $100 \times (0.01)^2 \times 0.09 = 100 \times 0.000009 = 0.0009$. Note the sign of the active weights does not matter here, since weights enter squared.
+
+Total active variance $0.0018$, so $TE = \sqrt{0.0018} = 4.24\%$, which is 424 basis points, a basis point being one hundredth of one percent. The factor share is exactly 50%. Interpretation: roughly two years in three the fund lands within 424 basis points of its benchmark, up or down.
+
+**(c)** The **information ratio** is expected active return over tracking error:
+
+$$IR = \frac{\mathbb{E}[R_a]}{TE} = \frac{2.0}{4.24} = 0.47$$
+
+Structurally this is a Sharpe ratio with the benchmark standing in for the risk-free asset, so its estimator properties are the Sharpe's verbatim: standard error near $1/\sqrt{n}$ in per-period units, and a t-statistic of $IR \times \sqrt{T_{\text{years}}}$. Nominal two-sided significance needs $t \ge 1.96$, so
+
+$$T \ge \left(\frac{1.96}{0.47}\right)^2 = 17.4\ \text{years}$$
+
+and that is only the coin-flip threshold, where the expected t-statistic sits exactly on the critical value. For 80% power you need $t \ge 2.80$, hence $(2.80/0.47)^2 = 35$ years. The practical conclusion is blunt: manager selection on three-year track records is selection on noise, no factor model repairs it, and the honest use of a three-year record is to check for blowups and process failures rather than to rank skill.
+
+**(d)** Compute the **bias statistic**. Each month, divide the realized active return by the tracking error the model predicted at the start of that month, giving $z_t$. If the model is calibrated, $z_t$ has standard deviation 1 by construction.
+
+Predicted annual $TE$ of 4% is $4/\sqrt{12} = 1.155\%$ monthly. Realized monthly standard deviation is 1.62%, so
+
+$$\mathrm{sd}(z) = \frac{1.62}{1.155} = 1.40$$
+
+and the true tracking error is $4\% \times 1.40 = 5.6\%$. A book sized to a 4% risk budget is running 5.6%, which is 40% more risk than the mandate allows, and every position sized off that model is 40% too large.
+
+Is 1.40 real or sampling noise? The standard error of $\mathrm{sd}(z)$ is roughly $1/\sqrt{2T} = 1/\sqrt{72} = 0.118$, so 1.40 is $(1.40 - 1)/0.118 = 3.4$ standard errors from 1. That is not noise.
+
+What you do, in order. First establish the direction, since an understatement is far more dangerous than an overstatement. Then look for the cause rather than rescaling blindly: run the bias statistic by factor and by specific risk separately, because a factor covariance estimated over too long a window through a regime change understates risk in a different way than correlated residuals do. Check the off-diagonal correlation of realized residuals within industry and within region; if it is materially positive, the diagonal $D$ assumption is broken and you are missing a factor. Only after that, apply a volatility scaling or move to half-life weighting on $\Sigma_f$, with a shorter half-life for volatilities than for correlations. Rescaling first is treating a symptom, and it will not survive the next regime.
+
+**Rubric:**
+- Active weights sum to zero, tracking error written under the factor decomposition
+- 4.24% computed with a 50% factor share, and the sign-irrelevance of active weights noted
+- $IR = 0.47$ and $t = IR\sqrt{T}$ used to reach roughly 17 years, with power distinguished from significance
+- Bias statistic defined as realized over predicted, with $\mathrm{sd}(z) = 1$ as the calibration target
+- $1.62/1.155 = 1.40$ and true $TE$ of 5.6% computed
+- Tests 1.40 against its own standard error, and diagnoses cause before rescaling
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. The fundamental law, and its failure.** (a) Derive $IR \approx IC\sqrt{BR}$ from per-bet profit and variance, defining every symbol. (b) Where exactly does the derivation assume something false? Redo it with pairwise correlation $\rho$ among the bets. (c) A long-short equity book ranks one signal across 500 names, with average pairwise payoff correlation 0.10 and an information coefficient of 0.05. Compute the naive and corrected information ratios. What is the ceiling as the universe grows? (d) A colleague proposes doubling the universe to 1,000 names to raise the information ratio. Respond, and say what you would do instead.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Let $BR$ be the **breadth**, the number of bets per year. For bet $j$ you have a forecast $z_j$, standardized to mean 0 and variance 1, and the realized return $r_j$ has volatility $\sigma$. Skill is the **information coefficient** $IC = \mathrm{corr}(z_j, r_j)$, the cross-sectional correlation between what you forecast and what happened. Real equity ICs are small; 0.03 to 0.06 is a working range for a good signal.
+
+Size positions proportional to signal and inversely proportional to risk, $h_j = c\,z_j/\sigma$, so every bet carries the same risk $c$. Expected profit on one bet is
+
+$$\mathbb{E}[h_j r_j] = \frac{c}{\sigma}\mathrm{Cov}(z_j, r_j) = \frac{c}{\sigma} \cdot IC \cdot 1 \cdot \sigma = c \cdot IC$$
+
+using $\mathrm{Cov}(z,r) = IC \cdot \mathrm{sd}(z)\,\mathrm{sd}(r) = IC\sigma$. Its variance is approximately $(c/\sigma)^2\sigma^2 = c^2$ for small $IC$. If the bets are **independent**, profits add and variances add, so over $BR$ bets expected profit is $BR \cdot c \cdot IC$ and standard deviation is $c\sqrt{BR}$. Divide:
+
+$$IR \approx \frac{BR \cdot c \cdot IC}{c\sqrt{BR}} = IC\sqrt{BR}$$
+
+That is Grinold's (1989) fundamental law. Skill and diversification are substitutes on a square-root exchange rate: an $IC$ of 0.05 across 100 independent bets gives $IR = 0.5$, and the same $IC$ across 1,000 gives $0.05\sqrt{1000} = 1.58$. Doubling $IC$ is worth quadrupling breadth, and doubling $IC$ is much harder than quadrupling breadth, which is why the formula is usually read as an argument for breadth.
+
+**(b)** Adding variances required the bets to be uncorrelated, and they never are. Positions built by ranking one signal across a universe share the signal, so their payoffs share whatever drives the signal.
+
+With common pairwise correlation $\rho$ among the $BR$ payoffs, total variance picks up every off-diagonal pair:
+
+$$\mathrm{Var} = c^2\bigl(BR + BR(BR-1)\rho\bigr) = c^2 BR\bigl(1 + (BR-1)\rho\bigr)$$
+
+Expected profit is unchanged at $BR \cdot c \cdot IC$, since correlation does not touch means. So
+
+$$IR = \frac{BR \cdot c \cdot IC}{c\sqrt{BR(1 + (BR-1)\rho)}} = IC\sqrt{\frac{BR}{1 + (BR-1)\rho}} \equiv IC\sqrt{BR_{\text{eff}}}$$
+
+**(c)** Effective breadth is
+
+$$BR_{\text{eff}} = \frac{500}{1 + 499(0.10)} = \frac{500}{50.9} = 9.8$$
+
+Five hundred positions bought the diversification of about ten. The corrected information ratio is $0.05\sqrt{9.8} = 0.16$, against the naive $0.05\sqrt{500} = 1.12$. That is a **sevenfold overstatement**, and the difference between an unfundable strategy and a flagship one.
+
+The ceiling: as $BR \to \infty$, $BR_{\text{eff}} \to 1/\rho = 10$. Correlation puts a hard cap on breadth that no number of additional names can lift. This is the failure mode of every strategy built by ranking a single signal across a universe: those are not 500 bets, they are one bet expressed 500 times.
+
+**(d)** It buys almost nothing, and I can say how little. Going from 500 to 1,000 names at $\rho = 0.10$ takes effective breadth from 9.8 to $1000/(1 + 999 \times 0.10) = 1000/100.9 = 9.9$. The information ratio moves from 0.16 to 0.16. You are already sitting against the $1/\rho = 10$ ceiling, so the second five hundred names are decoration. Worse, they are expensive decoration: the marginal names are smaller, less liquid and more costly to trade, so net of costs the change is negative.
+
+What actually raises the number is lowering $\rho$ or raising $IC$.
+
+Lowering $\rho$ means finding genuinely different bets, not more instances of the same one. Concretely: neutralize the book against the factors that drive the shared component, since if the 0.10 comes from a common sector or style exposure, residualizing against it removes the correlation rather than diluting it; add a signal with a different economic mechanism and a different horizon, because two signals correlating 0.2 with each other add far more effective breadth than 500 more names of the first; and trade the same signal at more independent points in time, since turnover is a legitimate source of breadth when the forecast genuinely refreshes.
+
+Raising $IC$ is the harder lever but has no ceiling, and at these numbers the arithmetic favours it: moving $IC$ from 0.05 to 0.07 raises the corrected $IR$ from 0.16 to 0.22, which no amount of universe expansion can match.
+
+I would also check the constraint leak before anything else, because it is free to measure. Clarke, de Silva and Thorley (2002) define the **transfer coefficient** $TC$ as the correlation between the ideal unconstrained active weights and the weights actually held, giving $IR \approx TC \times IC \times \sqrt{BR}$. A long-only constraint on a signal with symmetric long and short views drives $TC$ well below 1, because the short half of every forecast truncates at a zero weight. If $TC$ is 0.4, relaxing the binding constraint is worth more than any research on the signal.
+
+**Rubric:**
+- Derivation from per-bet profit $c \cdot IC$ and per-bet variance $c^2$, with independence flagged at the exact step it is used
+- Correlated-payoff variance $c^2 BR(1 + (BR-1)\rho)$ written correctly
+- Effective breadth 9.8 and the corrected $IR$ of 0.16 versus naive 1.12
+- Ceiling $1/\rho$ stated and explained as one bet expressed many times
+- Refuses the universe expansion with the 9.8-to-9.9 computation rather than in words
+- Names concrete ways to lower $\rho$ or raise $IC$, and raises the transfer coefficient
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Is it alpha?** (a) Write the regression that tests whether a return stream is alpha, and say what alpha is defined relative to. (b) A strategy returns 12% annualized with 15% volatility against a 2% risk-free rate. Regressing on market, SMB and HML gives betas 0.3, 0.5 and 0.7, and over the same period those factors returned 6%, 2% and 4%. Decompose the excess return. (c) With regression $R^2 = 0.6$, compute the appraisal ratio and the years needed to distinguish the alpha from zero. (d) Describe the two opposite errors available in choosing the factor set, and give one that is not on the standard list.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Alpha is an intercept, and an intercept exists only relative to the regressors. Run
+
+$$R_t - r_{f,t} = \alpha + \sum_{k=1}^{K}\beta_k F_{k,t} + e_t$$
+
+on the strategy's realized returns $R_t$ against the factor returns $F_{k,t}$, and test whether $\hat\alpha$ differs from zero. The definitional point matters more than the mechanics: alpha is not a property of a return stream, it is a claim about which benchmark you agreed to be measured against. Change the factor set and the same returns become skill or become exposure. That negotiation has fee money attached to it, which is why both sides argue about the right-hand side of this regression rather than about the returns.
+
+**(b)** Excess return is $12 - 2 = 10\%$, so the Sharpe ratio is $10/15 = 0.667$. The explained part is the sum of beta times factor return:
+
+$$0.3(6) + 0.5(2) + 0.7(4) = 1.8 + 1.0 + 2.8 = 5.6\%$$
+
+leaving $10 - 5.6 = 4.4\%$ of alpha. So **56% of the excess return was factor exposure**, which an allocator can buy in an index product for a few basis points a year, and only 4.4% is a candidate for a performance fee. The 0.7 loading on HML is doing most of the work, and it is the number the strategy's marketing material will not lead with.
+
+**(c)** With $R^2 = 0.6$, the fraction of variance left over is 0.4, so residual volatility is $15\sqrt{0.4} = 15 \times 0.6325 = 9.49\%$. The **appraisal ratio** is alpha over residual volatility:
+
+$$AR = \frac{4.4}{9.49} = 0.46$$
+
+That is the information ratio of the alpha alone, stripped of factor exposure, and it is the right number to compare against another manager. It also drives significance: the t-statistic on the intercept is $AR\sqrt{T_{\text{years}}}$, so nominal significance needs
+
+$$T \ge \left(\frac{1.96}{0.46}\right)^2 = 18\ \text{years}$$
+
+Two conclusions worth saying in the same breath. The headline Sharpe of 0.667 is not evidence of skill, because most of it was rentable. And the residual 0.46 cannot be distinguished from zero on any track record anyone actually has.
+
+**(d)** The errors run in both directions and they are not symmetric in how often they occur.
+
+**Omitting a real factor** credits its premium to you. A value-tilted book regressed on the market alone reports the value premium as alpha, and a short-volatility book regressed on anything reports the insurance premium as alpha until the tail arrives. This is the common direction because it is the flattering one, and nobody audits their own factor set upward.
+
+**Including too many factors** regresses away returns that were genuinely yours. The sharp case is a factor constructed from the same characteristic your signal trades: the factor is then close to a repackaging of your own positions, and the regression assigns your return to it by construction. Adding factors is not a free robustness check, since each one can only lower the intercept.
+
+One that is not on the standard list: the factors themselves are estimated portfolios with their own construction choices, so the regression treats a noisy regressor as if it were known exactly. The classical consequence is attenuation, the betas biased toward zero, which pushes the residual back into the intercept and **inflates** measured alpha. A related version bites when the factor's construction differs from yours in rebalancing frequency, universe or weighting scheme, so a strategy that genuinely is the value factor implemented better shows alpha against the published series purely from implementation differences.
+
+The defensible answer to "is this alpha" is therefore procedural: report the intercept, its t-statistic and the appraisal ratio against a stated factor set; then name what is missing from that set, such as carry, betting-against-beta, liquidity or crowding; then argue positively that the residual is not one of those either, ideally by regressing on them too. Refusing to state a factor set is refusing to answer.
+
+**Rubric:**
+- Regression written and alpha defined as relative to the chosen factor set, not as a property of returns
+- 5.6% explained and 4.4% alpha computed, with the 56% share stated
+- Residual volatility $15\sqrt{1-R^2} = 9.49\%$ and appraisal ratio 0.46
+- 18 years derived from $t = AR\sqrt{T}$
+- Both directions of factor-set error given, with the asymmetry in which one is common
+- One non-obvious error such as errors-in-variables in the factors or construction mismatch
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8. Is that a covariance matrix?** (a) $A$ and $B$ are covariance matrices. Is $AB$? What if $AB = BA$? Prove both directions. (b) Three random variables have equal pairwise correlation $\rho$. What values of $\rho$ are possible? Generalize to $N$ variables. (c) $\mathrm{corr}(X,Y) = 0.8$ and $\mathrm{corr}(X,Z) = 0.8$. What are the possible values of $\mathrm{corr}(Y,Z)$? Derive the bound. (d) Your risk system builds $\Sigma = B\Sigma_f B^\top + D$ and then reports a negative eigenvalue on the implied correlation matrix. Part (d) of Q1 says that cannot happen. So what did happen, and which three quantities do you check first?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** A covariance matrix is symmetric and positive semi-definite. Test both properties on the product.
+
+**In general, no**, and symmetry fails first. $(AB)^\top = B^\top A^\top = BA$, which equals $AB$ only if the two commute, and symmetric matrices generally do not. A $2 \times 2$ counterexample settles it. Take $A$ diagonal with entries 1 and 2, which is positive definite, and $B$ the all-ones matrix with every entry 1, which is positive semi-definite with eigenvalues 2 and 0. Their product has first row $(1, 1)$ and second row $(2, 2)$, so $(AB)_{12} = 1$ while $(AB)_{21} = 2$. Not symmetric, so not a covariance matrix.
+
+**If $AB = BA$, yes.** Symmetry follows immediately: $(AB)^\top = B^\top A^\top = BA = AB$. For positive semi-definiteness, use the fact that two commuting symmetric matrices are **simultaneously diagonalizable**: there is one orthogonal $Q$ with $A = Q\Lambda Q^\top$ and $B = Q M Q^\top$, where $\Lambda$ holds eigenvalues $\lambda_i \ge 0$ and $M$ holds eigenvalues $\mu_i \ge 0$. Then
+
+$$AB = Q\Lambda M Q^\top$$
+
+and $\Lambda M$ is diagonal with entries $\lambda_i\mu_i \ge 0$. So $AB$ is symmetric with non-negative eigenvalues, hence a valid covariance matrix. This is reported at SIG, and the grading is on producing the commutation argument rather than the yes-or-no.
+
+A cleaner alternative for the commuting case, worth having: $A^{1/2}BA^{1/2}$ is positive semi-definite for any positive semi-definite $A$ and $B$ by the congruence $w^\top A^{1/2}BA^{1/2}w = (A^{1/2}w)^\top B(A^{1/2}w) \ge 0$, and $AB$ is similar to it, so $AB$ always has non-negative eigenvalues even when it is not symmetric. The obstruction in the general case is symmetry alone.
+
+**(b)** The correlation matrix is $R = (1-\rho)I + \rho J$ where $J$ is the all-ones matrix. $J$ has eigenvalues $N$ once and 0 with multiplicity $N-1$, so $R$ has eigenvalues $1 + (N-1)\rho$ once and $1 - \rho$ with multiplicity $N-1$. Positive semi-definiteness requires both to be non-negative:
+
+$$\rho \le 1 \quad\text{and}\quad \rho \ge -\frac{1}{N-1}$$
+
+For $N = 3$: $\rho \in [-1/2, 1]$. Three variables cannot all be correlated $-0.6$ with each other, which is the intuition worth stating out loud: if $X$ disagrees with $Y$ and $X$ disagrees with $Z$, then $Y$ and $Z$ are pushed into agreement. The negative bound tightens as $N$ grows, going to zero, so a large set of variables cannot be uniformly negatively correlated at all.
+
+**(c)** Write $a = \mathrm{corr}(X,Y)$, $b = \mathrm{corr}(X,Z)$, $c = \mathrm{corr}(Y,Z)$. The determinant of the $3 \times 3$ correlation matrix is
+
+$$\det R = 1 + 2abc - a^2 - b^2 - c^2$$
+
+Positive semi-definiteness requires $\det R \ge 0$, since the two leading principal minors are already 1 and $1 - a^2 \ge 0$. Treat the constraint as a quadratic in $c$:
+
+$$c^2 - 2ab\,c + (a^2 + b^2 - 1) \le 0$$
+
+The roots are $c = ab \pm \sqrt{a^2b^2 - a^2 - b^2 + 1} = ab \pm \sqrt{(1-a^2)(1-b^2)}$, so
+
+$$c \in \left[ab - \sqrt{(1-a^2)(1-b^2)},\ \ ab + \sqrt{(1-a^2)(1-b^2)}\right]$$
+
+With $a = b = 0.8$: $ab = 0.64$ and $\sqrt{(0.36)(0.36)} = 0.36$, so $c \in [0.28, 1.00]$. **Two correlations of 0.8 force the third to be at least 0.28**, and anyone quoting 0.1 for it has an impossible matrix.
+
+The structure of the answer is worth naming: $ab$ is exactly the correlation you would get if $Y$ and $Z$ were related only through $X$, and the half-width $\sqrt{(1-a^2)(1-b^2)}$ is the product of the residual standard deviations after projecting each on $X$. So the bound says the third correlation equals the through-$X$ part plus anything the two residuals can do, and residual correlation itself is bounded by 1.
+
+**(d)** Start by stating the guarantee precisely, because that is what makes this diagnosable in one minute rather than one afternoon. For any $w \ne 0$,
+
+$$w^\top\Sigma w = (B^\top w)^\top\Sigma_f(B^\top w) + \sum_i w_i^2 d_i$$
+
+The first term is non-negative whenever $\Sigma_f$ is positive semi-definite, and the second is strictly positive whenever every $d_i > 0$. Under those two conditions no $w$ can produce a negative number, whatever $B$ contains — $B$ is unconstrained and cannot break it. So a negative eigenvalue means one of exactly three things, and each maps to a quantity you can print.
+
+**Check $\Sigma_f$'s eigenvalues.** It is $K \times K$, so this is ten numbers, not five hundred, and it is where hand edits and blended views land: a committee overriding one factor correlation, or a factor covariance assembled from blocks estimated on different windows, produces a $\Sigma_f$ that is not positive semi-definite in exactly the way part (c) forbids. Half-life weighting applied inconsistently across entries does the same.
+
+**Check $\min_i d_i$.** Specific variances are usually residual variances from a regression, and they go non-positive when the regression has too few observations for its regressors, when a stock's history is shorter than the estimation window, or when a floor was applied to volatilities but not to variances. A single $d_i \le 0$ is enough, and it is the cheapest check available.
+
+**Check whether the matrix reported is the matrix the model built.** Downstream code frequently recombines pieces: converting $\Sigma$ to a correlation matrix using volatilities from a different source, splicing in a hand-maintained block for illiquid or non-modelled assets, or shrinking correlations while leaving volatilities unshrunk. Then the reported object is no longer $B\Sigma_f B^\top + D$ and the guarantee never applied to it.
+
+Order of work: magnitude first, since an eigenvalue near $10^{-16}$ times the trace is floating-point dust rather than a structural problem, then the three checks above, then repair. The repair menu itself — nearest-PSD projection, eigenvalue clipping, shrinkage — is covered in c8.3 and is the wrong place to start here, because patching the output of a factor model leaves the inconsistent input in place and it returns next month. The factor form is supposed to make this failure impossible; when it happens, something upstream broke the form, and that is the thing to fix.
+
+**Rubric:**
+- $AB$ rejected in general on symmetry, with an explicit counterexample or the $(AB)^\top = BA$ argument
+- Commuting case proved via simultaneous diagonalization and eigenvalues $\lambda_i\mu_i$
+- Equicorrelation eigenvalues $1 + (N-1)\rho$ and $1-\rho$, giving $\rho \ge -1/(N-1)$ and $-1/2$ at $N=3$
+- Third-correlation bound derived from $\det R \ge 0$ as a quadratic, reaching $ab \pm \sqrt{(1-a^2)(1-b^2)}$ and $[0.28, 1]$
+- Restates the factor-form guarantee as a quadratic form and identifies $\Sigma_f$ and $\min_i d_i$ as the only two inputs that can break it
+- Names all three failure routes, including downstream recombination, and puts the magnitude test before any repair
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: factor models, risk decomposition and active management
+
+These 16 questions stand alone and do not depend on anything above. Each should take 2 to 5 minutes out loud. They are chosen for how often they get asked, not for how interesting they are, and several are asked in close to this wording. Answer them speaking, with the arithmetic said aloud.
+
+1. **Five hundred stocks, sixty months** Count the free parameters in the covariance matrix and count the observations. Give the rank of the sample estimate and say what its null space means to an optimizer. Then answer the follow-up: your covariance matrix is noisy, what do you do?
+2. **Derive the factor covariance** Start from $r = \alpha + Bf + \varepsilon$ and derive $\Sigma = B\Sigma_f B^\top + D$. Name each assumption at the step that uses it, say which one is load-bearing, and state the exact condition for $\Sigma$ to be positive definite rather than merely positive semi-definite.
+3. **Is AB a covariance matrix?** $A$ and $B$ are both covariance matrices. Is their product one? What changes if $AB = BA$? Prove whichever direction you claim.
+4. **Bounding the third correlation** Three variables have equal pairwise correlation $\rho$. What values can $\rho$ take, and what is the bound for $N$ variables? Then: if $X$ correlates 0.8 with $Y$ and 0.8 with $Z$, what are the possible correlations between $Y$ and $Z$? Derive the bound rather than guessing it.
+5. **Beta is not correlation** Derive beta as an OLS slope and show it equals $\rho_{im}\sigma_i/\sigma_m$. Give a concrete case where a stock's beta and its correlation with the index point in different directions, and say how you would actually estimate the number.
+6. **The two slopes** You regress $y$ on $x$ to get $\beta_{yx}$, then $x$ on $y$ to get $\beta_{xy}$. What is the product? What does it say about the two fitted lines on the same plot?
+7. **Systematic versus specific** A stock has beta 1.2, the market runs 16% volatility, and its specific volatility is 25%. Total volatility and systematic share? Now hold 50 such names equally weighted with beta 1 and uncorrelated residuals, and redo it. Say in one sentence what diversification did and did not touch.
+8. **Pick a factor model** You are building the risk model for a long-horizon fundamental equity book that rebalances monthly and reports to a risk committee. Statistical, fundamental or macroeconomic? Defend the choice out loud, say what you give up, and say which of the three can risk a company that listed six weeks ago.
+9. **Why not more factors** More factors fit better in sample, so why stop at 10? Quantify: at $N = 500$, what does going from $K = 10$ to $K = 50$ cost in parameters, and what happens to out-of-sample risk forecasts?
+10. **Contributions that sum exactly** Why do marginal risk contributions sum to total portfolio volatility exactly rather than approximately? Name the property and the theorem. Then: a two-asset book at 60/40 weights, volatilities 20% and 30%, correlation 0.4 — does the 40% position carry 40% of the risk?
+11. **Adding volatilities** A risk report shows factor volatility 15.70% and specific volatility 3.87%. A colleague reports total risk of 19.57%. What is wrong, what is the correct total given factor variance 0.02464 and specific variance 0.0015, and what is the general rule?
+12. **Tracking error and how long you need** Define tracking error and the information ratio, and say what a 4% tracking error means in plain language. A manager runs 4% tracking error with a genuine information ratio of 0.5: how much active return per year, and how many years before the record is nominally significant? What does that imply about three-year manager selection?
+13. **The model says 4%, the market says otherwise** Over 36 months your model predicted 4% annual tracking error and realized monthly active returns had standard deviation 1.62%. Compute the bias statistic and the true tracking error. Is 1.40 distinguishable from 1? What do you check before rescaling anything?
+14. **State the fundamental law, then attack it** Write $IR \approx IC\sqrt{BR}$ and say what each symbol is. Now break it: with 500 names at average pairwise correlation 0.10, what is effective breadth, and what is the ceiling as the universe grows? Your colleague wants to double the universe to fix it. Respond, and defend what you would do instead.
+15. **Alpha or beta** A strategy shows a Sharpe of 0.9. How do you determine whether that is skill? Give the regression, and for a book returning 12% at 15% volatility against a 2% risk-free rate with betas 0.3, 0.5, 0.7 on market, SMB and HML that returned 6%, 2% and 4%, compute the alpha and the appraisal ratio at $R^2 = 0.6$. Then name what is missing from that factor set.
+16. **When the residuals are not diagonal** $D$ diagonal says that after removing the factors, no two assets share anything. When is that false, how would you test it on realized residuals, and what happened in August 2007 that made the industry care?
