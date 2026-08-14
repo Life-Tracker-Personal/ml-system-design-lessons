@@ -6,7 +6,7 @@ description: 12 conceptually difficult questions on CART, bagging/random forests
 estimatedMinutes: 45
 ---
 
-These questions test whether you can explain what an ensemble is doing before reaching for its formula. Start every answer with the behavior you expect, then use the derivation to justify it. The decorrelation identity, functional gradient descent, and the XGBoost objective are evidence for the intuition—not substitutes for it.
+These questions test whether you can explain what an ensemble is doing before reaching for its formula. Start every answer with the behavior you expect, then use the derivation to justify it. The decorrelation identity, functional gradient descent, and the XGBoost objective are evidence for the intuition, not substitutes for it.
 
 <Quiz id="1">
 
@@ -45,9 +45,11 @@ Both criteria give a positive decrease, so both agree it's a good split (it perf
 <details>
 <summary>Model answer + rubric</summary>
 
-**Derivation.** For $\bar X = \frac1B\sum_b X_b$ with $\operatorname{Var}(X_b)=\sigma^2$ and $\operatorname{Cov}(X_i,X_j)=\rho\sigma^2$ for $i\ne j$:
+**Derivation.** Let $X_b$ be the prediction of tree $b$ at a fixed input, so the ensemble predicts $\bar X = \frac1B\sum_b X_b$; here $i$ and $j$ index trees rather than rows. With $\operatorname{Var}(X_b)=\sigma^2$ for every tree and $\operatorname{Cov}(X_i,X_j)=\rho\sigma^2$ for $i\ne j$:
 
 $$\operatorname{Var}(\bar X) = \frac{1}{B^2}\left[\sum_b \operatorname{Var}(X_b) + \sum_{i\ne j}\operatorname{Cov}(X_i,X_j)\right] = \frac{1}{B^2}\left[B\sigma^2 + B(B-1)\rho\sigma^2\right]$$
+
+Each tree contributes one variance term and each ordered pair of distinct trees one covariance term, which is where the $B$ and the $B(B-1)$ come from. Dividing through by $B^2$ and collecting the $\rho\sigma^2$ pieces:
 
 $$= \frac{\sigma^2}{B} + \frac{B-1}{B}\rho\sigma^2 = \rho\sigma^2 + \frac{1-\rho}{B}\sigma^2$$
 
@@ -99,7 +101,7 @@ So **~36.8% of rows are out-of-bag** per tree, and ~63.2% are in-bag.
 <details>
 <summary>Model answer + rubric</summary>
 
-**Setup.** At stage $m$ we add $\beta G(x)$ to $f_{m-1}$, minimizing exponential loss over the (normalized) weights $w_i \propto e^{-y_i f_{m-1}(x_i)}$:
+**Setup.** Labels are coded $y_i \in \{-1,+1\}$ and the base classifier $G$ outputs $\pm1$, so $y_i G(x_i)$ equals $+1$ on a correctly classified row and $-1$ on a misclassified one. At stage $m$ we add $\beta G(x)$ to $f_{m-1}$, the ensemble score so far, and choose the step size $\beta$ by minimizing exponential loss over the (normalized) weights $w_i \propto e^{-y_i f_{m-1}(x_i)}$, one per training row $i$. Because $y_i G(x_i)$ takes only those two values, the sum splits into a correct part and a wrong part:
 
 $$\sum_i w_i\, e^{-y_i \beta G(x_i)} = e^{-\beta}\!\!\sum_{y_i = G(x_i)}\!\! w_i + e^{\beta}\!\!\sum_{y_i \ne G(x_i)}\!\! w_i$$
 
@@ -130,7 +132,7 @@ Let $W = \sum_i w_i$ and $\text{err} = \frac{\sum_{\text{wrong}} w_i}{W}$. The o
 <details>
 <summary>Model answer + rubric</summary>
 
-**What it fits.** Each tree fits the **negative gradient of the loss w.r.t. the current prediction** (the pseudo-residual), evaluated at $f_{m-1}$:
+**What it fits.** Each tree fits the **negative gradient of the loss w.r.t. the current prediction** (the pseudo-residual $r_{im}$ for row $i$ at round $m$), evaluated at $f_{m-1}$, the ensemble built by the earlier rounds:
 
 $$r_{im} = -\left[\frac{\partial L(y_i, f(x_i))}{\partial f(x_i)}\right]_{f = f_{m-1}}$$
 
@@ -162,13 +164,13 @@ This is gradient descent in function space: the tree approximates the steepest-d
 <details>
 <summary>Model answer + rubric</summary>
 
-**Objective.** A 2nd-order Taylor expansion of the loss around $f_{m-1}$, plus L2 leaf regularization, gives (per leaf $j$ with instance set $I_j$, $g_i, h_i$ the first/second derivatives):
+**Objective.** A 2nd-order Taylor expansion of the loss around $f_{m-1}$, plus L2 leaf regularization with strength $\lambda$, gives (per leaf $j$, with $I_j$ the set of rows landing in that leaf and $g_i, h_i$ the first and second derivatives of the loss at row $i$ with respect to that row's current prediction):
 
 $$\text{obj}_j(w_j) = G_j w_j + \tfrac12(H_j + \lambda) w_j^2, \qquad G_j = \sum_{i\in I_j} g_i,\ \ H_j = \sum_{i\in I_j} h_i$$
 
 **Minimize.** $\frac{d}{dw_j} = G_j + (H_j+\lambda)w_j = 0 \Rightarrow \boxed{w_j^\star = -\dfrac{G_j}{H_j+\lambda}}$. Substituting back gives the structure score contribution $-\tfrac12 G_j^2/(H_j+\lambda)$, which drives the split-gain formula.
 
-**Squared loss.** $L=\tfrac12(y-f)^2 \Rightarrow g_i = f - y_i = -r_i$, $h_i = 1$. So $G_j = -\sum_{i\in I_j} r_i$, $H_j = n_j$, and
+**Squared loss.** $L=\tfrac12(y-f)^2 \Rightarrow g_i = f - y_i = -r_i$, writing $r_i = y_i - f(x_i)$ for the row's current residual, and $h_i = 1$. So $G_j = -\sum_{i\in I_j} r_i$ and $H_j = n_j$, the number of rows in leaf $j$; writing $\bar r_j$ for their mean residual,
 
 $$w_j^\star = \frac{\sum_{i\in I_j} r_i}{n_j + \lambda} = \frac{n_j\,\bar r_j}{n_j+\lambda} = \frac{\bar r_j}{1 + \lambda/n_j}$$
 

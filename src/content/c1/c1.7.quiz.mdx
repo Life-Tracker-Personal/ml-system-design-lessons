@@ -49,7 +49,7 @@ With responsibilities $\gamma_{ij}$ fixed (from the E-step), the M-step maximize
 
 **$\Sigma_j$:** differentiating the Gaussian log-density w.r.t. $\Sigma_j$ (or $\Sigma_j^{-1}$) and setting to 0 gives the responsibility-weighted covariance $\Sigma_j=\frac{1}{N_j}\sum_i\gamma_{ij}(x_i-\mu_j)(x_i-\mu_j)^\top$.
 
-**$\pi_j$:** maximize $\sum_j N_j\log\pi_j$ s.t. $\sum_j\pi_j=1$. Lagrangian $\sum_j N_j\log\pi_j+\lambda(1-\sum_j\pi_j)$; $\partial_{\pi_j}=N_j/\pi_j-\lambda=0\Rightarrow\pi_j=N_j/\lambda$; summing and using $\sum\pi_j=1$, $\sum_j\pi_j=1\Rightarrow\lambda=\sum_jN_j=n$, so $\pi_j=N_j/n$.
+**$\pi_j$:** maximize $\sum_j N_j\log\pi_j$ subject to $\sum_j\pi_j=1$. Attach a Lagrange multiplier $\lambda$ to that constraint, giving the Lagrangian $\sum_j N_j\log\pi_j+\lambda(1-\sum_j\pi_j)$; $\partial_{\pi_j}=N_j/\pi_j-\lambda=0\Rightarrow\pi_j=N_j/\lambda$; summing and using $\sum\pi_j=1$, $\sum_j\pi_j=1\Rightarrow\lambda=\sum_jN_j=n$, so $\pi_j=N_j/n$.
 
 These are exactly the weighted versions of the single-Gaussian MLE — soft counts $N_j$ replace hard counts.
 
@@ -74,10 +74,10 @@ With $\Sigma_j=\varepsilon I$ and $\pi_j=1/k$, the E-step responsibility is
 
 $$\gamma_{ij}=\frac{\exp(-\lVert x_i-\mu_j\rVert^2/2\varepsilon)}{\sum_\ell\exp(-\lVert x_i-\mu_\ell\rVert^2/2\varepsilon)}$$
 
-— a softmax over $-\lVert x_i-\mu_j\rVert^2$ with **temperature $\varepsilon$**. As $\varepsilon\to0^+$, the softmax sharpens to a **hard argmin**: $\gamma_{ij}\to\mathbb{1}[j=\arg\min_\ell\lVert x_i-\mu_\ell\rVert^2]$. So:
+— a softmax over $-\lVert x_i-\mu_j\rVert^2$ with **temperature $\varepsilon$**, the index $\ell$ ranging over the $k$ components. As $\varepsilon\to0^+$, the softmax sharpens to a **hard argmin**: $\gamma_{ij}\to\mathbb{1}[j=\arg\min_\ell\lVert x_i-\mu_\ell\rVert^2]$, where $\mathbb{1}[\cdot]$ is 1 when the bracketed condition holds and 0 otherwise. So:
 - the **E-step becomes the assign step** (each point to its nearest centroid);
 - the **M-step** $\mu_j=\sum_i\gamma_{ij}x_i/\sum_i\gamma_{ij}$ becomes the **centroid mean**;
-- and $-2\varepsilon\log p(x)\to\sum_i\lVert x_i-\mu_{c_i}\rVert^2=$ WCSS (up to constants). So minimizing WCSS = hard-EM in this limit.
+- and $-2\varepsilon\log p(x)\to\sum_i\lVert x_i-\mu_{c_i}\rVert^2=$ WCSS (up to constants), writing $c_i$ for the index of the cluster point $i$ lands in. So minimizing WCSS = hard-EM in this limit.
 
 **Assumption mapping:** $\Sigma_j=\varepsilon I$ (isotropic) ⇒ **spherical clusters**; the *shared* $\varepsilon$ across components ⇒ **equal spread/variance**; equal $\pi_j$ together with the squared-distance assignment ⇒ bias toward **equal-size clusters**. A full-covariance, free-weight GMM relaxes all three.
 
@@ -101,7 +101,7 @@ $$\gamma_{ij}=\frac{\exp(-\lVert x_i-\mu_j\rVert^2/2\varepsilon)}{\sum_\ell\exp(
 
 **Consequence.** Minimizing inertia over $k$ trivially returns $k=n$ — you **cannot** select $k$ by minimizing $J$. (Exact analogue of $R^2$ being non-decreasing in the number of features, c1.3 — fit always improves with more capacity, so you need a complexity-aware criterion.)
 
-**Escapes:** the **elbow** looks for the kink where marginal WCSS reduction drops (heuristic); the **silhouette** maximizes a separation-vs-cohesion score $s(i)$ that *can* decrease as $k$ grows; the **gap statistic** compares $\log W_k$ to its expectation under a uniform null reference and picks the smallest $k$ beating the null — the only one with a principled baseline; and for a **GMM**, **BIC/AIC** penalize the parameter count, giving a true penalized-likelihood selection.
+**Escapes:** the **elbow** looks for the kink where marginal WCSS reduction drops (heuristic); the **silhouette** maximizes a separation-vs-cohesion score $s(i)$ that *can* decrease as $k$ grows; the **gap statistic** compares $\log W_k$, the pooled within-cluster dispersion at $k$, to its expectation under a uniform null reference and picks the smallest $k$ beating the null — the only one with a principled baseline; and for a **GMM**, **BIC/AIC** penalize the parameter count, giving a true penalized-likelihood selection.
 
 **Rubric:**
 - Nesting/refinement argument ⇒ $J^\star$ non-increasing; $J^\star(n)=0$
@@ -125,7 +125,7 @@ $$\log p(x_i)=\log\sum_z q_i(z)\frac{p(x_i,z)}{q_i(z)}\ \ge\ \sum_z q_i(z)\log\f
 
 by **Jensen's inequality** ($\log$ concave). The gap is exactly $\log p(x_i)-\text{ELBO}=\text{KL}(q_i\,\|\,p(z\mid x_i,\theta))\ge0$.
 
-**E-step** sets $q_i=p(z\mid x_i,\theta^{\text{old}})$ (the responsibilities) ⇒ KL $=0$ ⇒ the ELBO *touches* $\log p$ at $\theta^{\text{old}}$. **M-step** maximizes $\sum_i\text{ELBO}$ over $\theta$ ⇒ $\sum_i\log p(x_i)\big|_{\theta^{\text{new}}}\ge\text{ELBO}(\theta^{\text{new}})\ge\text{ELBO}(\theta^{\text{old}})=\sum_i\log p(x_i)\big|_{\theta^{\text{old}}}$. So the log-likelihood is **non-decreasing every iteration**.
+Write $\theta$ for the whole parameter set $\{\pi_j,\mu_j,\Sigma_j\}$, with $\theta^{\text{old}}$ its value entering an iteration and $\theta^{\text{new}}$ its value leaving. **E-step** sets $q_i=p(z\mid x_i,\theta^{\text{old}})$ (the responsibilities) ⇒ KL $=0$ ⇒ the ELBO *touches* $\log p$ at $\theta^{\text{old}}$. **M-step** maximizes $\sum_i\text{ELBO}$ over $\theta$ ⇒ $\sum_i\log p(x_i)\big|_{\theta^{\text{new}}}\ge\text{ELBO}(\theta^{\text{new}})\ge\text{ELBO}(\theta^{\text{old}})=\sum_i\log p(x_i)\big|_{\theta^{\text{old}}}$. So the log-likelihood is **non-decreasing every iteration**.
 
 **What it converges to.** A **local maximum or saddle** — the GMM likelihood is non-concave (multimodal, with $k!$ label-permutation symmetric modes). Worse, it is **unbounded**: a component can latch onto a single point, send its variance $\to0$, and drive the likelihood $\to+\infty$ — a degenerate "global max" that's useless. So EM finds a *useful local* optimum, not the global MLE; in practice you floor the covariance (`reg_covar`), use multiple restarts, or a Bayesian/MAP prior.
 
@@ -177,7 +177,7 @@ $$P(x)=\frac{D(x)^2}{\sum_{x'}D(x')^2}$$
 
 So for a worked set: compute each $D(x)$, square it, and normalize by the sum of squares to get the probabilities. (E.g. with chosen center at the origin and points at distances 1, 2, 4: $D^2=1,4,16$, sum $=21$, probabilities $\tfrac{1}{21},\tfrac{4}{21},\tfrac{16}{21}$ — the far point is $16\times$ likelier to be picked than the near one.)
 
-**(b) Why $D^2$.** Uniform seeding can place two centers in the same dense blob, leaving a far cluster uncovered (a bad local min Lloyd can't escape). $D^2$ weighting makes points *far from all current centers* exponentially more likely to be chosen, so seeds spread out to cover distinct clusters. Arthur & Vassilvitskii prove this yields $\mathbb{E}[J_{\text{seed}}]\le 8(\ln k+2)\,J_{\text{OPT}}$ — $O(\log k)$-competitive *before any Lloyd iteration* — and the $\log k$ factor is tight.
+**(b) Why $D^2$.** Uniform seeding can place two centers in the same dense blob, leaving a far cluster uncovered (a bad local min Lloyd can't escape). $D^2$ weighting makes points *far from all current centers* quadratically more likely to be chosen, so seeds spread out to cover distinct clusters. Arthur & Vassilvitskii prove this yields $\mathbb{E}[J_{\text{seed}}]\le 8(\ln k+2)\,J_{\text{OPT}}$, where $J_{\text{seed}}$ is the WCSS of the seeds alone and $J_{\text{OPT}}$ that of the optimal $k$-clustering — $O(\log k)$-competitive *before any Lloyd iteration* — and the $\log k$ factor is tight.
 
 **Rubric:**
 - $D(x)=$ min distance to a chosen center; $P(x)\propto D(x)^2$; compute + normalize
@@ -221,7 +221,7 @@ No single $\varepsilon$ satisfies both densities simultaneously — that's DBSCA
 <details>
 <summary>Model answer + rubric</summary>
 
-**Invariance.** Both objectives depend on the embedding *only through pairwise distances* $\lVert y_i-y_j\rVert$: t-SNE's low-dim affinity $q_{ij}=\frac{(1+\lVert y_i-y_j\rVert^2)^{-1}}{\sum_{k\neq l}(1+\lVert y_k-y_l\rVert^2)^{-1}}$ and UMAP's $q_{ij}=(1+a\lVert y_i-y_j\rVert^{2b})^{-1}$ are functions of $\lVert y_i-y_j\rVert$ alone. Any **rigid motion** $y_i\mapsto Ry_i+t$ with $R$ orthogonal ($R^\top R=I$) preserves every pairwise distance: $\lVert (Ry_i+t)-(Ry_j+t)\rVert=\lVert R(y_i-y_j)\rVert=\lVert y_i-y_j\rVert$. So every $q_{ij}$ is unchanged ⇒ the KL (t-SNE) and BCE (UMAP) objectives are unchanged. The optimum is therefore an entire orbit of rotated/reflected/translated embeddings.
+**Invariance.** Both objectives depend on the embedding *only through pairwise distances* $\lVert y_i-y_j\rVert$, where $y_i$ is the low-dimensional position the method assigns to point $i$: t-SNE's low-dim affinity $q_{ij}=\frac{(1+\lVert y_i-y_j\rVert^2)^{-1}}{\sum_{k\neq l}(1+\lVert y_k-y_l\rVert^2)^{-1}}$ — in whose normalizing sum $k$ and $l$ index *points*, not clusters — and UMAP's $q_{ij}=(1+a\lVert y_i-y_j\rVert^{2b})^{-1}$, with $a,b>0$ fitted from the `min_dist` setting, are functions of $\lVert y_i-y_j\rVert$ alone. Any **rigid motion** $y_i\mapsto Ry_i+t$ with $R$ orthogonal ($R^\top R=I$) and $t$ an arbitrary translation vector preserves every pairwise distance: $\lVert (Ry_i+t)-(Ry_j+t)\rVert=\lVert R(y_i-y_j)\rVert=\lVert y_i-y_j\rVert$. So every $q_{ij}$ is unchanged ⇒ the KL (t-SNE) and BCE (UMAP) objectives are unchanged. The optimum is therefore an entire orbit of rotated/reflected/translated embeddings.
 
 **Conclusions.**
 - **Axes are meaningless:** since any rotation/reflection is an equally-optimal solution, the horizontal and vertical directions carry no units or interpretation (unlike PCA axes, which are specific eigenvectors).
@@ -301,7 +301,7 @@ No single $\varepsilon$ satisfies both densities simultaneously — that's DBSCA
 
 $$\text{ARI}=\frac{\text{RI}-\mathbb{E}[\text{RI}]}{\max(\text{RI})-\mathbb{E}[\text{RI}]}$$
 
-where $\mathbb{E}[\text{RI}]$ is computed from the contingency-table margins under a fixed-margins null. ARI $=1$ for identical clusterings, $\approx0$ for random, and can go negative. (Compute it from the pair counts $\sum_{ij}\binom{n_{ij}}{2}$ and the margin sums — the standard Hubert–Arabie formula.)
+where $\mathbb{E}[\text{RI}]$ is computed from the contingency-table margins under a fixed-margins null. ARI $=1$ for identical clusterings, $\approx0$ for random, and can go negative. (Compute it from the pair counts $\sum_{ij}\binom{n_{ij}}{2}$, where $n_{ij}$ is the number of points falling in cluster $i$ of the first clustering and cluster $j$ of the second, together with the margin sums — the standard Hubert–Arabie formula.)
 
 **Why "80% similar" can give ARI ≈ 0.** Most pairs of points are in *different* clusters in both clusterings (the "apart-apart" $b$ term dominates when there are many clusters), so raw RI is high almost automatically — that agreement is mostly *expected by chance*. ARI subtracts that expectation, so a clustering only marginally better than random lands near 0 despite a high RI. Always report the chance-corrected ARI, not RI.
 

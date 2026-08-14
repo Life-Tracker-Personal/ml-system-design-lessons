@@ -6,7 +6,7 @@ description: Questions on regression and classification losses as noise models.
 estimatedMinutes: 80
 ---
 
-These 12 questions probe whether you understand the math behind regression losses, not whether you can name them. Try to answer before revealing.
+These questions probe whether you understand the math behind regression and classification losses, not whether you can name them. Try to answer before revealing.
 
 <Quiz id="1">
 
@@ -296,11 +296,20 @@ Show that minimizing $\rho_q$ in expectation makes the optimal prediction the $q
 
 $$\mathbb{E}_Y[\rho_q(Y - \hat{y})] = q \int_{\hat{y}}^\infty (y - \hat{y}) f(y)\, dy + (q-1) \int_{-\infty}^{\hat{y}} (y - \hat{y}) f(y)\, dy$$
 
-Take the derivative with respect to $\hat{y}$ using Leibniz's rule. The boundary terms at $y = \hat{y}$ in each integral are zero (the integrand vanishes there), so we only need the partials inside:
+Differentiate with respect to $\hat{y}$. It sits in two places at once — as a limit of integration and inside each integrand — which is what the rule for differentiating under the integral sign (Leibniz's rule) handles. The boundary terms at $y = \hat{y}$ are zero, because the integrand $(y - \hat{y})f(y)$ vanishes there, so only the partials inside survive:
 
 $$\frac{d}{d\hat{y}} \mathbb{E}[\rho_q] = -q \int_{\hat{y}}^\infty f(y)\, dy - (q - 1) \int_{-\infty}^{\hat{y}} f(y)\, dy$$
+
+Each remaining integral is just a probability mass: the first is the mass above $\hat{y}$, the second the mass below it, and both are CDF values.
+
 $$= -q(1 - F(\hat{y})) - (q - 1) F(\hat{y})$$
+
+Multiply out the first bracket.
+
 $$= -q + q F(\hat{y}) - (q - 1) F(\hat{y})$$
+
+The two $F(\hat{y})$ terms differ by exactly one copy of $F(\hat{y})$, so they collapse to it.
+
 $$= -q + F(\hat{y})$$
 
 Setting this to zero: $F(\hat{y}^*) = q$, i.e., $\hat{y}^*$ is the $q$-th quantile of $Y$. So the minimizer of expected pinball loss is the $q$-th quantile.
@@ -365,7 +374,7 @@ Setting this to zero does *not* give a linear system in $\theta$ because `sign` 
 
 $$\min_{\theta, u} \sum_i u_i \quad \text{subject to} \quad -u_i \le y_i - x_i^\top \theta \le u_i$$
 
-with $2n$ inequality constraints and $n + p$ variables. LPs don't have closed-form solutions in general (no inverse-style formula), but they're solvable in polynomial time by simplex or interior-point methods.
+Here $u_i$ is an auxiliary variable, one per example, that the two constraints squeeze down onto $|y_i - x_i^\top\theta|$; minimizing their sum therefore minimizes the sum of absolute residuals. That leaves $2n$ inequality constraints and $n + p$ variables, $p$ being the number of features. LPs don't have closed-form solutions in general (no inverse-style formula), but they're solvable in polynomial time by simplex or interior-point methods.
 
 **The general principle.** Closed-form solutions for $\arg\min$ problems exist when the optimality condition is a *linear* equation in the parameters. That requires the objective's gradient to be linear, which essentially means the objective is *quadratic* in $\theta$. Anything more exotic (absolute values, sign functions, indicator functions) gives a piecewise structure that doesn't reduce to a single matrix inverse.
 
@@ -392,7 +401,7 @@ with $2n$ inequality constraints and $n + p$ variables. LPs don't have closed-fo
 <details>
 <summary>Model answer + rubric</summary>
 
-**MSE is scale-equivariant.** Let $\tilde{x} = (x - \mu)/\sigma$ be the standardized feature and consider the linear model $\hat{y} = \theta_0 + \theta_1 \tilde{x}$ vs the original-scale model $\hat{y} = \beta_0 + \beta_1 x$. They predict the same value when:
+**MSE is scale-equivariant.** Let $\tilde{x} = (x - \mu)/\sigma$ be the standardized feature — the tilde marks the standardized version, and $\mu$ and $\sigma$ are that feature's mean and standard deviation — and consider the linear model $\hat{y} = \theta_0 + \theta_1 \tilde{x}$ vs the original-scale model $\hat{y} = \beta_0 + \beta_1 x$. They predict the same value when:
 
 $$\beta_1 = \theta_1 / \sigma, \quad \beta_0 = \theta_0 - \theta_1 \mu / \sigma$$
 
@@ -535,7 +544,7 @@ The Huber benefit depends on the residual distribution having two regimes: a Gau
 
 $$\cosh(r) = 1 + \frac{r^2}{2} + \frac{r^4}{24} + O(r^6)$$
 
-So
+Take the log of that series.
 
 $$\log(\cosh(r)) = \log\!\left(1 + \frac{r^2}{2} + \frac{r^4}{24} + \cdots\right)$$
 
@@ -575,7 +584,7 @@ The gradient is bounded in $(-1, +1)$ — same as MAE's saturation, but smooth. 
 - Taylor expansion near zero: $\log(\cosh(r)) \approx r^2/2$
 - Asymptotic behavior far from zero: $\log(\cosh(r)) \approx |r| - \log 2$
 - Compute gradient $\tanh(r)$ and Hessian $\text{sech}^2(r)$
-- Note that Hessian is strictly positive everywhere
+- The Hessian is strictly positive everywhere
 - Compare to Huber: no hyperparameter, smooth Hessian, but more expensive to compute
 - Bonus: discuss when each is preferred
 
@@ -590,17 +599,19 @@ The gradient is bounded in $(-1, +1)$ — same as MAE's saturation, but smooth. 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Setup.** $q = \text{softmax}(z)$, one-hot label $y$, loss $\mathcal{L} = -\sum_i y_i \log q_i$.
+**Setup.** $q = \text{softmax}(z)$, one-hot label $y$, loss $\mathcal{L} = -\sum_i y_i \log q_i$, with $i$ and $j$ throughout indexing the classes.
 
-**Softmax Jacobian.** $\dfrac{\partial q_i}{\partial z_j} = q_i(\delta_{ij} - q_j)$, where $\delta_{ij}$ is the Kronecker delta. (Derive: for $i=j$, $\partial q_i/\partial z_i = q_i(1-q_i)$; for $i\neq j$, $-q_i q_j$.)
+**Softmax Jacobian.** $\dfrac{\partial q_i}{\partial z_j} = q_i(\delta_{ij} - q_j)$, where $\delta_{ij}$ is the Kronecker delta — 1 when $i=j$ and 0 otherwise, unrelated to Huber's threshold $\delta$. (Derive: for $i=j$, $\partial q_i/\partial z_i = q_i(1-q_i)$; for $i\neq j$, $-q_i q_j$.)
 
 **Chain rule.**
 
 $$\frac{\partial \mathcal{L}}{\partial z_j} = \sum_i \frac{\partial \mathcal{L}}{\partial q_i}\frac{\partial q_i}{\partial z_j} = \sum_i \left(-\frac{y_i}{q_i}\right) q_i(\delta_{ij} - q_j) = -\sum_i y_i(\delta_{ij} - q_j)$$
 
+The $1/q_i$ from the log has already eaten the $q_i$ from the Jacobian. Now the Kronecker delta picks out the $j$-th term of the sum and leaves the rest multiplied by $q_j$:
+
 $$= -y_j + q_j \sum_i y_i = q_j - y_j$$
 
-using $\sum_i y_i = 1$. So $\nabla_z \mathcal{L} = q - y$.
+using $\sum_i y_i = 1$, since a one-hot label's entries add to one. So $\nabla_z \mathcal{L} = q - y$.
 
 **Binary analogue.** With $q = \sigma(z)$ and $\mathcal{L}_{\text{BCE}} = -[y\log q + (1-y)\log(1-q)]$: $\partial \mathcal{L}/\partial z = \sigma(z) - y$. (Uses $\sigma'(z) = \sigma(1-\sigma)$, which cancels the $1/q$ and $1/(1-q)$ terms.)
 
@@ -624,9 +635,9 @@ using $\sum_i y_i = 1$. So $\nabla_z \mathcal{L} = q - y$.
 <details>
 <summary>Model answer + rubric</summary>
 
-**MLE view.** Model the label as Categorical with parameters $q = \text{softmax}(z)$. The likelihood of one one-hot observation $y$ is $\prod_k q_k^{y_k}$, so its log-likelihood is $\sum_k y_k \log q_k$. Maximizing the dataset log-likelihood $\Leftrightarrow$ minimizing $-\sum_k y_k \log q_k$ = cross-entropy. **So CE is MLE under a Categorical noise model** — the discrete analogue of "MSE is MLE under Gaussian noise" (c1.2).
+**MLE view.** Model the label as Categorical with parameters $q = \text{softmax}(z)$. The likelihood of one one-hot observation $y$ is $\prod_k q_k^{y_k}$, so its log-likelihood is $\sum_k y_k \log q_k$. Maximizing the dataset log-likelihood $\Leftrightarrow$ minimizing $-\sum_k y_k \log q_k$ = cross-entropy. **So CE is MLE under a Categorical noise model** — the discrete analogue of "MSE is MLE under Gaussian noise" from the regression half of the lesson.
 
-**KL decomposition.**
+**KL decomposition.** Write $p$ for the target distribution over the $K$ classes (one-hot or otherwise), $q$ for the prediction, and $k$ for the class index:
 
 $$\text{CE}(p,q) = -\sum_k p_k \log q_k = \underbrace{-\sum_k p_k \log p_k}_{H(p)} + \underbrace{\sum_k p_k \log \frac{p_k}{q_k}}_{\text{KL}(p\,\|\,q)}$$
 
@@ -685,7 +696,7 @@ So under MSE the model that most needs to update barely moves; under CE it moves
 <details>
 <summary>Model answer + rubric</summary>
 
-**Proof.** Fix the true distribution $p$ and minimize over the forecast $q$ (a valid distribution):
+**Proof.** Fix the true distribution $p$ over the classes and minimize over the forecast $q$ (any valid distribution), writing $q_y$ for the probability the forecast puts on the label that actually arrives:
 
 $$\mathbb{E}_{y\sim p}[-\log q_y] = -\sum_k p_k \log q_k = \text{CE}(p,q) = H(p) + \text{KL}(p\,\|\,q)$$
 
@@ -739,7 +750,7 @@ So focal loss leaves hard examples almost at full CE weight while crushing easy 
 
 <Quiz id="18">
 
-**Q6.** Class-balanced loss reweights by the inverse *effective number* $E_n = (1-\beta^n)/(1-\beta)$. Compute $E_n$ for $n = 1000$, $\beta = 0.999$. Show the $\beta \to 0$ and $\beta \to 1$ limits and interpret each. Why is inverse-frequency weighting the $\beta \to 1$ limit, and why can it overfit the tail?
+**Q6.** Class-balanced loss reweights by the inverse *effective number* $E_n = (1-\beta^n)/(1-\beta)$, where $n$ is the number of training examples in the class and $\beta$ is a hyperparameter between 0 and 1. Compute $E_n$ for $n = 1000$, $\beta = 0.999$. Show the $\beta \to 0$ and $\beta \to 1$ limits and interpret each. Why is inverse-frequency weighting the $\beta \to 1$ limit, and why can it overfit the tail?
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -809,7 +820,7 @@ So B has ~50× lower CE and ~1600× lower Brier, despite identical accuracy.
 
 <Quiz id="20">
 
-**Q8.** With label smoothing, the target becomes $y^{\text{LS}} = (1-\varepsilon)\,y + \varepsilon/K$. Show that the cross-entropy with this target is minimized by a prediction that assigns the true class probability $1-\varepsilon+\varepsilon/K$ (not 1). Use the KL framing to explain why label smoothing both *improves calibration* and *hurts knowledge distillation*.
+**Q8.** With label smoothing, a one-hot target $y$ over $K$ classes becomes $y^{\text{LS}} = (1-\varepsilon)\,y + \varepsilon/K$, where $\varepsilon$ is the smoothing strength. Show that the cross-entropy with this target is minimized by a prediction that assigns the true class probability $1-\varepsilon+\varepsilon/K$ (not 1). Use the KL framing to explain why label smoothing both *improves calibration* and *hurts knowledge distillation*.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -842,7 +853,7 @@ So B has ~50× lower CE and ~1600× lower Brier, despite identical accuracy.
 
 **Confidence does change.** As $T \to \infty$, $z/T \to 0$ and $\text{softmax}\to$ uniform (entropy maximized, confidence → $1/K$). As $T \to 0^+$, the distribution concentrates on the argmax (entropy → 0, confidence → 1). So $T$ is a pure confidence/entropy knob: $T>1$ softens (fixes over-confidence), $T<1$ sharpens.
 
-**When is optimal $T<1$?** $T$ is fit by minimizing validation NLL. If the model is *under*-confident — its correct predictions sit at modest probabilities (like Model A in Q7) — sharpening ($T<1$) lowers NLL. This is rarer for modern deep nets (which are over-confident, so usually $T>1$), but happens with heavily regularized models, strong label smoothing, or small ensembles averaged into mush.
+**When is optimal $T<1$?** $T$ is fit by minimizing validation NLL. If the model is *under*-confident — its correct predictions sit at modest probabilities (like Model A in Q7) — sharpening ($T<1$) lowers NLL. This is rarer for modern deep nets (which are over-confident, so usually $T>1$), but happens with heavily regularized models, strong label smoothing, or small ensembles whose averaging flattens every prediction toward the middle.
 
 **Rubric:**
 - Argmax preserved because $z\mapsto z/T$ is order-preserving and softmax monotonic → accuracy unchanged

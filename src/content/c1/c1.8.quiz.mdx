@@ -6,7 +6,7 @@ description: Questions on margins, kernels, neighbours and generative classifier
 estimatedMinutes: 70
 ---
 
-These 12 questions test whether you understand SVMs and kNN *geometrically* — margins, duality, kernels, and why distance breaks in high dimensions — not whether you can name them. Try to answer before revealing.
+These two sets of twelve questions test whether you understand SVMs and kNN *geometrically* — margins, duality, kernels, and why distance breaks in high dimensions — and whether you can derive Naive Bayes rather than name it. Try to answer before revealing.
 
 <Quiz id="1">
 
@@ -95,7 +95,7 @@ Only (b) and (c) — the support vectors — appear in $w=\sum_i\alpha_i y_i x_i
 Write both as functions of the margin $m = y f(x)$:
 
 - **Hinge:** $\ell(m) = \max(0,\, 1 - m)$. For $m \ge 1$ (correctly classified beyond the margin), $\ell(m) = 0$ and $\ell'(m) = 0$.
-- **Logistic:** $\ell(m) = \log(1 + e^{-m})$. This is *strictly positive and strictly decreasing for all finite $m$*; $\ell'(m) = -\sigma(-m) < 0$ everywhere, never reaching zero.
+- **Logistic:** $\ell(m) = \log(1 + e^{-m})$. This is *strictly positive and strictly decreasing for all finite $m$*; its derivative is $\ell'(m) = -\sigma(-m) < 0$ everywhere, where $\sigma$ is the logistic sigmoid, so the slope never reaches zero.
 
 **Consequence.** In a (sub)gradient method, a point's contribution to the gradient of $w$ is proportional to $\ell'(m_i)\, y_i x_i$. Under hinge loss, every point with $m_i > 1$ has $\ell'(m_i) = 0$ — it contributes **nothing**, so it is not a support vector and could be deleted without changing the solution. Only points with $m_i \le 1$ (on or inside the margin, or misclassified) have nonzero gradient. Under logistic loss, $\ell'(m_i) \ne 0$ for *every* point, so all points contribute (those far on the correct side contribute a tiny but nonzero amount) — hence no sparsity, but you get smooth, probabilistic outputs in exchange.
 
@@ -149,7 +149,7 @@ Each term $(x^\top x')^k$ is itself an inner product of the degree-$k$ monomial 
 
 $$\phi_k(x) \propto e^{-\gamma\|x\|^2}\,\frac{(2\gamma)^{k/2}}{\sqrt{k!}}\, x^{\otimes k}, \quad k = 0,1,2,\dots$$
 
-So $\phi$ is infinite-dimensional.
+Here $x^{\otimes k}$ is the $k$-fold tensor power of $x$: the block of coordinates holding every degree-$k$ monomial in the entries of $x$. Stacking one such block for every $k$ gives a vector with no last entry, so $\phi$ is infinite-dimensional.
 
 **Why you can't materialize it.** There is no finite feature vector $\phi(x)$ to compute or store — it has infinitely many entries. The kernel trick's value is exactly that you evaluate the scalar $K(x,x')$ in $O(d)$ time and *never* touch $\phi$. A "plain linear model on $\phi(x)$" is impossible to even instantiate. The practical price for staying in the dual is the $n\times n$ Gram matrix and $O(n^2)$–$O(n^3)$ training — which is why kernel SVMs don't scale to large $n$. (If you want an *approximate* finite $\phi$, that's what Nyström / random Fourier features provide.)
 
@@ -244,7 +244,7 @@ The nearest and farthest points become indistinguishable — the "relative contr
 
 <Quiz id="10">
 
-**Q10.** A kNN model uses two features: annual income (range \$0–\$500,000) and a normalized risk score (range 0–1), with raw Euclidean distance. Explain why the model effectively ignores the risk score, and give two distinct fixes naming the metric each implies.
+**Q10.** A kNN model uses two features: annual income (range 0 to 500,000 USD) and a normalized risk score (range 0–1), with raw Euclidean distance. Explain why the model effectively ignores the risk score, and give two distinct fixes naming the metric each implies.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -379,7 +379,7 @@ $$= b + \sum_j \frac{\mu_{1j}-\mu_{0j}}{\sigma_j^2}\,x_j = w^\top x + b \;\Right
 <details>
 <summary>Model answer + rubric</summary>
 
-**Setup.** A multinomial over $d$ outcomes with counts $N_1,\dots,N_d$ ($N=\sum_j N_j$) has likelihood $\propto \prod_j \theta_j^{N_j}$. Put a symmetric **Dirichlet$(\beta,\dots,\beta)$** prior, $p(\theta)\propto\prod_j \theta_j^{\beta-1}$.
+**Setup.** A multinomial over $d$ outcomes with counts $N_1,\dots,N_d$ ($N=\sum_j N_j$) has likelihood $\propto \prod_j \theta_j^{N_j}$. Put a symmetric **Dirichlet$(\beta,\dots,\beta)$** prior, $p(\theta)\propto\prod_j \theta_j^{\beta-1}$, where the single concentration parameter $\beta>0$ is shared by all $d$ outcomes.
 
 **Posterior.** Conjugacy gives $p(\theta\mid N)\propto \prod_j \theta_j^{N_j+\beta-1}$ — a **Dirichlet$(N_j+\beta)$**.
 
@@ -463,7 +463,7 @@ A single zero factor annihilates the entire product, no matter how strongly the 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Sample complexity.** To reach within $\varepsilon$ of its own asymptotic (infinite-data) error over $n$ features:
+**Sample complexity.** Write $m$ for the number of training examples and fix any tolerance $\varepsilon>0$. To reach within $\varepsilon$ of its own asymptotic (infinite-data) error over $n$ features:
 - **Naive Bayes (generative):** needs $m = O(\log n)$ examples. Its parameters are $O(n)$ *independent univariate* estimates ($p(x_j\mid y)$ per feature), each converging at $O(1/\sqrt m)$; a union bound over $n$ of them gives error $\lesssim \sqrt{(\log n)/m}$.
 - **Logistic regression (discriminative):** needs $m = O(n)$ examples — it fits the joint weight vector by conditional likelihood, a problem of VC-dimension $\Theta(n)$, so uniform convergence requires $m=\Omega(n)$.
 
@@ -509,7 +509,7 @@ A single zero factor annihilates the entire product, no matter how strongly the 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Same form, different objective.** Both assume $p(1\mid x)=\sigma(w^\top x+b)$ (shown in Q2). But:
+**Same form, different objective.** Both assume $p(1\mid x)=\sigma(w^\top x+b)$ (shown in Q2 of this Naive Bayes set). But:
 - **GNB maximizes the joint likelihood** $\sum_i \log p(x_i,y_i)$ — equivalently it estimates class priors and per-feature class-conditional moments ($\mu_{cj},\sigma_j^2$) and *plugs them in* to get $w,b$. It spends modeling effort on $p(x)$.
 - **Logistic regression maximizes the conditional likelihood** $\sum_i \log p(y_i\mid x_i)$ directly — it fits $w,b$ to the boundary and never models $p(x)$.
 
@@ -520,7 +520,7 @@ On finite data these give different $(w,b)$ because GNB's plug-in estimates are 
 - **(b) 20,000 examples:** **logistic wins.** It has converged to its lower asymptotic error; GNB has plateaued at its higher (independence-biased) asymptote.
 
 **Rubric:**
-- Same $p(y\mid x)$ family (from Q2), different *objective* (joint vs conditional likelihood)
+- Same $p(y\mid x)$ family (from Q2 of this Naive Bayes set), different *objective* (joint vs conditional likelihood)
 - GNB plugs in moments (models $p(x)$); logistic fits the boundary directly
 - Finite-data divergence because generative assumptions don't hold exactly
 - 20 → GNB (fast convergence); 20,000 → logistic (lower asymptote)
@@ -571,7 +571,7 @@ Absent words have $x_j=0$, contributing $0$ — **Multinomial NB never penalizes
 - `MultinomialNB(alpha=0, force_alpha=False)` → clips to `1e-10` (a tiny smoothing).
 - `MultinomialNB(alpha=0, force_alpha=True)` → **truly unsmoothed** MLE (the default `force_alpha=True` in ≥1.4 means just `alpha=0` now gives unsmoothed).
 
-**Why you usually shouldn't.** Unsmoothed NB hits the zero-count catastrophe (Q4): any feature with a zero count in a class makes $\log\theta=-\infty$, vetoing that class on any test document containing that feature. On real vocabularies that's almost guaranteed. Keep `alpha>0` (Laplace `alpha=1` or tune Lidstone $0<\alpha<1$ by CV).
+**Why you usually shouldn't.** Unsmoothed NB hits the zero-count catastrophe (Q4 of this Naive Bayes set): any feature with a zero count in a class makes $\log\theta=-\infty$, vetoing that class on any test document containing that feature. On real vocabularies that's almost guaranteed. Keep `alpha>0` (Laplace `alpha=1` or tune Lidstone $0<\alpha<1$ by CV).
 
 **Rubric:**
 - Old behavior: `alpha<1e-10` silently floored to `1e-10`
@@ -596,7 +596,7 @@ Absent words have $x_j=0$, contributing $0$ — **Multinomial NB never penalizes
 
 $$\tilde\theta_{cj}=\frac{\alpha+\sum_{i:y_i\neq c}x_{ij}}{\alpha d+\sum_{i:y_i\neq c}\sum_k x_{ik}}$$
 
-and classifies by the **smallest** complement match: $\hat y=\arg\min_c\sum_j x_j\log\tilde\theta_{cj}$ ("this document looks *least* like everything that isn't $c$"). Because the complement of a minority class is large and balanced, its weight estimates are far more stable — CNB is much more robust on imbalanced text and competitive with linear SVMs.
+Here $x_{ij}$ is the count of word $j$ in training document $i$, $d$ is the vocabulary size, $k$ ranges over that vocabulary, $\alpha$ is the smoothing pseudo-count, and the tilde marks an estimate built from the complement rather than from the class itself. The classifier then picks by the **smallest** complement match: $\hat y=\arg\min_c\sum_j x_j\log\tilde\theta_{cj}$ ("this document looks *least* like everything that isn't $c$"). Because the complement of a minority class is large and balanced, its weight estimates are far more stable — CNB is much more robust on imbalanced text and competitive with linear SVMs.
 
 **`norm=False`.** scikit-learn's `ComplementNB` defaults to `norm=False`, which **omits** the paper's second correction — the L2-normalization of the per-class weight vectors that addresses the magnitude bias from documents of differing lengths. So sklearn's default CNB matches the Weka/Mahout variant, not the full Rennie algorithm; set `norm=True` for the complete weight-normalized version.
 
@@ -612,7 +612,7 @@ and classifies by the **smallest** complement match: $\hat y=\arg\min_c\sum_j x_
 
 <Quiz id="24">
 
-**Q12.** Your Naive Bayes fraud model has AUC 0.94, but you're told its "probabilities" are useless for an expected-loss threshold ($p\times\$$). Explain why high AUC and bad calibration coexist *for NB specifically*, prove the mechanism, and give the fix.
+**Q12.** Your Naive Bayes fraud model has AUC 0.94, but you're told its "probabilities" are useless for an expected-loss threshold (probability times USD amount). Explain why high AUC and bad calibration coexist *for NB specifically*, prove the mechanism, and give the fix.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -621,7 +621,7 @@ and classifies by the **smallest** complement match: $\hat y=\arg\min_c\sum_j x_
 
 **The mechanism (prove it).** Real fraud features are correlated (e.g. "amount", "amount relative to history", "merchant risk" all move together). NB assumes conditional independence, so it **multiplies their likelihood ratios as if independent — double-counting (here, multiply-counting) the shared evidence.** Each redundant feature adds its (correlated) term to the log-odds, so the log-odds is inflated in magnitude, and $\sigma(\text{inflated log-odds})$ is pushed toward 0 or 1. The posteriors are therefore **overconfident** — pushed to the extremes — even though their *order* (hence AUC) is fine. This is Domingos–Pazzani: violated independence damages probabilities, not the argmax/ranking. (Unlike the deep-net overconfidence of Guo 2017 in c1.2, this one is *structural* — it comes from the independence assumption itself.)
 
-**The fix.** Don't use NB's `predict_proba` as a probability. **Calibrate** with `CalibratedClassifierCV` on a held-out set: **isotonic** regression (nonparametric monotone map — flexible, needs more data) or **Platt/sigmoid** scaling (two-parameter sigmoid — safer on small calibration sets). Both are *monotone*, so they fix log-loss/Brier/ECE **without changing the AUC** (the cleanest demonstration that ranking and calibration are independent — c1.2). Verify with a reliability diagram before trusting $p\times\$$.
+**The fix.** Don't use NB's `predict_proba` as a probability. **Calibrate** with `CalibratedClassifierCV` on a held-out set: **isotonic** regression (nonparametric monotone map — flexible, needs more data) or **Platt/sigmoid** scaling (two-parameter sigmoid — safer on small calibration sets). Both are *monotone*, so they fix log-loss/Brier/ECE **without changing the AUC** (the cleanest demonstration that ranking and calibration are independent — c1.2). Verify with a reliability diagram before trusting a probability-times-dollars threshold.
 
 **Rubric:**
 - AUC = ranking only; calibration = probability accuracy; orthogonal (monotone transforms preserve AUC)
@@ -648,7 +648,7 @@ These 16 questions do not depend on the numbered questions above, so you can stu
 9. **Curse of dimensionality** Explain why kNN degrades in high dimensions in terms of what happens to the distances themselves, not just "there is less data per unit volume". Then explain why nearest-neighbor search over 768-dimensional text embeddings works fine in practice.
 10. **Nearest neighbors at scale** You need nearest-neighbor retrieval over 100 million embeddings at 20 ms per query, so exact kNN is out. Describe what an approximate index buys you, the one metric you have to track to know it is still correct, and one way that metric looks fine offline and is bad in production.
 11. **Cosine versus dot product** For embedding retrieval, when do cosine similarity, Euclidean distance, and raw dot product give the same ranking, and when do they differ? Give one case where unnormalized dot product changes what gets retrieved, and say whether that is a bug or a feature.
-12. **Why naive still works** Naive Bayes assumes features are conditionally independent given the class, which is obviously false for text. Explain why it still classifies well anyway, and be precise about what the false assumption actually damages.
+12. **Why naive still works** Naive Bayes assumes features are conditionally independent given the class, which is false for text. Explain why it still classifies well anyway, and be precise about what the false assumption actually damages.
 13. **The zero-count veto** A legitimate email contains one word that never appeared in your ham training data. Say what unsmoothed Naive Bayes predicts and why, and how Laplace smoothing fixes it. What is $\alpha$ trading off in $\hat\theta_{cj} = \frac{N_{cj}+\alpha}{N_c+\alpha d}$?
 14. **Good AUC, useless probabilities** Your Naive Bayes fraud model has AUC 0.94, but risk wants to threshold on expected loss ($p$ times dollar amount), and the probabilities are almost all above 0.99 or below 0.01. What is producing that, and what would you do before anyone multiplies those numbers by money?
 15. **Generative versus discriminative** Naive Bayes and logistic regression can produce the same shape of decision boundary but are fit differently. Explain the difference in what each one estimates, and say which you would expect to win with 200 labeled examples versus 2 million.

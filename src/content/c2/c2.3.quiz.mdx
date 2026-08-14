@@ -6,7 +6,7 @@ description: Diagnosing loss curves, the debugging ladder, transfer learning, mi
 estimatedMinutes: 55
 ---
 
-These eight questions are the diagnostic half of the chapter: you are handed a curve or a symptom and asked what it rules in and what it rules out. Try to answer each one out loud before revealing the model answer. The rapid-fire section at the bottom stands on its own.
+These eight questions are diagnostic: you are handed a curve or a symptom and asked what it rules in and what it rules out. Try to answer each one out loud before revealing the model answer. The rapid-fire section at the bottom stands on its own.
 
 <Quiz id="1">
 
@@ -15,7 +15,7 @@ These eight questions are the diagnostic half of the chapter: you are handed a c
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** A correctly initialized final layer produces logits near zero and therefore near-uniform probabilities $p_c \approx 1/C$. Cross-entropy on the true class is $-\ln(1/C) = \ln C$. For $C = 1000$, $\ln 1000 = 6.908$. This is the single cheapest sanity check in deep learning: it tests the output layer, the label encoding, and the loss reduction all at once, before a single gradient is taken.
+**(a)** Write $C$ for the number of classes and $p_c$ for the probability the model assigns to class $c$. A correctly initialized final layer produces logits near zero and therefore near-uniform probabilities $p_c \approx 1/C$. Cross-entropy on the true class is $-\ln(1/C) = \ln C$. For $C = 1000$, $\ln 1000 = 6.908$. This is the single cheapest sanity check in deep learning: it tests the output layer, the label encoding, and the loss reduction all at once, before a single gradient is taken.
 
 **(b) 0.02 at step zero is impossibly low.** The model cannot know anything yet, so the loss is not measuring what you think. Likely causes: the loss is being computed against the model's own predictions (labels accidentally derived from the output), the reduction is wrong (summing over classes and dividing by the wrong count, or a `mean` over a dimension that flattens the batch away), or the targets are already one-hot probabilities being fed to a function that expects class indices and is silently broadcasting. Also check that you are not passing softmax outputs into a function that applies softmax again — the double softmax flattens the distribution and can produce nonsense magnitudes in either direction.
 
@@ -81,24 +81,24 @@ How to check: compare the *distributions*, not the means. Sequence-length histog
 
 <Quiz id="3">
 
-**Q3. Early stopping is ridge in disguise.** Show that stopping gradient descent early produces roughly the same shrinkage as an explicit L2 penalty, and derive the correspondence $\lambda \approx 1/(\eta t)$. Then state two consequences a practitioner should actually act on.
+**Q3. Early stopping is ridge in disguise.** Show that stopping gradient descent early produces roughly the same shrinkage as an explicit L2 penalty, and derive the correspondence $\lambda \approx 1/(\eta t)$ linking the ridge penalty $\lambda$, the step size $\eta$, and the number of steps taken $t$. Then state two consequences a practitioner should actually act on.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Setup.** Take a quadratic objective, which is what any smooth loss looks like near its optimum:
+**Setup.** Take a quadratic objective, which is what any smooth loss looks like near its optimum. Write $w$ for the parameter vector, $w^\*$ for the minimizer, and $H$ for the curvature at that minimum, the Hessian of the loss:
 
 $$J(w) = \tfrac{1}{2}(w - w^\*)^\top H (w - w^\*)$$
 
-with $H$ symmetric positive definite, eigendecomposition $H = Q\Lambda Q^\top$. Work in the eigenbasis, writing $\tilde{w} = Q^\top w$ so the problem decouples into independent one-dimensional problems indexed by eigenvalue $\lambda_i$.
+with $H$ symmetric positive definite, eigendecomposition $H = Q\Lambda Q^\top$, where the columns of $Q$ are the orthonormal eigenvectors and $\Lambda$ is diagonal holding the eigenvalues. Work in the eigenbasis, writing $\tilde{w} = Q^\top w$ so that a tilde always means "this quantity measured along the eigenvectors of $H$." In that basis the problem decouples into independent one-dimensional problems indexed by eigenvalue $\lambda_i$, with $i$ running over the parameter dimensions. Keep the two lambdas apart: subscripted $\lambda_i$ is the $i$-th eigenvalue of the curvature, and bare $\lambda$ below is the ridge penalty.
 
-**Gradient descent from $w^{(0)} = 0$.** The update is $w \leftarrow w - \eta H(w - w^\*)$, which in the eigenbasis is
+**Gradient descent from $w^{(0)} = 0$.** The weights start at the origin. The gradient of $J$ is $H(w - w^\*)$, so with step size $\eta$ the update is $w \leftarrow w - \eta H(w - w^\*)$, which in the eigenbasis is
 
 $$\tilde{w}^{(t)}_i = \left[1 - (1 - \eta\lambda_i)^t\right]\tilde{w}^\*_i$$
 
-Assume $0 < \eta\lambda_i < 1$ so the run is stable. The bracket is the fraction of the optimum recovered along direction $i$ after $t$ steps. High-curvature directions (large $\lambda_i$) converge fast; low-curvature directions are still near zero after $t$ steps.
+The superscript $(t)$ counts optimizer steps and $\tilde{w}^\*_i$ is the optimum's coordinate along eigenvector $i$. Assume $0 < \eta\lambda_i < 1$ so the run is stable. The bracket is the fraction of the optimum recovered along direction $i$ after $t$ steps. High-curvature directions (large $\lambda_i$) converge fast; low-curvature directions are still near zero after $t$ steps.
 
-**Ridge.** Minimizing $J(w) + \tfrac{\lambda}{2}\lVert w\rVert^2$ gives, in the same basis,
+**Ridge.** Now add an explicit L2 penalty of strength $\lambda > 0$ instead of stopping early. Minimizing $J(w) + \tfrac{\lambda}{2}\lVert w\rVert^2$ gives, in the same basis,
 
 $$\tilde{w}^{\text{ridge}}_i = \frac{\lambda_i}{\lambda_i + \lambda}\,\tilde{w}^\*_i$$
 
@@ -140,7 +140,7 @@ Caveat worth saying out loud: the derivation assumes a quadratic objective, grad
 
 <Quiz id="4">
 
-**Q4. Gradient accumulation is not a large batch.** You run out of memory at batch size 256 and switch to 8 micro-batches of 32 with gradient accumulation. (a) Write the correct loop and say where the $1/k$ goes and why. (b) Name the one architectural component for which this is genuinely not equivalent to a batch of 256, and explain the mechanism. (c) Give the distributed-training detail that costs you throughput if you miss it. (d) You now want the true batch of 256 to train as well as your old batch of 32 did. What do you change?
+**Q4. Gradient accumulation is not a large batch.** You run out of memory at batch size 256 and switch to 8 micro-batches of 32 with gradient accumulation. (a) Write the correct loop and say where the $1/k$ goes and why, writing $k$ for the number of micro-batches per optimizer step. (b) Name the one architectural component for which this is genuinely not equivalent to a batch of 256, and explain the mechanism. (c) Give the distributed-training detail that costs you throughput if you miss it. (d) You now want the true batch of 256 to train as well as your old batch of 32 did. What do you change?
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -156,7 +156,7 @@ torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 optimizer.step()
 ```
 
-**Where the $1/k$ goes and why.** `criterion` already averages over the 32 examples in the micro-batch, producing $\frac{1}{32}\sum_{j \in \text{micro}} \ell_j$. Backward on each micro-batch *adds* its gradient into `.grad`. Summing 8 of those micro-averages gives $8 \times$ the average over all 256, so without the division your gradient is 8 times too large and your effective learning rate is 8 times what you configured. A previously stable run starts spiking and you blame the batch size. Dividing the loss by $k$ before each backward restores the true mean gradient over 256 examples.
+**Where the $1/k$ goes and why.** `criterion` already averages over the 32 examples in the micro-batch, producing $\frac{1}{32}\sum_{j \in \text{micro}} \ell_j$, where $\ell_j$ is the loss on example $j$ and the sum runs over the 32 examples in that micro-batch. Backward on each micro-batch *adds* its gradient into `.grad`. Summing 8 of those micro-averages gives $8 \times$ the average over all 256, so without the division your gradient is 8 times too large and your effective learning rate is 8 times what you configured. A previously stable run starts spiking and you blame the batch size. Dividing the loss by $k$ before each backward restores the true mean gradient over 256 examples.
 
 Two related details: `zero_grad()` goes *outside* the inner loop, and clipping goes *after* the last backward and before the step, since clipping a partial gradient clips the wrong vector.
 
@@ -198,7 +198,7 @@ Also note what does *not* change: you have the same number of examples per step 
 | fp16 | 1 | 5 | 10 | $\approx 6.1\times10^{-5}$ | ~3 decimal digits |
 | bf16 | 1 | 8 | 7 | $\approx 1.2\times10^{-38}$ | ~2 decimal digits |
 
-fp16 spent its bits on precision and starved its exponent. Its smallest normal magnitude is about $6\times10^{-5}$, and activation gradients deep in a network routinely sit below that. Anything smaller flushes to zero, so those parameters simply stop receiving gradient — silent, partial, and worst in exactly the layers you care about.
+fp16 spent its bits on precision and starved its exponent. Its smallest normal magnitude is about $6\times10^{-5}$, and activation gradients deep in a network routinely sit below that. Anything smaller flushes to zero, so those parameters stop receiving gradient — silent, partial, and worst in exactly the layers you care about.
 
 **Loss scaling** is the fix and it is pure exponent bookkeeping. Multiply the loss by a constant $S$ before `backward()`. By linearity of differentiation every gradient in the graph is multiplied by $S$ too, sliding the whole distribution up into fp16's representable window. Then divide the gradients by $S$ before clipping and before the optimizer step, so the math is unchanged. Dynamic scalers start near $2^{16}$, halve $S$ and skip the step whenever an inf or NaN appears, and double $S$ after a few thousand clean steps — a feedback loop that tracks the largest safe scale.
 
@@ -226,7 +226,7 @@ So the parameter-side memory did not halve. It went *up* slightly, because you n
 
 The complementary lever, worth mentioning as the follow-up: **gradient checkpointing** discards most activations on the forward pass and recomputes them during backward, trading roughly 30% extra compute for a large activation-memory reduction. Mixed precision and checkpointing attack the same term.
 
-**(d) A failure with no NaN.** A model with a large-magnitude auxiliary loss under fp16. The combined loss overflows on some steps, so the dynamic scaler sees an inf, halves $S$, and skips the step. If this happens often enough, $S$ collapses toward 1 and never recovers, because it needs thousands of consecutive clean steps to double. Now no NaN is ever logged and no step visibly fails, but small gradients are once again flushing to zero, so most of the network stops learning and the loss curve simply flattens. The tell is the scaler value itself: log it. A healthy run has $S$ hovering high with occasional halvings; a sick run has it pinned at the floor.
+**(d) A failure with no NaN.** A model with a large-magnitude auxiliary loss under fp16. The combined loss overflows on some steps, so the dynamic scaler sees an inf, halves $S$, and skips the step. If this happens often enough, $S$ collapses toward 1 and never recovers, because it needs thousands of consecutive clean steps to double. Now no NaN is ever logged and no step visibly fails, but small gradients are once again flushing to zero, so most of the network stops learning and the loss curve flattens. The tell is the scaler value itself: log it. A healthy run has $S$ hovering high with occasional halvings; a sick run has it pinned at the floor.
 
 **Rubric — full credit:**
 - Gives exponent/mantissa splits for fp16 and bf16 and names fp16's ~$6\times10^{-5}$ underflow threshold
@@ -306,8 +306,8 @@ A third, if asked: with 4,000 images and batch size 8, consider replacing BatchN
 
 - **Learning rate:** lower it, or add or lengthen warmup, so the optimizer is not taking large steps while Adam's second-moment estimate is still noise.
 - **Normalization placement:** pre-LN rather than post-LN keeps the residual path clean and is the standard reason deep transformers train stably without heroics.
-- **Residual connections:** the identity path gives the gradient an unattenuated route back, so $\partial(x + F(x))/\partial x = I + \partial F/\partial x$ never multiplies down to nothing.
-- **Initialization:** scale the weights so the forward variance is preserved layer to layer; the residual-branch scaling by $1/\sqrt{2N}$ in deep transformers exists for exactly this.
+- **Residual connections:** the identity path gives the gradient an unattenuated route back. For a block that maps its input $x$ to $x + F(x)$, with $F$ the learned branch and $I$ the identity matrix, $\partial(x + F(x))/\partial x = I + \partial F/\partial x$ never multiplies down to nothing, because the identity term survives no matter how small the branch's Jacobian gets.
+- **Initialization:** scale the weights so the forward variance is preserved layer to layer; the residual-branch scaling by $1/\sqrt{2N}$ in deep transformers, where $N$ is the number of layers, exists for exactly this.
 - **Numerics:** stable loss formulations, epsilons in denominators, bf16 over fp16.
 
 The framing that ties it together: everything in this list is the same question, which is whether signal variance stays sane going forward and gradient magnitude stays sane coming back. Clipping is a cap on the top end of the second one, applied after the fact.
@@ -336,7 +336,7 @@ The framing that ties it together: everything in this list is the same question,
 
 **Run A is overfitting.** The evidence is not that validation loss is high — it is the *shape*: training loss still falling while validation loss has turned around, so the gap is widening. The model has enough capacity to memorize the training set and nothing is stopping it. The turning point at step 3,000 is where the marginal update stopped buying generalization and started buying memorization.
 
-**Run B is underfitting.** Both losses are high *and* flat *and* equal. No gap means no memorization, so capacity or optimization is the binding constraint, not regularization. Note that 1.6 is a suspicious number to plateau at: check it against $\ln C$ for the class count, because "underfitting" and "the model never learned anything at all" look identical on the curve and have completely different fixes.
+**Run B is underfitting.** Both losses are high *and* flat *and* equal. No gap means no memorization, so capacity or optimization is the binding constraint, not regularization. And 1.6 is a suspicious number to plateau at: check it against $\ln C$ for the class count, because "underfitting" and "the model never learned anything at all" look identical on the curve and have completely different fixes.
 
 **(b) Prescriptions.**
 

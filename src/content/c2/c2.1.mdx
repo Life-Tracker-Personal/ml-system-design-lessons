@@ -25,17 +25,17 @@ The organizing idea for this whole chapter: **the gradient reaching layer $\ell$
 
 ## Part 1 — What a network actually computes
 
-**Goal: strip the mystique and get to the two operations.** A feedforward network with one hidden layer, written for a single input row $x \in \mathbb{R}^{1 \times d}$:
+**Goal: strip the mystique and get to the two operations.** A feedforward network with one hidden layer, written for a single input row $x \in \mathbb{R}^{1 \times d}$ of $d$ features, computes three quantities in order: a hidden pre-activation $z_1$, the hidden activation $a_1$ that comes from applying a nonlinearity $\phi$ to $z_1$ entry by entry, and an output $z_2$.
 
 $$
 z_1 = x W_1 + b_1, \qquad a_1 = \phi(z_1), \qquad z_2 = a_1 W_2 + b_2
 $$
 
-with $W_1 \in \mathbb{R}^{d \times h}$, $b_1 \in \mathbb{R}^{1 \times h}$, $W_2 \in \mathbb{R}^{h \times k}$, $b_2 \in \mathbb{R}^{1 \times k}$. Batches stack rows: $X \in \mathbb{R}^{N \times d}$, and the bias broadcasts. Keep this row-major convention in your head for the rest of the lesson, because half of all interview shape errors come from silently switching between $Wx$ and $xW$.
+with $W_1 \in \mathbb{R}^{d \times h}$, $b_1 \in \mathbb{R}^{1 \times h}$, $W_2 \in \mathbb{R}^{h \times k}$, $b_2 \in \mathbb{R}^{1 \times k}$, where $h$ is the number of hidden units and $k$ the number of outputs. Batches stack rows: $X \in \mathbb{R}^{N \times d}$ for a batch of $N$ examples, and the bias broadcasts down the rows. Every formula below keeps this row-major convention, inputs as rows and weights on the right. Switching silently between $Wx$ and $xW$ transposes every gradient that follows it, so fix the convention once and hold it.
 
-The nonlinearity $\phi$ is the only thing standing between this and linear regression. Drop it and $z_2 = x W_1 W_2 + \text{const}$, and $W_1 W_2$ is a single $d \times k$ matrix with rank at most $\min(d, h, k)$. So a stack of linear layers is one linear layer with a rank cap and more parameters to optimize. That is the answer to "why shouldn't we have two consecutive linear layers?" — you have bought a bottleneck, not a model. (The one time it is deliberate: low-rank adapters like LoRA use exactly this factorization *because* they want the rank cap.)
+The nonlinearity $\phi$ is the only thing standing between this and linear regression. Drop it and $z_2 = x W_1 W_2 + \text{const}$, and $W_1 W_2$ is a single $d \times k$ matrix with rank at most $\min(d, h, k)$. So a stack of linear layers is one linear layer with a rank cap and more parameters to optimize. Two consecutive linear layers with nothing between them buy a bottleneck, not a model. (The one time it is deliberate: low-rank adapters like LoRA use exactly this factorization *because* they want the rank cap.)
 
-> **Stop and think.** If nonlinearity is what buys expressiveness, why not use a nonlinearity that is as far from linear as possible, like $\sin$? Hint: think about what the derivative of your choice does to the gradient product in Part 4, not about what the forward function can represent.
+> **Stop and think.** If nonlinearity is what buys expressiveness, why not use a nonlinearity that is as far from linear as possible, like $\sin$? Hint: think about what the derivative of your choice does to the gradient product in Part 5, not about what the forward function can represent.
 
 ## Part 2 — Backprop by hand, with numbers
 
@@ -48,7 +48,7 @@ b_1 = \begin{bmatrix} 0.2 & 0 \end{bmatrix}, \quad
 W_2 = \begin{bmatrix} 1.0 \\ -2.0 \end{bmatrix}, \quad b_2 = 0.05
 $$
 
-Target $y = 1$, loss $L = \tfrac12(\hat{y} - y)^2$.
+The target is $y = 1$ and the loss is $L = \tfrac12(\hat{y} - y)^2$, where $\hat{y}$ is the network's scalar output, that is, $z_2$.
 
 **Forward.** Column $j$ of $W_1$ holds the incoming weights of hidden unit $j$.
 
@@ -56,31 +56,35 @@ $$
 z_1 = \begin{bmatrix} 1(0.5) + 2(-0.3) + 0.2 & \; 1(-0.6) + 2(0.2) + 0 \end{bmatrix} = \begin{bmatrix} 0.1 & -0.2 \end{bmatrix}
 $$
 
+Hidden unit 1 lands just above zero and unit 2 just below. ReLU passes the first through untouched and clamps the second to zero, so only unit 1 has anything to send to the output layer.
+
 $$
 a_1 = \mathrm{ReLU}(z_1) = \begin{bmatrix} 0.1 & 0 \end{bmatrix}, \qquad
 \hat{y} = z_2 = 0.1(1.0) + 0(-2.0) + 0.05 = 0.15
 $$
 
+The prediction misses the target of $1$ by $-0.85$, and the loss is half the square of that miss.
+
 $$
 L = \tfrac12(0.15 - 1)^2 = \tfrac12(0.7225) = 0.36125
 $$
 
-**Backward.** Define $\delta_2 = \partial L / \partial z_2$ and $\delta_1 = \partial L / \partial z_1$. Work strictly right to left; each step is one application of the chain rule.
+**Backward.** Define $\delta_2 = \partial L / \partial z_2$ and $\delta_1 = \partial L / \partial z_1$. A $\delta$ is the sensitivity of the loss to one layer's pre-activation, and it is the only thing that actually travels backwards; every parameter gradient is a $\delta$ multiplied by something the forward pass already stored. Work strictly right to left; each step is one application of the chain rule.
 
 1. $\delta_2 = \hat{y} - y = -0.85$. (Shape $1 \times 1$.)
-2. $\partial L / \partial W_2 = a_1^{\top} \delta_2 = \begin{bmatrix} 0.1 \\ 0 \end{bmatrix}(-0.85) = \begin{bmatrix} -0.085 \\ 0 \end{bmatrix}$. Shape $h \times k$, matching $W_2$. This is the matmul rule you must know cold: **for $z = aW$, the weight gradient is $a^{\top} \delta$ and the input gradient is $\delta W^{\top}$.**
+2. $\partial L / \partial W_2 = a_1^{\top} \delta_2 = \begin{bmatrix} 0.1 \\ 0 \end{bmatrix}(-0.85) = \begin{bmatrix} -0.085 \\ 0 \end{bmatrix}$. Shape $h \times k$, matching $W_2$. This is the matmul rule every later step reduces to: **for $z = aW$, the weight gradient is $a^{\top} \delta$ and the input gradient is $\delta W^{\top}$.**
 3. $\partial L / \partial b_2 = \delta_2 = -0.85$.
 4. $\partial L / \partial a_1 = \delta_2 W_2^{\top} = -0.85\begin{bmatrix} 1.0 & -2.0\end{bmatrix} = \begin{bmatrix} -0.85 & 1.70 \end{bmatrix}$.
-5. ReLU's local derivative is a 0/1 mask, so $\delta_1 = \partial L/\partial a_1 \odot \mathbb{1}[z_1 > 0] = \begin{bmatrix} -0.85 & 1.70\end{bmatrix} \odot \begin{bmatrix} 1 & 0 \end{bmatrix} = \begin{bmatrix} -0.85 & 0 \end{bmatrix}$.
+5. ReLU's local derivative is a 0/1 mask: $\mathbb{1}[z_1 > 0]$ is $1$ in the entries whose pre-activation was positive and $0$ elsewhere, and $\odot$ multiplies two vectors entry by entry. So $\delta_1 = \partial L/\partial a_1 \odot \mathbb{1}[z_1 > 0] = \begin{bmatrix} -0.85 & 1.70\end{bmatrix} \odot \begin{bmatrix} 1 & 0 \end{bmatrix} = \begin{bmatrix} -0.85 & 0 \end{bmatrix}$.
 6. $\partial L / \partial W_1 = x^{\top} \delta_1 = \begin{bmatrix} 1 \\ 2 \end{bmatrix}\begin{bmatrix} -0.85 & 0 \end{bmatrix} = \begin{bmatrix} -0.85 & 0 \\ -1.70 & 0 \end{bmatrix}$, and $\partial L / \partial b_1 = \begin{bmatrix} -0.85 & 0\end{bmatrix}$.
 
-Three things to notice, all of them interview material. First, **unit 2 receives exactly zero gradient** on this example: its pre-activation was negative, the mask zeroed it, and no update reaches its incoming weights. That is the dead-ReLU mechanism in miniature. Second, $\partial L/\partial W_1$ is proportional to $x$, so a feature on a scale of $10^3$ produces a gradient $10^3$ times larger than a feature on a scale of $1$ — that is the mechanical reason input normalization matters. Third, every quantity you needed on the way back ($x$, the mask, $a_1$) was produced on the way forward. Backprop's memory cost is exactly that: the stored activations.
+Three things to notice. First, **unit 2 receives exactly zero gradient** on this example: its pre-activation was negative, the mask zeroed it, and no update reaches its incoming weights. That is the dead-ReLU mechanism in miniature. Second, $\partial L/\partial W_1$ is proportional to $x$, so a feature on a scale of $10^3$ produces a gradient $10^3$ times larger than a feature on a scale of $1$ — that is the mechanical reason input normalization matters. Third, every quantity you needed on the way back ($x$, the mask, $a_1$) was produced on the way forward. Backprop's memory cost is exactly that: the stored activations.
 
-**Verify it.** Bump $W_1[0,0]$ from $0.5$ to $0.501$. Then $z_1 = [0.101, -0.2]$, $\hat{y} = 0.151$, and $L = \tfrac12(0.849)^2 = 0.3604005$. The finite difference is $(0.3604005 - 0.36125)/0.001 = -0.8495$, against the analytic $-0.85$. That agreement, to the expected first-order accuracy, is the gradient check you should run on any backward pass you hand-write in an interview.
+**Verify it.** Bump $W_1[0,0]$ from $0.5$ to $0.501$. Then $z_1 = [0.101, -0.2]$, $\hat{y} = 0.151$, and $L = \tfrac12(0.849)^2 = 0.3604005$. The finite difference is $(0.3604005 - 0.36125)/0.001 = -0.8495$, against the analytic $-0.85$. That agreement, to the expected first-order accuracy, is the gradient check to run on any backward pass you write by hand.
 
 ## Part 3 — The vectorized version, with softmax and cross-entropy
 
-**Goal: the artifact an ML-coding round actually asks for.** Swap the scalar output for $k$ classes with softmax and cross-entropy. The reason interviewers like this pairing is the punchline: the two functions' Jacobians collapse and the gradient at the logits is just $p - y$, with $y$ one-hot. No sigmoid derivative, no saturation term.
+**Goal: the batched form you would actually write in code.** Swap the scalar output for $k$ classes with softmax and cross-entropy. The pairing earns its place because the two functions' Jacobians collapse into each other: the gradient at the logits is just $p - y$, where $p$ is the vector of softmax probabilities and $y$ is the one-hot label. No sigmoid derivative, no saturation term.
 
 ```python
 def forward_backward(X, Y, W1, b1, W2, b2):
@@ -107,11 +111,13 @@ Two shape rules cover every line: a weight gradient is `inputs.T @ delta`, and a
 
 ## Part 4 — The computational graph and what `.backward()` does
 
-**Goal: answer "how does autograd work" at mechanism level, which the 2026 loop reports flag as rarely understood.** During the forward pass the framework does not just compute numbers. Each operation on a tensor that requires grad appends a node to a directed acyclic graph, and that node stores whatever inputs its local derivative will need. Multiplication stores both operands. ReLU stores the sign mask. A matmul stores both matrices. The graph is built dynamically, per forward pass, and thrown away after the backward.
+**Goal: answer "how does autograd work" at the level of mechanism rather than vocabulary.** During the forward pass the framework does more than compute numbers. Each operation on a tensor that requires grad appends a node to a directed acyclic graph, and that node stores whatever inputs its local derivative will need. Multiplication stores both operands. ReLU stores the sign mask. A matmul stores both matrices. The graph is built dynamically, per forward pass, and thrown away after the backward.
 
-`.backward()` starts from a scalar with an implicit seed gradient of $1$, walks the graph in reverse topological order, and at each node applies a **vector-Jacobian product**: it takes the incoming gradient $\bar{v}$ and returns $\bar{v} J$, never materializing $J$. That is why reverse mode is cheap. For a function $\mathbb{R}^n \to \mathbb{R}$, one reverse sweep gives all $n$ partial derivatives at roughly the cost of one forward pass; forward-mode AD would need $n$ sweeps. Gradients accumulate into `.grad` by addition, which is why you call `zero_grad()` and also why a tensor used twice correctly gets both contributions summed.
+A chain rule on a graph can be swept in either of two directions, and the choice is the whole reason backprop is affordable. Sweep forwards from one input, and a single pass tells you how every quantity in the graph responds to that one input; to cover a million parameters you need a million passes. Sweep backwards from one output, and a single pass tells you how that one output responds to every quantity in the graph. A loss is a single number and the parameters number in the millions, so backwards is the direction that pays. Reverse mode is not a clever trick on top of the chain rule; it is the chain rule evaluated in the order that suits the shape of the problem.
 
-Three consequences worth having ready:
+`.backward()` does exactly that sweep. It starts from a scalar with an implicit seed gradient of $1$, walks the graph in reverse topological order, and at each node multiplies the gradient arriving from above by that node's local derivative. Spelled out, a node's local derivative is a Jacobian $J$ whose $(i,j)$ entry is the derivative of the node's $i$-th output with respect to its $j$-th input, and the gradient arriving from above is a row vector $\bar{v}$ holding the loss's sensitivity to each of the node's outputs — the bar is the standard mark for "derivative of the loss with respect to this quantity". The node returns $\bar{v} J$, never materializing $J$, because for every operation that appears in practice the product has a closed form: for a matmul it is another matmul, for ReLU it is a mask. That operation is called a **vector-Jacobian product**. For a function $\mathbb{R}^n \to \mathbb{R}$ of $n$ inputs, one reverse sweep gives all $n$ partial derivatives at roughly the cost of one forward pass; forward-mode AD would need $n$ sweeps. Gradients accumulate into `.grad` by addition, which is why you call `zero_grad()` and also why a tensor used twice correctly gets both contributions summed.
+
+Three consequences follow directly:
 
 - `detach()` returns a tensor that shares storage but has no graph edge, so gradient flow stops there. This is how you implement a stop-gradient (target networks, straight-through estimators, freezing an encoder).
 - `torch.no_grad()` skips graph construction entirely. It saves the activation memory, which is why inference and evaluation loops run under it.
@@ -121,31 +127,31 @@ Activation memory, not parameter memory, is usually what makes a deep model not 
 
 ## Part 5 — Vanishing and exploding gradients as arithmetic
 
-**Goal: replace the slogan with a number.** Chain the per-layer rule from Part 2 across $L$ layers. The gradient at layer $\ell$ is
+**Goal: replace the slogan with a number.** Chain the per-layer rule from Part 2 across a network $L$ layers deep, with $i$ indexing layers and $\ell$ naming the layer whose gradient you want. The letter $L$ does two jobs in the formula below: as a subscript or as the top of the product it is the layer count, and inside $\partial L$ it is the loss. The gradient at layer $\ell$ is
 
 $$
 \frac{\partial L}{\partial z_\ell} = \frac{\partial L}{\partial z_L} \prod_{i=\ell+1}^{L} \bigl( D_i W_i^{\top} \bigr)
 $$
 
-where $D_i$ is the diagonal matrix of activation derivatives at layer $i$. A product of $L - \ell$ matrices. If each factor typically scales magnitude by $\gamma$, the gradient scales by $\gamma^{L-\ell}$, and exponentials are unforgiving in both directions.
+where $D_i$ is the diagonal matrix of activation derivatives at layer $i$, its $j$-th diagonal entry being $\phi'$ evaluated at unit $j$'s pre-activation. A product of $L - \ell$ matrices. If each factor typically scales magnitude by $\gamma$, the gradient scales by $\gamma^{L-\ell}$, and exponentials are unforgiving in both directions.
 
-**Vanishing.** The sigmoid $\sigma(z) = 1/(1 + e^{-z})$ has derivative $\sigma(1-\sigma)$, maximized at $z = 0$ where it equals exactly $0.25$. So $D_i$ contributes at most $0.25$ per layer even in the best case. Ten sigmoid layers: $0.25^{10} \approx 9.5 \times 10^{-7}$. The first layer's gradient is a millionth of the last layer's, and with a learning rate tuned for the top of the network the bottom simply does not move. Away from $z = 0$ it is far worse: at $|z| = 5$, $\sigma' \approx 0.0066$, so a single saturated unit contributes a factor of $1/150$. Tanh is better (derivative $1 - \tanh^2$, max $1$ at zero) but saturates the same way at the tails.
+**Vanishing.** The sigmoid $\sigma(z) = 1/(1 + e^{-z})$ has derivative $\sigma(1-\sigma)$, maximized at $z = 0$ where it equals exactly $0.25$. So $D_i$ contributes at most $0.25$ per layer even in the best case. Ten sigmoid layers: $0.25^{10} \approx 9.5 \times 10^{-7}$. The first layer's gradient is a millionth of the last layer's, and with a learning rate tuned for the top of the network the bottom does not move at all. Away from $z = 0$ it is far worse: at $|z| = 5$, $\sigma' \approx 0.0066$, so a single saturated unit contributes a factor of $1/150$. Tanh is better (derivative $1 - \tanh^2$, max $1$ at zero) but saturates the same way at the tails.
 
 **Exploding.** Nothing caps the $W_i^{\top}$ factors. If weights are initialized so each layer multiplies the gradient norm by $1.5$, then across 30 layers you get $1.5^{30} \approx 1.9 \times 10^{5}$. One step at a normal learning rate lands the weights somewhere absurd, the next forward pass overflows, and the loss prints `NaN`. You detect this by logging per-layer gradient norms, not by staring at the loss — the norm spikes before the loss does.
 
-**Why RNNs are the pathological case.** A recurrent net applies *the same* weight matrix at every timestep, so the product becomes $W^{T}$, a matrix power. Its behavior is governed by the spectral radius: less than 1 and it decays to zero geometrically, greater than 1 and it blows up. There is no averaging-out across differently-initialized layers to save you. LSTMs fix this structurally by giving the cell state an additive path with a gate near 1, not by choosing a nicer activation. You will not be asked the gate equations; you will be asked why the problem is worse in RNNs, and "repeated multiplication by the same Jacobian" is the answer.
+**Why RNNs are the pathological case.** A recurrent net applies *the same* weight matrix at every timestep, so the product becomes $W^{T}$, a matrix power, where $T$ is the number of timesteps and the superscript is an exponent rather than a transpose. Multiplying repeatedly by one fixed matrix pulls any vector toward the direction that matrix stretches most, and stretches its length by roughly the same factor every time. That factor is the largest absolute eigenvalue, called the spectral radius, and it governs the behaviour: less than 1 and the gradient decays to zero geometrically, greater than 1 and it blows up. There is no averaging-out across differently-initialized layers to save you. LSTMs fix this structurally by giving the cell state an additive path with a gate near 1, not by choosing a nicer activation. The gate equations matter less than that structural point, and the one-line reason the problem is worse in RNNs is repeated multiplication by the same Jacobian.
 
-**Why ReLU won.** $\mathrm{ReLU}'(z)$ is exactly $1$ for $z > 0$. Not $0.25$, not $0.9$ — exactly $1$. The activation stops contributing any shrink factor at all, and the entire burden of keeping the product near 1 moves to the weight matrices, where initialization (He/Kaiming's variance $2/\text{fan-in}$, the factor of 2 compensating for ReLU killing half the distribution) and normalization layers can control it. ReLU is also trivially cheap, and it produces exact zeros, which makes activations sparse.
+**Why ReLU won.** $\mathrm{ReLU}'(z)$ is exactly $1$ for $z > 0$. Not $0.25$, not $0.9$ — exactly $1$. The activation stops contributing any shrink factor at all, and the entire burden of keeping the product near 1 moves to the weight matrices, where initialization (He/Kaiming's variance $2/\text{fan-in}$, the factor of 2 compensating for ReLU killing half the distribution) and normalization layers can control it. ReLU is also cheap to compute, and it produces exact zeros, which makes activations sparse.
 
 The cost is the other branch: $\mathrm{ReLU}'(z) = 0$ for $z \le 0$. A unit whose pre-activation is negative for *every* input in the data has permanently zero gradient and can never recover. That is a **dead ReLU**. You detect it by logging the fraction of zero activations per layer during training; a layer sitting at 95% zeros and rising is dying. Usual cause is too high a learning rate driving a large negative bias, and the usual fixes are a lower learning rate, a smaller bias init, or a leaky variant. Modern transformers use GELU or SwiGLU, which are smooth and have small nonzero gradient just below zero, so the dead branch is soft rather than absolute. That is the practical reason, more than any story about probabilistic gating.
 
 ## Part 6 — Why depth helps
 
-**Goal: give the concrete construction instead of the theorem everyone recites.** The universal approximation theorem says one hidden layer of sufficient width can approximate any continuous function. It is true, it is on every prep list, and it predicts nothing useful, because it says nothing about how many units you need or whether gradient descent will find them.
+**Goal: give the concrete construction instead of the theorem everyone recites.** The universal approximation theorem says one hidden layer of sufficient width can approximate any continuous function. It is true, and it predicts nothing useful, because it says nothing about how many units you need or whether gradient descent will find them.
 
-The useful statement is about efficiency. A ReLU network is a piecewise-linear function, and the relevant currency is how many linear pieces it can create per parameter. One hidden layer of $n$ ReLU units on a 1-D input gives at most $n + 1$ pieces: each unit contributes one kink. Pieces grow **linearly** in width.
+The useful statement is about efficiency. A ReLU network is a piecewise-linear function, and the relevant currency is how many linear pieces it can create per parameter. One hidden layer of $n$ ReLU units on a 1-D input gives at most $n + 1$ pieces: each unit contributes one kink where its pre-activation crosses zero. Pieces grow **linearly** in width.
 
-Now compose. Two ReLU units can implement the tent map $f(x) = 2\min(x, 1-x)$ on $[0,1]$, which folds the interval onto itself. Composing $L$ tents gives a sawtooth with $2^L$ linear pieces using about $2L$ units. Pieces grow **exponentially** in depth. To match an $L$-layer sawtooth, a shallow network needs on the order of $2^L$ units. Telgarsky (2016) made this a separation theorem; Montúfar et al. (2014) counted regions in the general case.
+Now compose. Two ReLU units can implement the tent map $f(x) = 2\min(x, 1-x)$ on $[0,1]$, which folds the interval onto itself: the left half stretches to cover the whole interval, and the right half does the same in reverse. Feed a tent into another tent and every existing piece gets folded in two, so each composition doubles the piece count. Composing $L$ tents, one per layer, gives a sawtooth with $2^L$ linear pieces using about $2L$ units. Pieces grow **exponentially** in depth. To match an $L$-layer sawtooth, a shallow network needs on the order of $2^L$ units. Telgarsky (2016) made this a separation theorem; Montúfar et al. (2014) counted regions in the general case.
 
 That is depth's real argument: composition reuses features, and each layer multiplies rather than adds. The catch is exactly Part 5 — the same composition that multiplies expressiveness also multiplies gradient magnitudes, which is why deep networks were hard to train until initialization, normalization, and residual connections arrived to control the product.
 

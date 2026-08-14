@@ -29,14 +29,14 @@ The rest of the chapter grows from that foundation. **BLUE** says OLS has the sm
 
 There is a version of this material you can skip if you only ever call a gradient booster. Quant-research interviews are not that version. They live here: factor models are OLS, "betas" are regression slopes, and the failure modes (collinear factors, overfit backtests, heteroskedastic returns) are the failure modes of regression. So we treat the statistics as first-class.
 
-Before the derivations, five words that will otherwise slow you down. Skim them now and come back when one bites.
+Before the derivations, five terms that will otherwise slow you down. Skim them now; return to any one of them when it bites.
 
-> **Vocabulary primer.** The "rusty staff engineer" assumption from c1.1 still holds.
+> **Vocabulary primer.** Each entry is a term the derivations below use without stopping to explain.
 >
-> - **Design matrix** $X$ — the $n \times p$ matrix of features (a column of 1s gives the intercept).
+> - **Design matrix** $X$ — the $n \times p$ matrix of features, one row per observation ($n$ of them) and one column per predictor ($p$ of them, a column of 1s giving the intercept).
 > - **Estimator** — a function of the data that produces a parameter estimate $\hat\beta$. It's a *random variable* (it depends on the random sample), so it has a distribution.
 > - **Unbiased / consistent / efficient / BLUE** — $\mathbb{E}[\hat\beta]=\beta$; $\hat\beta\to\beta$ as $n\to\infty$; minimum variance among a class; **B**est **L**inear **U**nbiased **E**stimator.
-> - **Logit / odds** — $\text{logit}(p)=\log\frac{p}{1-p}$, the log-odds. Logistic regression makes the log-odds linear in $x$.
+> - **Logit / odds** — for a probability $p$ (a different $p$ from the predictor count above; the collision is standard and context always settles it), $\text{logit}(p)=\log\frac{p}{1-p}$, the log-odds. Logistic regression makes the log-odds linear in $x$.
 > - **MAP** — maximum a posteriori: the Bayesian point estimate that maximizes likelihood × prior.
 
 ## Part 1 — Ordinary least squares
@@ -51,7 +51,7 @@ $$y_i = \beta_0 + \beta_1 x_i + \varepsilon_i$$
 
 Read that out loud: student $i$'s score equals a baseline $\beta_0$, plus $\beta_1$ points for every hour studied, plus a leftover $\varepsilon_i$ specific to that student. The line $\beta_0+\beta_1x$ is the systematic part. The error $\varepsilon_i$ collects everything the line does not explain: sleep, prior knowledge, luck, measurement error, and genuine randomness.
 
-Now a distinction that costs people interview points every day. Three objects that look similar must stay separate:
+Now a distinction that is easy to blur and expensive to blur. Three objects that look similar must stay separate:
 
 - $\beta_1$ is the unknown **population parameter**: the slope in the data-generating model.
 - $\hat\beta_1$ is an **estimate** computed from one observed sample.
@@ -69,7 +69,7 @@ $$e_i = y_i - \hat y_i$$
 
 In English: observed minus predicted. It is the vertical gap between the observed point and the line. Some residuals are positive, some negative.
 
-So the obvious first idea is to add up the residuals and pick the line that makes the total smallest. That fails immediately. Adding raw residuals would let them cancel, so a wildly wrong line with a $+50$ miss and a $-50$ miss scores the same as a perfect one. You need a summary that treats a miss as a miss regardless of direction. OLS adds their squares:
+The first idea is to add up the residuals and pick the line that makes the total smallest. That fails immediately. Adding raw residuals would let them cancel, so a wildly wrong line with a $+50$ miss and a $-50$ miss scores the same as a perfect one. You need a summary that treats a miss as a miss regardless of direction. OLS adds their squares:
 
 $$\operatorname{RSS}(\beta_0,\beta_1)=\sum_{i=1}^n (y_i-\beta_0-\beta_1x_i)^2$$
 
@@ -79,7 +79,7 @@ Each term is one point's miss, squared, and the sum runs over every observation.
 
 <OLSFit caption="OLS on 40 simulated points from y = 1 + 0.6x + noise. Watch the gray verticals, not the red line: they are the residuals eᵢ = yᵢ − ŷᵢ, and OLS is the line that makes the sum of their squared lengths as small as it can be. Note what they are not — not perpendicular distances to the line, and not raw signed gaps, which would cancel." />
 
-Now solve it for the simplest case. For one centered predictor, the slope has an especially intuitive form:
+Now solve it for the simplest case. For one centered predictor, the slope has an especially intuitive form, where a bar over a symbol means its sample average, so $\bar x$ is the average hours studied and $\bar y$ the average score:
 
 $$\hat\beta_1=\frac{\sum_i(x_i-\bar x)(y_i-\bar y)}{\sum_i(x_i-\bar x)^2}=\frac{\operatorname{Cov}(x,y)}{\operatorname{Var}(x)}$$
 
@@ -93,7 +93,7 @@ One predictor is where the intuition lives, but nothing real has one predictor. 
 
 $$y=X\beta+\varepsilon$$
 
-Each row of $X$ is one observation; each column is one predictor. Same equation as before, stacked. A coefficient $\beta_j$ means the expected change in $y$ for a one-unit change in $x_j$, **holding the other included predictors fixed**. That final clause is the source of both the usefulness and danger of multiple regression: adding a control can isolate a relationship, but a bad control can also change the question or introduce bias. "Holding fixed" is an instruction to the algebra, not something you actually did in the world.
+Each row of $X$ is one observation; each column is one predictor. Same equation as before, stacked. Index the predictors by $j$, running from $1$ to $p$: a coefficient $\beta_j$ means the expected change in $y$ for a one-unit change in the $j$-th predictor $x_j$, **holding the other included predictors fixed**. That final clause is the source of both the usefulness and danger of multiple regression: adding a control can isolate a relationship, but a bad control can also change the question or introduce bias. "Holding fixed" is an instruction to the algebra, not something you actually did in the world.
 
 The objective becomes
 
@@ -115,7 +115,7 @@ X^\top X\hat\beta=X^\top y
 \boxed{\hat\beta=(X^\top X)^{-1}X^\top y}
 $$
 
-This formula exists when $X$ has full column rank: no column is an exact combination of the others. The Hessian is $2X^\top X\succeq0$, so RSS is convex and this stationary point is a global minimum. There is exactly one bottom to the bowl, which is why linear regression has no local-minimum story to tell. In numerical software, do not literally form the inverse; QR or SVD solvers are more stable. The inverse is valuable because it exposes the statistics.
+This formula exists when $X$ has full column rank: no column is an exact combination of the others. The Hessian — the matrix of second derivatives, one entry per pair of coefficients — is $2X^\top X$, and it is positive semidefinite (written $\succeq0$: every quadratic form built from it is non-negative), so RSS is convex and this stationary point is a global minimum. There is exactly one bottom to the bowl, which is why linear regression has no local-minimum story to tell. In numerical software, do not literally form the inverse; QR or SVD solvers are more stable. The inverse is valuable because it exposes the statistics.
 
 *Projection (the geometric intuition).* Here is the same result with no derivatives. The columns of $X$ span every prediction vector the model can produce. Think of them as a flat sheet living inside $n$-dimensional space: everything the model could possibly output lies on that sheet. Usually $y$ is not exactly in that space. OLS chooses the reachable vector $\hat y=X\hat\beta$ closest to $y$: its orthogonal projection. Drop a perpendicular from $y$ to the sheet. At the closest point, the leftover residual $e=y-\hat y$ is perpendicular to every column of $X$:
 
@@ -145,15 +145,15 @@ That last one is the one people forget, and it cuts both ways. A tiny coefficien
 
 ### OLS is MLE under Gaussian noise — the c1.2 throughline
 
-Squared error looked like a convenient choice a few sections ago. It is also a forced one, once you commit to a particular story about the noise.
+Squaring the residuals looked like a convenient choice when we made it. It is also a forced one, once you commit to a particular story about the noise.
 
-Assume $\varepsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2)$. The log-likelihood is
+Assume $\varepsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2)$, where $\sigma^2$ is the (unknown) variance of the noise, the same for every observation. Writing $x_i$ for the vector of observation $i$'s feature values, so that the fitted line for that observation is $x_i^\top\beta$, the log-likelihood is
 
 $$\log L(\beta,\sigma^2) = -\tfrac{n}{2}\log(2\pi\sigma^2) - \frac{1}{2\sigma^2}\sum_i (y_i - x_i^\top\beta)^2$$
 
 Look at where $\beta$ appears. It appears in exactly one place: the sum on the right, which is RSS. For fixed $\sigma^2$, every term except RSS is constant in $\beta$. Maximizing likelihood is therefore identical to minimizing RSS. **OLS is MLE under independent Gaussian noise.** The probabilistic story explains the loss: Gaussian noise gives squared loss; Laplace noise gives absolute loss; heavy-tailed noise motivates robust alternatives. Every loss function is a claim about noise, whether or not you meant to make one.
 
-Now the qualification, because interviewers reach for it. Gaussian errors are *not* needed to draw the OLS line. They make the usual finite-sample inference exact. That distinction matters constantly in interviews.
+Now the qualification. Gaussian errors are *not* needed to draw the OLS line. They make the usual finite-sample inference exact. Drawing the line and quantifying its uncertainty are separate jobs with separate assumptions, and that distinction matters constantly.
 
 ### Why the beta estimator is random
 
@@ -179,7 +179,7 @@ $$\mathbb E[\hat\beta\mid X]=\beta$$
 
 and OLS is unbiased. Unbiased does **not** mean this sample's estimate equals truth. It means the estimator is centered on truth across repeated samples. Your one estimate can still be badly off.
 
-If $\operatorname{Var}(\varepsilon\mid X)=\sigma^2I$, then
+If $\operatorname{Var}(\varepsilon\mid X)=\sigma^2I$, with $I$ the identity matrix — equal noise variance on every observation, no correlation between observations — then
 
 $$\operatorname{Var}(\hat\beta\mid X)=\sigma^2(X^\top X)^{-1}$$
 
@@ -196,9 +196,9 @@ BLUE means **Best Linear Unbiased Estimator**. Four words, each of which is doin
 
 Under linear specification, full column rank, exogeneity $\mathbb E[\varepsilon\mid X]=0$, and spherical errors $\operatorname{Var}(\varepsilon\mid X)=\sigma^2I$, the **Gauss–Markov theorem** says OLS is BLUE.
 
-The word “best” is fenced in, and the fence is the whole point. Gauss–Markov does not say OLS has the lowest prediction error among all models. It does not compare OLS with biased estimators such as ridge. It does not establish causality. And it does **not require Normal errors**. Normality is needed for exact small-sample $t$ and $F$ distributions, not for BLUE. If you take one sentence from this section into an interview, take that one.
+The word “best” is fenced in, and the fence is the whole point. Gauss–Markov does not say OLS has the lowest prediction error among all models. It does not compare OLS with biased estimators such as ridge. It does not establish causality. And it does **not require Normal errors**. Normality is needed for exact small-sample $t$ and $F$ distributions, not for BLUE. If you take one sentence from this section, take that one.
 
-The proof idea is intuitive: any other linear unbiased estimator equals OLS plus an extra linear piece that cannot add signal without introducing bias. Under spherical noise, that extra piece adds a positive-semidefinite amount of variance: $\sigma^2DD^\top\succeq0$. You can only add variance, never subtract it, so OLS wins inside the fence.
+The proof idea is intuitive: any other linear unbiased estimator equals OLS plus an extra linear piece $Dy$, where $D$ is whatever fixed matrix distinguishes the rival estimator from OLS, and that piece cannot add signal without introducing bias. Under spherical noise, that extra piece adds a positive-semidefinite amount of variance: $\sigma^2DD^\top\succeq0$. You can only add variance, never subtract it, so OLS wins inside the fence.
 
 ### Standard error: how much the estimate would move
 
@@ -206,9 +206,9 @@ Under Gaussian errors,
 
 $$\hat\beta \sim \mathcal{N}\!\bigl(\beta,\ \sigma^2 (X^\top X)^{-1}\bigr)$$
 
-which reads: the estimator is Normally distributed, centered on the truth, with the covariance we just derived.
+which reads: the estimator is Normally distributed, centered on the truth, with the covariance we just derived (and it is often approximately Normal in large samples without Gaussian errors).
 
-(and it is often approximately Normal in large samples without Gaussian errors). The **standard error** is the estimated standard deviation of this sampling distribution:
+The **standard error** is the estimated standard deviation of this sampling distribution, computed from the estimated noise variance $\hat\sigma^2$ defined just below:
 
 $$\operatorname{SE}(\hat\beta_j)=\sqrt{\hat\sigma^2(X^\top X)^{-1}_{jj}}$$
 
@@ -230,9 +230,9 @@ Read the fraction. On top, how noisy the outcome is. On the bottom, how spread o
 
 ### The $t$-statistic: signal measured in noise units
 
-> **Slower lane.** This subsection and the two after it assume less background than the rest of the lesson: if "sampling distribution" and "null hypothesis" are words you have nodded along to without ever pinning down, start here.
+> **Slower lane.** This subsection and the two after it assume less background than the rest of the lesson. They build "sampling distribution" and "null hypothesis" from the ground up rather than using them.
 
-**The question a $t$-statistic answers is "is this number big?" — and the whole trick is that "big" is meaningless until you say *big compared to what*.**
+**A $t$-statistic answers one question: is this number big? "Big" is meaningless until you say *big compared to what*.**
 
 Suppose you fit sales against ad spend across $n=12$ stores and get a slope of $\hat\beta_1 = 4.2$: each extra 1k USD of ads is associated with 4.2k USD more sales. Is that real, or did the fit just chase noise?
 
@@ -241,7 +241,7 @@ You cannot answer from $4.2$ alone. Run the same experiment in a parallel univer
 - If $\operatorname{SE}(\hat\beta_1) = 1.5$, re-runs would routinely land anywhere from about $1$ to $7$. A slope of $4.2$ is a meaningful distance from zero.
 - If $\operatorname{SE}(\hat\beta_1) = 6.0$, re-runs would scatter from $-8$ to $+16$. The same $4.2$ is now indistinguishable from a fluke.
 
-Notice you just did the reasoning without any vocabulary. The $t$-statistic just makes that comparison explicit. It measures the estimate in standard-error units, converting "4.2k USD per 1k USD" into "how many noise-widths from zero":
+Notice you just did the reasoning without any vocabulary. The $t$-statistic only makes that comparison explicit. It measures the estimate in standard-error units, converting "4.2k USD per 1k USD" into "how many noise-widths from zero":
 
 $$t_j=\frac{\hat\beta_j-\beta_{j,0}}{\operatorname{SE}(\hat\beta_j)}$$
 
@@ -259,11 +259,11 @@ Under the classical model the standardised estimate follows
 
 $$t_j\sim t_{n-p}$$
 
-meaning: compare your $t$ against a Student's $t$ curve with $n-p$ degrees of freedom, not against a bell curve. The reason it is a $t$ rather than a standard Normal is worth understanding, because it is a stock interview question.
+meaning: compare your $t$ against a Student's $t$ curve with $n-p$ degrees of freedom, not against a bell curve. The reason it is a $t$ rather than a standard Normal comes down to one thing, and it is worth following.
 
 If we somehow *knew* the true noise level $\sigma$, then $(\hat\beta_j-\beta_j)/\operatorname{SE}$ would be exactly standard Normal — a known constant in the denominator just rescales a Normal. But we do not know $\sigma$. We estimate it from the same small sample, as $\hat\sigma^2=\operatorname{RSS}/(n-p)$, and that estimate is itself noisy.
 
-So the denominator wobbles too. That is the entire story: you are dividing one random thing by another random thing. Formally the statistic has the shape
+So the denominator wobbles too. That is the entire story: you are dividing one random thing by another random thing. Formally the statistic has the shape below, in which $Z$ is the numerator's standardised estimate, $V$ is the (rescaled) random quantity the noise estimate is built from, and $\nu$ is the degrees of freedom, $\nu=n-p$:
 
 $$t = \frac{Z}{\sqrt{V/\nu}},\qquad Z\sim\mathcal{N}(0,1),\quad V\sim\chi^2_\nu \ \text{independent of } Z$$
 
@@ -275,7 +275,7 @@ Dividing a Normal by a random, sometimes-too-small denominator produces occasion
 
 Watch the two curves near the middle first: they are nearly the same height and the same shape. Now follow them out to the edges, where the $t$ refuses to hug the axis as fast. That gap in the tails is the entire difference, and it is what changes your cutoffs.
 
-**Properties worth carrying into an interview.**
+**Properties of the $t$ distribution worth carrying with you.**
 
 - **Symmetric and centred at zero**, like the Normal, and bell-shaped — the difference is entirely in the tails, not the location.
 - **Heavier tails, lower peak.** More probability sits far from zero, so the same cutoff captures less area.
@@ -293,7 +293,7 @@ With $\nu=10$, a $t$ of exactly $2.0$ gives a two-sided $p$ of $0.073$: *not* si
 
 ### The $p$-value: a probability under the null, not of the null
 
-You now have a $t$. Turning it into a probability is one more step. For a two-sided test, the $p$-value is
+You now have a $t$. Turning it into a probability is one more step. For a two-sided test, the $p$-value is the quantity below, in which $T_{n-p}$ is a hypothetical draw from the $t$ curve with $n-p$ degrees of freedom, $t_{\text{observed}}$ is the single value your data actually produced, and $H_0$ is the null hypothesis:
 
 $$p=\Pr\left(|T_{n-p}|\ge |t_{\text{observed}}|\mid H_0\right)$$
 
@@ -321,7 +321,7 @@ A small $p$-value is evidence against the null *within the assumed model*. Both 
 
 ### Confidence intervals: plausible parameter values on the same scale
 
-A test gives you a verdict. An interval gives you the same information in the units of the problem, which is usually what somebody actually wants. A $(1-\alpha)$ confidence interval is
+A test gives you a verdict. An interval gives you the same information in the units of the problem, which is usually what somebody actually wants. Write $\alpha$ for the error rate you are willing to tolerate, so $\alpha=0.05$ gives a 95% interval. A $(1-\alpha)$ confidence interval is
 
 $$\hat\beta_j\pm t_{1-\alpha/2,n-p}\operatorname{SE}(\hat\beta_j)$$
 
@@ -345,7 +345,7 @@ Now imagine adding a nearly duplicate factor. The point estimate might remain $0
 
 ### Six perturbations: what actually moves in the regression table
 
-Interviewers love this family of questions because each one isolates a different part of the machinery, and because the intuitive answer is wrong about half the time. The pattern to internalise: **manipulations that add no new information leave the point estimates alone and corrupt the uncertainty.**
+Each of the six manipulations below isolates a different part of the machinery, and the intuitive answer is wrong about half the time. The pattern to internalise: **manipulations that add no new information leave the point estimates alone and corrupt the uncertainty.** In the table, $\rho$ is the correlation between $x$ and $y$, and $\sigma_x,\sigma_y$ are their standard deviations.
 
 | Manipulation | Slopes $\hat\beta$ | Intercept | $R^2$ | Standard errors | $t$-stats | Unbiased / BLUE? |
 |---|---|---|---|---|---|---|
@@ -358,7 +358,7 @@ Interviewers love this family of questions because each one isolates a different
 
 Work down the rows one at a time.
 
-**1. Adding a pure-noise predictor.** $R^2$ can only go up, never down — the old fit is still available to the optimiser, so RSS cannot increase. Setting the new coefficient to zero reproduces the old model exactly, and the optimiser will not choose something worse than an option it already has. That makes plain $R^2$ useless for model selection. Adjusted $R^2$ has a crisp rule that is worth memorising: **it increases if and only if the new variable's $|t|$ exceeds $1$** — a much lower bar than significance. The other coefficients stay unbiased (including an irrelevant regressor does not violate exogeneity), but they lose precision: you spend a degree of freedom and, unless the noise column happens to be exactly orthogonal to the rest in-sample, you inflate their variance. Estimates honest, $t$-stats quieter.
+**1. Adding a pure-noise predictor.** $R^2$ can only go up, never down — the old fit is still available to the optimiser, so RSS cannot increase. Setting the new coefficient to zero reproduces the old model exactly, and the optimiser will not choose something worse than an option it already has. That makes plain $R^2$ useless for model selection. Adjusted $R^2$ has a crisp rule: **it increases if and only if the new variable's $|t|$ exceeds $1$** — a much lower bar than significance. The other coefficients stay unbiased (including an irrelevant regressor does not violate exogeneity), but they lose precision: you spend a degree of freedom and, unless the noise column happens to be exactly orthogonal to the rest in-sample, you inflate their variance. Estimates honest, $t$-stats quieter.
 
 **2. Duplicating a predictor column.** Now $X$ has two identical columns, $X^\top X$ is singular, and there is no unique $\hat\beta$: if $(\beta_1,\beta_2)$ fits, so does $(\beta_1+c,\ \beta_2-c)$ for any $c$. Shift credit from one twin to the other and the predictions do not move at all. What *is* pinned down is the column space, so the fitted values, residuals, RSS and $R^2$ are all completely unchanged. Only the attribution breaks. What software returns depends on the solver: a pseudoinverse (`numpy.linalg.lstsq`, scikit-learn) returns the minimum-norm solution, which splits the coefficient **equally** between the twins; R's `lm()` drops one and reports `NA`. Ridge also splits it equally — with an $L^2$ penalty, $(\beta/2,\beta/2)$ costs strictly less than $(\beta,0)$. Lasso, whose penalty is indifferent between those splits, has a genuinely non-unique solution and typically picks one arbitrarily. The estimable quantity throughout is the **sum** $\beta_1+\beta_2$; that combination is unbiased, and only it has a finite standard error.
 
@@ -378,7 +378,7 @@ $$\hat\beta_{y\sim x}=\rho\,\frac{\sigma_y}{\sigma_x},\qquad \hat\beta_{x\sim y}
 
 Multiply the two slopes together and the correlation squared falls out, not $1$. The second slope is **not** the reciprocal of the first — it equals the reciprocal only when $\rho^2=1$, i.e. a perfect fit. Since $\rho^2\le1$, each line is *flatter* than inverting the other would suggest. That gap is regression to the mean, and it has a mechanical cause: OLS minimises vertical distances, so swapping the roles of the axes minimises horizontal distances instead — a different objective, hence a different line. Both lines do pass through $(\bar x,\bar y)$, and both report the same $R^2=\rho^2$. The lesson for practice: "which variable goes on the left" is a modelling decision about what you want to predict, not a symmetric description of association.
 
-**6. Orthogonal regression, and why PCA is a third answer.** If neither variable is naturally the response — both are noisy measurements of something — you can minimise *perpendicular* distance instead. That is **total least squares**, and its solution is the **first principal component** of the joint $(x,y)$ cloud. Its slope lies between the $y\sim x$ line and the inverted $x\sim y$ line. It is consistent under symmetric errors-in-variables — the regime where OLS instead suffers **attenuation bias**, shrinking its slope toward zero by the reliability ratio $\sigma_x^2/(\sigma_x^2+\sigma_u^2)$ because noise in $x$ inflates the denominator of the slope without touching its numerator ([derived in the quiz](/c/c1/c1.3/quiz)). The catch is that perpendicular distance mixes the two axes' units, so **TLS is not scale-invariant**: rescale $x$ from dollars to cents and the fitted line changes, whereas OLS slopes simply rescale in the obvious way. Standardise first, or do not use it.
+**6. Orthogonal regression, and why PCA is a third answer.** If neither variable is naturally the response — both are noisy measurements of something — you can minimise *perpendicular* distance instead. That is **total least squares**, and its solution is the **first principal component** of the joint $(x,y)$ cloud. Its slope lies between the $y\sim x$ line and the inverted $x\sim y$ line. It is consistent under symmetric errors-in-variables — the regime where OLS instead suffers **attenuation bias**, shrinking its slope toward zero by the reliability ratio $\sigma_x^2/(\sigma_x^2+\sigma_u^2)$, in which $\sigma_u^2$ is the variance of the measurement noise contaminating $x$, because noise in $x$ inflates the denominator of the slope without touching its numerator ([derived in the quiz](/c/c1/c1.3/quiz)). The catch is that perpendicular distance mixes the two axes' units, so **TLS is not scale-invariant**: rescale $x$ from dollars to cents and the fitted line changes, whereas OLS slopes simply rescale in the obvious way. Standardise first, or do not use it.
 
 Do not confuse that with **principal component regression**, which is a different procedure with a different purpose: project $X$ onto its top-$k$ principal components and regress $y$ on those. PCR is a variance-reduction method — biased, but stabilising when predictors are collinear, since it discards exactly the low-variance directions that inflate $\operatorname{Var}(\hat\beta)$. Its known weakness is that the components are chosen using $X$ alone, so a low-variance direction that happens to carry all the signal about $y$ gets thrown away; partial least squares exists to fix precisely that.
 
@@ -399,7 +399,7 @@ Notice the last bullet is the odd one out: it is the only failure that moves the
 
 ### $R^2$ vs adjusted $R^2$
 
-$R^2 = 1 - \text{RSS}/\text{TSS}$ is **monotonically non-decreasing** in the number of predictors: adding *any* column (even pure noise) can only shrink the min-RSS, because you're minimizing over a larger column space. So $R^2$ rises when you add junk features. **Adjusted $R^2 = 1 - \frac{\text{RSS}/(n-p)}{\text{TSS}/(n-1)}$** penalizes $p$ and *can* fall. The adjusted version divides each sum of squares by its degrees of freedom first, so spending a parameter has to earn its keep. Reporting plain $R^2$ to argue model quality is a classic tell.
+$R^2 = 1 - \text{RSS}/\text{TSS}$, where TSS is the total sum of squares $\sum_i(y_i-\bar y)^2$ — the squared error of the flat line at $\bar y$, the benchmark $R^2$ measures against — is **monotonically non-decreasing** in the number of predictors: adding *any* column (even pure noise) can only shrink the min-RSS, because you're minimizing over a larger column space. So $R^2$ rises when you add junk features. **Adjusted $R^2 = 1 - \frac{\text{RSS}/(n-p)}{\text{TSS}/(n-1)}$** penalizes $p$ and *can* fall. The adjusted version divides each sum of squares by its degrees of freedom first, so spending a parameter has to earn its keep. Reporting plain $R^2$ to argue model quality is a classic tell.
 
 Say what the number means before trusting it. $R^2$ measures the fraction of *in-sample outcome variation* accounted for by the fitted linear model. It is not accuracy, causality, calibration, or out-of-sample performance. A low $R^2$ can coexist with a precisely estimated scientific effect; a high $R^2$ can coexist with biased coefficients or terrible extrapolation.
 
@@ -417,7 +417,7 @@ The general objective is
 
 $$\text{data-fit loss}+\lambda\times\text{coefficient complexity}$$
 
-In words: pay for your misses, and also pay rent on the size of your coefficients. $\lambda$ is the strength of skepticism. Turn the knob and watch: at $\lambda=0$ we recover OLS; as $\lambda$ grows, coefficients are pulled harder toward zero. Choose $\lambda$ using validation or cross-validation—not the training RSS and not the test set.
+In words: pay for your misses, and also pay rent on the size of your coefficients. The non-negative number $\lambda$ sets the rent, and so is the strength of skepticism. At $\lambda=0$ we recover OLS; as $\lambda$ grows, coefficients are pulled harder toward zero. Choose $\lambda$ using validation or cross-validation—not the training RSS and not the test set.
 
 > **Why shrinkage can win.** Prediction error depends on bias and variance. OLS has zero bias under its assumptions but can have enormous variance. Accepting a small systematic pull toward zero can reduce random sample-to-sample movement enough to lower total MSE.
 
@@ -469,7 +469,7 @@ Ridge proportionally shrinks; lasso **soft-thresholds**, subtracting a fixed amo
 
 <ShrinkageCurves lambda={0.6} caption="Estimated coefficient as a function of its OLS value, under an orthonormal design and λ = 0.6. Follow each curve from left to right and compare it against the dashed gray OLS identity line. Blue: ridge shrinks every coordinate proportionally — the line tilts down but never touches zero for a nonzero input. Red: lasso subtracts λ, then clips to zero — every OLS coefficient in the shaded [−λ, λ] band gets snapped exactly to 0. That flat interval is the 'dead zone' the L1 kink creates; ridge has no analogue." />
 
-**Orthonormality is only what makes the closed form simple.** Lasso can produce exact-zero coefficients for a general design matrix too. Here is the argument that does not need the trick. Let $r=y-X\hat\beta$ be the residual at the lasso optimum. Its KKT/subgradient condition for feature $j$ is
+**Orthonormality is only what makes the closed form simple.** Lasso can produce exact-zero coefficients for a general design matrix too. Here is the argument that does not need the trick. Let $r=y-X\hat\beta$ be the residual at the lasso optimum, and let $x_j$ be the $j$-th column of $X$, so $x_j^\top r$ is that feature's remaining alignment with what the model got wrong. The KKT/subgradient condition — the first-order optimality condition generalised to an objective with a kink in it — for feature $j$ is
 
 $$
 x_j^\top r=
@@ -492,7 +492,7 @@ One caution before you reach for lasso as a variable selector. With a group of h
 
 Penalties act on coefficient size, so feature scale changes the effective punishment. A coefficient for a feature measured in dollars will have a different numerical scale from one measured in millions of dollars. The penalty cannot tell the difference between a large coefficient and a small unit. **Standardize predictors before ridge or lasso**, typically inside a pipeline fit only on training data. The intercept is normally not penalized; centering the data separates the baseline level from shrinkage of slopes.
 
-**The Bayesian view (ties straight back to c1.2).** MAP estimation maximizes $\log p(y\mid\beta) + \log p(\beta)$ — the negative log-prior *is* the penalty, exactly as the negative log-likelihood is the data loss. Gaussian likelihood + **Gaussian prior** $\beta\sim\mathcal{N}(0,\tau^2 I)$ → **ridge** (with $\lambda=\sigma^2/\tau^2$). Gaussian likelihood + **Laplace prior** → **lasso**. The Laplace prior's heavier tail and sharp peak at 0 are *why* L1 induces sparsity while L2 doesn't. So: L2 penalty ⟺ Gaussian prior, L1 penalty ⟺ Laplace prior — the same "every loss is a noise model" lens, applied to the parameters.
+**The Bayesian view (ties straight back to c1.2).** MAP estimation maximizes $\log p(y\mid\beta) + \log p(\beta)$ — the negative log-prior *is* the penalty, exactly as the negative log-likelihood is the data loss. Gaussian likelihood + **Gaussian prior** $\beta\sim\mathcal{N}(0,\tau^2 I)$ → **ridge** (with $\lambda=\sigma^2/\tau^2$); the prior standard deviation $\tau$ is how large you believed a coefficient could be before seeing any data. Gaussian likelihood + **Laplace prior** → **lasso**. The Laplace prior's heavier tail and sharp peak at 0 are *why* L1 induces sparsity while L2 doesn't. So: L2 penalty ⟺ Gaussian prior, L1 penalty ⟺ Laplace prior — the same "every loss is a noise model" lens, applied to the parameters.
 
 The prior view supplies intuition for $\lambda$: larger $\lambda$ means a tighter prior around zero—stronger prior belief that large coefficients are unlikely. Notice that $\lambda=\sigma^2/\tau^2$ says the same thing in symbols, since a small prior width $\tau$ makes $\lambda$ large. MAP is still a point estimate; a full Bayesian analysis keeps the posterior distribution and propagates parameter uncertainty.
 
@@ -512,7 +512,7 @@ $$
 +\operatorname{tr}\!\left(\operatorname{Cov}(\hat\beta)\right)
 $$
 
-The trace appears because $\operatorname{Cov}(\hat\beta)$ is a matrix; its diagonal entries are the component variances, and their sum is the estimator's total variance. Ridge is biased, but its reduction in total variance can outweigh its squared bias and produce lower total MSE than OLS. Look at the two terms and the trade is visible: you accept a nonzero first term to make the second term much smaller. OLS minimizes variance only *among linear unbiased estimators*, an often-overlooked restriction. That shrinkage can beat the unbiased estimate on *total* MSE is a real effect, not a numerical hack. (The classic formal result is James–Stein (1961) on shrinkage dominance; for the precise inadmissibility statement and proof, ask an AI assistant like Claude or ChatGPT — an interviewer won't.) Ridge applies that bias–variance logic to regression.
+The trace appears because $\operatorname{Cov}(\hat\beta)$ is a matrix; its diagonal entries are the component variances, and their sum is the estimator's total variance. Ridge is biased, but its reduction in total variance can outweigh its squared bias and produce lower total MSE than OLS. Look at the two terms and the trade is visible: you accept a nonzero first term to make the second term much smaller. OLS minimizes variance only *among linear unbiased estimators*, an often-overlooked restriction. That shrinkage can beat the unbiased estimate on *total* MSE is a real effect, not a numerical hack. (The classic formal result is James–Stein (1961) on shrinkage dominance: once you are estimating three or more means at once, shrinking them all toward a common point beats the plain sample mean on total squared error at *every* true parameter value. For the precise inadmissibility statement and proof, ask an AI assistant like Claude or ChatGPT — an interviewer won't.) Ridge applies that bias–variance logic to regression.
 
 One thing you give up in the trade. Regularized coefficients do not inherit ordinary OLS $p$-values. The penalty changes their bias and sampling distribution, while data-driven tuning adds selection uncertainty. Use regularization primarily for prediction and stability; use carefully designed post-selection or Bayesian methods when inference is the goal.
 
@@ -550,11 +550,11 @@ The useful identity is
 
 $$\operatorname{Var}(\hat\beta_j\mid X)=\frac{\sigma^2}{\operatorname{SST}_j(1-R_j^2)}$$
 
-where $\operatorname{SST}_j=\sum_i(x_{ij}-\bar x_j)^2$. Read the denominator as two separate gates the data has to pass. Uncertainty grows because of noisy outcomes ($\sigma^2$), little raw variation in the predictor (small SST), or little *unique* variation (large $R_j^2$). VIF isolates the third cause.
+where $x_{ij}$ is observation $i$'s value of predictor $j$, $\bar x_j$ is that predictor's sample mean, and $\operatorname{SST}_j=\sum_i(x_{ij}-\bar x_j)^2$ is the total spread of predictor $j$ — the same construction as the TSS above, but computed on a predictor rather than on the outcome. Read the denominator as two separate gates the data has to pass. Uncertainty grows because of noisy outcomes ($\sigma^2$), little raw variation in the predictor (small SST), or little *unique* variation (large $R_j^2$). VIF isolates the third cause.
 
 Thresholds such as 5 and 10 are triage rules, not laws. A high VIF is evidence about the design matrix, not an automatic command to delete a variable. Context decides whether individual coefficient attribution matters.
 
-**Inference vs prediction.** Collinearity inflates coefficient variances → **unstable, sign-flipping coefficients and wide confidence intervals** → coefficient *inference* is wrecked. But the model's *predictions* on similar $X$ can be perfectly fine — collinearity introduces no bias, it just makes the individual coefficients un-identifiable. A tree model doesn't care for prediction at all (it just splits on one of the redundant features). This is the precise resolution to "is multicollinearity bad?": **bad for interpretation, often harmless for prediction.** (This connects directly to c1.1: redundant/collinear features are exactly what defeats the drop-column leakage test and split tree-importance.)
+**Inference vs prediction.** Collinearity inflates coefficient variances → **unstable, sign-flipping coefficients and wide confidence intervals** → coefficient *inference* is wrecked. But the model's *predictions* on similar $X$ can be perfectly fine — collinearity introduces no bias, it just makes the individual coefficients un-identifiable. For prediction, a tree model does not care at all: it just splits on one of the redundant features. This is the precise resolution to "is multicollinearity bad?": **bad for interpretation, often harmless for prediction.** (This connects directly to c1.1: redundant/collinear features are exactly what defeats the drop-column leakage test and split tree-importance.)
 
 Why can predictions survive? If two features move together in both train and test data, many unstable coefficient splits yield nearly the same combined prediction. The $(5,-4)$ and $(0.6,0.4)$ solutions from Part 3 agree on every point where the two features stay in lockstep. Prediction becomes fragile when the future breaks that correlation or when we extrapolate in a direction the training data never explored.
 
@@ -571,7 +571,7 @@ And one thing not to do. Do not mechanically drop the feature with the largest V
 
 ## The stats / quant-research lens (read this before a quant interview)
 
-- **Estimator ladder.** *Unbiased* ($\mathbb{E}[\hat\beta]=\beta$), *consistent* ($\hat\beta\to^p\beta$), *efficient* (attains the Cramér–Rao bound; MLE is asymptotically efficient), *BLUE* (min-variance among linear unbiased — Gauss–Markov). The gaps matter: unbiased $\not\Rightarrow$ consistent and vice-versa; BLUE is "best" only within the linear class — a biased nonlinear estimator (ridge) can beat it in MSE.
+- **Estimator ladder.** *Unbiased* ($\mathbb{E}[\hat\beta]=\beta$), *consistent* ($\hat\beta\to^p\beta$), *efficient* (attains the Cramér–Rao bound — the smallest variance any unbiased estimator can achieve, so an efficient estimator wastes nothing in the data; MLE is asymptotically efficient), *BLUE* (min-variance among linear unbiased — Gauss–Markov). The gaps matter: unbiased $\not\Rightarrow$ consistent and vice-versa; BLUE is "best" only within the linear class — a biased nonlinear estimator (ridge) can beat it in MSE.
 - **Factor models are OLS.** CAPM / Fama–French / Carhart: $r_i - r_f = \alpha + \beta\cdot(\text{factors}) + \varepsilon$. The "betas" are regression slopes; $\alpha$ (the intercept) is tested for $\ne 0$ via its $t$-stat. Value/quality/size factors are correlated → high VIF → **unstable, sign-flipping factor loadings** even when portfolio *prediction* is fine.
 - **Heteroskedastic, autocorrelated returns** → must use White (HC) or Newey–West (HAC) standard errors, or you "discover" spurious alpha.
 - **Overfit backtests.** More factors mechanically raise in-sample $R^2$ → inflated backtest Sharpe. This is the multiple-testing / data-snooping problem — cross-reference c1.1 leakage, adjusted $R^2$, and CV.

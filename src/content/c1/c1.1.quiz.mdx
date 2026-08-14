@@ -6,7 +6,7 @@ description: Questions on leakage, splits, cross-validation and honest evaluatio
 estimatedMinutes: 80
 ---
 
-These 12 questions are conceptually difficult by design. Each tests understanding, derivation, or counter-example construction — not recall. Try to answer in your head (or on paper) before revealing the model answer. The rubric at the bottom of each answer lists the specific points the answer should contain.
+These 24 questions are conceptually difficult by design. Each tests understanding, derivation, or counter-example construction — not recall. Try to answer in your head (or on paper) before revealing the model answer. The rubric at the bottom of each answer lists the specific points the answer should contain.
 
 <Quiz id="1">
 
@@ -21,11 +21,11 @@ $$\text{Var}(X) = E[\text{Var}(X \mid H)] + \text{Var}(E[X \mid H])$$
 
 where $H$ is the stratum-membership random variable. The first term is **within-stratum variance** (variability of $X$ inside each stratum); the second is **between-stratum variance** (variability of stratum means $\mu_h$ across strata).
 
-For an SRS of size $n$, the sample-mean variance is $\sigma^2 / n$ where $\sigma^2 = \text{Var}(X)$. Substituting the decomposition:
+For an SRS of size $n$, the sample-mean variance is $\sigma^2 / n$ where $\sigma^2 = \text{Var}(X)$. Substituting the decomposition splits that single number into the two pieces the identity names:
 
 $$\text{Var}(\bar{x}_{\text{SRS}}) = \frac{1}{n}\bigl(E[\text{Var}(X \mid H)] + \text{Var}(E[X \mid H])\bigr)$$
 
-For stratified sampling with **proportional allocation** ($n_h / N_h = n / N$), the estimator variance reduces to:
+Now stratify. Write $N$ for the population size, $N_h$ for the size of stratum $h$, $n_h$ for the number of rows sampled from it, and $\sigma_h^2$ for the variance of $X$ inside it. Under **proportional allocation** — each stratum contributes rows in the same ratio as it contributes to the population, $n_h / N_h = n / N$ — the stratum shares $N_h/N$ are fixed by design rather than drawn at random, so stratum membership contributes no variability at all and the between-stratum term simply disappears. What survives is the within-stratum term:
 
 $$\text{Var}(\bar{x}_{\text{strat}}) = \frac{1}{n} E[\text{Var}(X \mid H)] = \frac{1}{n}\sum_h \frac{N_h}{N} \sigma_h^2$$
 
@@ -159,7 +159,7 @@ This single definition unifies all the "named" categories of leakage — they're
 <details>
 <summary>Model answer + rubric</summary>
 
-There are three levels of cheap-to-expensive detection. A well-designed protocol uses them in order.
+Detection comes in levels, cheap to expensive. A well-designed protocol uses them in order.
 
 **Level 1 — Definitional review (free, manual).** Before any training, an engineer who understands the prediction task reviews the feature definitions one by one. For each feature $f_i$, they answer:
 
@@ -235,13 +235,13 @@ The severity depends on whether the preprocessing *touches the label* or *only t
 
 **`StandardScaler` (mild).** Standard scaling subtracts the column mean and divides by column std. The fitted parameters $(\mu, \sigma)$ are computed from features alone — the label $Y$ never enters. If you compute $\mu$ on train+val+test instead of train-only, the only difference is that $\mu$ is computed on a slightly larger sample, including val+test rows.
 
-- *Magnitude of the mean shift:* by the central limit theorem, the difference between $\mu_{\text{train+val+test}}$ and $\mu_{\text{train}}$ is approximately $\Delta\mu \sim \sigma / \sqrt{n_{\text{train}}}$ (where $n_{\text{train}}$ is the training size).
+- *Magnitude of the mean shift:* a sample mean of $n$ values has standard error $\sigma/\sqrt{n}$, so the difference between $\mu_{\text{train+val+test}}$ and $\mu_{\text{train}}$ is approximately $\Delta\mu \sim \sigma / \sqrt{n_{\text{train}}}$ (where $\sigma$ is the column's standard deviation and $n_{\text{train}}$ the training size).
 - *Impact on the scaler output:* shifts every scaled value by $\Delta\mu / \sigma \approx 1/\sqrt{n_{\text{train}}}$. For $n_{\text{train}} = 10^5$, the shift is on the order of $0.003$ in standardized units. Essentially zero.
 - *Impact on metric:* typically $<1\%$ in AUC or accuracy. Negligible.
 
 The reason it's mild: no label information ever enters the scaler. The test set's *features* contributed to the scaler, but only in the same statistical sense as adding any independent extra examples — diluting the estimate slightly, not corrupting it.
 
-**Target encoding (severe).** Target encoding replaces each category $c$ in a categorical feature with the mean of $Y$ over rows where the categorical takes value $c$:
+**Target encoding (severe).** Target encoding replaces each category $c$ in a categorical feature with the mean of $Y$ over rows where the categorical takes value $c$ — writing $X_i$ for row $i$'s value of that categorical, $Y_i$ for row $i$'s label, and $|c|$ for the number of rows in category $c$:
 
 $$\text{target\_enc}(c) = \frac{1}{|c|} \sum_{i:\, X_i = c} Y_i$$
 
@@ -320,7 +320,7 @@ $$\hat{\mu}_{\text{IS}} = \frac{1}{n} \sum_{i=1}^n w_i f(x_i), \qquad w_i = \fra
 
 This is unbiased: $E_q[\hat{\mu}_{\text{IS}}] = E_q[w(X) f(X)] = E_p[f(X)] = \mu$.
 
-**When variance blows up.** The variance is
+**When variance blows up.** The estimator averages $n$ independent draws of the single quantity $w(X) f(X)$, so its variance is that quantity's variance divided by $n$:
 
 $$\text{Var}_q(\hat{\mu}_{\text{IS}}) = \frac{1}{n} \text{Var}_q(w(X) f(X)) = \frac{1}{n}\bigl(E_q[w^2 f^2] - \mu^2\bigr)$$
 
@@ -557,7 +557,7 @@ $$\mathbb{E}[(y-\hat f)^2]=\sigma^2_{\text{noise}}+\text{Bias}^2+\text{Var}$$
 
 **High-variance (overfit).** Train error is **low**, validation error is **much higher** — a persistent **gap** that *narrows* as data grows. The dominant term is $\text{Var}$. Fixes: **(a) more data** (shrinks the gap), and **(c) more regularization** (reduces variance). (b) More capacity would *worsen* it.
 
-**Decision rule:** *converged-and-high* → bias → add capacity; *low-train, high-val gap* → variance → more data or regularization. (This is exactly the c1.1 §5 diagnosis.)
+**Decision rule:** *converged-and-high* → bias → add capacity; *low-train, high-val gap* → variance → more data or regularization. (This is exactly the learning-curve diagnosis in the lesson.)
 
 **Rubric:**
 - High-bias: curves converge at a high floor (small gap)
@@ -576,11 +576,11 @@ $$\mathbb{E}[(y-\hat f)^2]=\sigma^2_{\text{noise}}+\text{Bias}^2+\text{Var}$$
 <details>
 <summary>Model answer + rubric</summary>
 
-Write $\widehat{\text{CV}}(\lambda)=R(\lambda)+Z_\lambda$ with $\mathbb{E}[Z_\lambda]\approx0$, $\text{Var}(Z_\lambda)=\tau^2$. For a *single fixed* $\lambda$, $\widehat{\text{CV}}$ is ~unbiased. But you report the minimum over candidates. By Jensen (the min of random variables is $\le$ the min of their means):
+Write $\widehat{\text{CV}}(\lambda)=R(\lambda)+Z_\lambda$, where $\lambda$ indexes one candidate hyperparameter setting, $R(\lambda)$ is the true risk of the model that setting produces, and $Z_\lambda$ is the fold noise, with $\mathbb{E}[Z_\lambda]\approx0$ and $\text{Var}(Z_\lambda)=\tau^2$. For a *single fixed* $\lambda$, $\widehat{\text{CV}}$ is ~unbiased. But you report the minimum over candidates, and whichever candidate drew the luckiest folds is the one that wins — so the reported minimum is pulled below the minimum of the true risks. By Jensen (the min of random variables is $\le$ the min of their means):
 
 $$\mathbb{E}\bigl[\min_\lambda\widehat{\text{CV}}(\lambda)\bigr]\le\min_\lambda\mathbb{E}[\widehat{\text{CV}}(\lambda)]=\min_\lambda R(\lambda)$$
 
-So the reported minimum **systematically under-estimates** the true risk of the selected model — the "winner's curse." With $m$ roughly-independent candidates whose noise is $\approx\mathcal{N}(0,\tau^2)$, the expected minimum sits about $\tau\sqrt{2\ln m}$ below the true best — so the optimism **grows with the number of configurations tried**. (This is the same statistical effect as tuning on the test set, c1.1 data-snooping; the more you search, the more you overfit the validation set.)
+So the reported minimum **systematically under-estimates** the true risk of the selected model — the "winner's curse." With $m$ roughly-independent candidates whose noise is $\approx\mathcal{N}(0,\tau^2)$, the expected minimum sits about $\tau\sqrt{2\ln m}$ below the true best — so the optimism **grows with the number of configurations tried**. (This is the same statistical effect as tuning on the test set — the data-snooping problem from the lesson; the more you search, the more you overfit the validation set.)
 
 **Nested CV.** The *inner* CV loop selects $\lambda$; the *outer* loop's folds are never seen during selection, so the outer estimate is unbiased — but **for the risk of the entire *procedure that includes tuning***, not for one fixed model. That's the right quantity to report: "how well does my model-plus-tuning pipeline generalize."
 
@@ -777,7 +777,7 @@ For $\beta=0.05$ (top 5%), $\gamma=0.05$ (95% confidence): $n\ge\frac{\log0.05}{
 - **Inner loop (also temporal + grouped), on each outer training block:** forward-chaining CV to select hyperparameters, with **all rows of any entity (user/session) kept on one side** of every split (`GroupKFold`-style) so no entity straddles train/validation.
 - After the inner loop picks $\lambda$, refit on the full outer-train block and score the untouched outer-test fold. **Report the mean ± std over outer folds** — this estimates the generalization of *the entire tune-and-fit procedure* on future, unseen entities (honoring both leakage constraints).
 
-**Failure of plain shuffled k-fold.** Two leaks at once: (1) **look-ahead** — shuffling mixes future rows into training, so the model "sees the future" and the metric is optimistic (c1.1's churn-AUC example); (2) **group leakage** — the same entity's rows land in both train and validation, so the model memorizes entity identity and the metric reflects memorization, not generalization. Plus the tuning would be selection-biased without the outer loop. The reported number would be far above live performance.
+**Failure of plain shuffled k-fold.** Two leaks at once: (1) **look-ahead** — shuffling mixes future rows into training, so the model "sees the future" and the metric is optimistic (the lesson's churn-AUC example); (2) **group leakage** — the same entity's rows land in both train and validation, so the model memorizes entity identity and the metric reflects memorization, not generalization. Plus the tuning would be selection-biased without the outer loop. The reported number would be far above live performance.
 
 **Rubric:**
 - Nested CV: outer = honest estimate, inner = tuning
