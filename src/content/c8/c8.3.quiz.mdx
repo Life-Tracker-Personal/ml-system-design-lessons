@@ -132,7 +132,7 @@ So the denominator is $\sqrt{12 + 20} = \sqrt{32} = 5.657$ and $\eta = 12/5.657 
 
 **(a)** Nothing. Under the global null that every signal is worthless, the count of false positives is Binomial$(100, 0.05)$ with mean exactly $5$ and standard deviation $\sqrt{100(0.05)(0.95)} = 2.18$. Five is the modal outcome, and $P(X \ge 5) \approx 0.56$. You have observed precisely what pure noise looks like. The right next sentence is not "so they are all fake" but "this data cannot separate the two hypotheses, here is what would."
 
-**(b)** **Bonferroni** controls the family-wise error rate, the probability of at least one false positive anywhere in the family, by testing each hypothesis at $\alpha/m$. With $m = 100$, $\alpha = 0.05$, the per-test threshold is $0.0005$. It is valid under arbitrary dependence, which is why it survives correlated tests, and it is brutally conservative.
+**(b)** **Bonferroni** controls the family-wise error rate, the probability of at least one false positive anywhere in the family, by testing each hypothesis at $\alpha/m$. With $m = 100$, $\alpha = 0.05$, the per-test threshold is $0.0005$. It is valid under arbitrary dependence, which is why it survives correlated tests, and it is very conservative.
 
 **Benjamini-Hochberg** controls the false discovery rate, $E[V/R]$, the expected fraction of your *rejections* that are false. Sort p-values ascending, find the largest $k$ with $p_{(k)} \le k\alpha/m$, and reject the first $k$.
 

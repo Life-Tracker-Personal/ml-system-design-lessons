@@ -11,7 +11,7 @@ estimatedMinutes: 60
 
 A Sharpe ratio is not a number, it is an estimate with a standard error, and that standard error is enormous relative to the Sharpes anyone actually runs. For independent returns the standard error of the Sharpe is roughly $1/\sqrt{n}$ in per-period units, which collapses to one clean fact worth memorising: **the t-statistic of a track record is $t = SR_{\text{ann}} \times \sqrt{T_{\text{years}}}$**. A Sharpe of 1 needs about four years of daily data before it is even nominally significant, and about eight before you would reliably detect it. That is why a backtest is evidence about a search procedure, not evidence about a strategy.
 
-Everything else in this lesson is a consequence. An absurdly large claimed Sharpe is refuted in days rather than years, because the required sample size scales as $1/SR^2$. Positive autocorrelation makes the naive $\sqrt{252}$ annualization overstate the Sharpe, sometimes by more than half. Testing 100 signals and finding 5 at $p < 0.05$ is exactly what pure noise produces, which is what Bonferroni, Benjamini-Hochberg and the Deflated Sharpe Ratio exist to correct. And in high dimensions the covariance matrix you feed the optimizer is not merely noisy, it is singular, which means the optimizer can find portfolios the data claims have zero risk.
+The rest of the lesson follows from that. A very large claimed Sharpe is refuted in days rather than years, because the required sample size scales as $1/SR^2$. Positive autocorrelation makes the naive $\sqrt{252}$ annualization overstate the Sharpe, sometimes by more than half. Testing 100 signals and finding 5 at $p < 0.05$ is exactly what pure noise produces, which is what Bonferroni, Benjamini-Hochberg and the Deflated Sharpe Ratio exist to correct. And in high dimensions the covariance matrix you feed the optimizer is not merely noisy, it is singular, which means the optimizer can find portfolios the data claims have zero risk.
 
 ## What you'll be able to do after this lesson
 
@@ -48,7 +48,7 @@ Convert to annualized units. If the sampling period is daily, $\widehat{SR}_{\te
 
 $$t = \frac{\widehat{SR}_{\text{day}}}{\mathrm{SE}} \approx \widehat{SR}_{\text{day}}\sqrt{n} = \frac{SR_{\text{ann}}}{\sqrt{252}}\sqrt{252\,T} = SR_{\text{ann}}\sqrt{T}$$
 
-The sampling frequency cancels. Sampling more often does not buy you significance, only more calendar time does. This is the single most useful line in the whole chapter, and it is the correct opening move for any question of the form "is this backtest real."
+The sampling frequency cancels. Sampling more often does not buy you significance, only more calendar time does. This is the most useful line in the chapter, and it is the right opening move for any question of the form "is this backtest real."
 
 ### Working the arithmetic
 
@@ -64,7 +64,7 @@ $t = 1.5 \times \sqrt{3} = 1.5 \times 1.732 = 2.60$, one-sided $p \approx 0.005$
 
 Here is the question as reported: a strategy claims a Sharpe of 8, and after $n$ days it has lost money. What must $n$ be before you reject the claim?
 
-Most people reach for "you need years of track record" because that is the lesson of Part 1. That is the wrong instinct here, and getting it wrong is the point of the question. **An absurd claim is refuted absurdly fast.** An annualized Sharpe of 8 means a daily Sharpe of
+Most people reach for "you need years of track record" because that is the lesson of Part 1. That is the wrong instinct here, and getting it wrong is the point of the question. **An extreme claim is refuted fast.** An annualized Sharpe of 8 means a daily Sharpe of
 
 $$SR_{\text{day}} = \frac{8}{\sqrt{252}} = \frac{8}{15.875} = 0.504$$
 
@@ -118,15 +118,15 @@ A useful drill is the three-number triage. Backtest 1.8, paper 1.2, live 0.4, ac
 
 When you defend a modelling choice here, HRT's published rubric is a good script: **simplicity** (prefer the linear model when it ties), **reproducibility** (stable across seeds, hyperparameters, implementations), **generality** (works across problems, not one benchmark). Jump's named rejection reason is failure to articulate methodology choices, so three words to hang an answer on beat an extra technique.
 
-## Part 5 — Multiple testing is the central sin
+## Part 5 — Multiple testing is the main problem
 
 The question: you test 100 signals and 5 come back at $p < 0.05$. What do you conclude?
 
-Nothing. Under the global null that every signal is worthless, the number of false positives is Binomial$(100, 0.05)$ with mean exactly 5 and standard deviation $\sqrt{100 \times 0.05 \times 0.95} = 2.18$. Observing 5 is the modal outcome of pure noise, and $P(X \ge 5) \approx 0.56$. You have observed precisely what nothing looks like.
+Nothing. Under the global null that every signal is worthless, the number of false positives is Binomial$(100, 0.05)$ with mean exactly 5 and standard deviation $\sqrt{100 \times 0.05 \times 0.95} = 2.18$. Observing 5 is the modal outcome of pure noise, and $P(X \ge 5) \approx 0.56$. You have observed exactly what pure noise produces.
 
 ### Bonferroni and Benjamini-Hochberg
 
-**Bonferroni** controls the family-wise error rate, the probability of even one false positive, by testing each hypothesis at $\alpha/m$. With $m = 100$ and $\alpha = 0.05$ the threshold is $0.0005$. It holds under any dependence structure and it is brutally conservative, which matters because trading signals are heavily correlated and the effective number of independent tests is far below 100.
+**Bonferroni** controls the family-wise error rate, the probability of even one false positive, by testing each hypothesis at $\alpha/m$. With $m = 100$ and $\alpha = 0.05$ the threshold is $0.0005$. It holds under any dependence structure and it is very conservative, which matters because trading signals are heavily correlated and the effective number of independent tests is far below 100.
 
 **Benjamini-Hochberg** controls the false discovery rate $E[V/R]$, the expected fraction of your rejections that are false. Sort the p-values ascending, find the largest $k$ with $p_{(k)} \le k\alpha/m$, and reject the first $k$.
 
@@ -156,7 +156,7 @@ Deflate it. In daily units $\widehat{SR} = 1.5/15.875 = 0.0945$ and $SR^\star = 
 
 $$\mathrm{DSR} = \Phi(0.203) = 0.58$$
 
-against $\mathrm{PSR}(0) = \Phi(0.0945 \times 27.48 / 1.002) = \Phi(2.59) = 0.995$. The same track record goes from 99.5 percent confidence to 58 percent purely by accounting for the search. That gap is the entire lesson.
+against $\mathrm{PSR}(0) = \Phi(0.0945 \times 27.48 / 1.002) = \Phi(2.59) = 0.995$. The same track record goes from 99.5 percent confidence to 58 percent purely by accounting for the search. That gap is the point.
 
 One honest caveat on the moment terms. At daily frequency $\widehat{SR}$ is tiny, so the skew and kurtosis corrections barely move the answer even with $\gamma_4 = 15$. They bite at low frequency where $\widehat{SR}$ per period is large. At monthly frequency the same annualized 1.5 gives $\widehat{SR} = 0.433$, and with $\gamma_3 = -1.5$, $\gamma_4 = 8$ the denominator becomes $\sqrt{1 + 0.650 + 0.328} = 1.41$ against $1.05$ under normality, a 34 percent inflation of the standard error. Short-volatility strategies reporting monthly are exactly where this correction earns its keep.
 
@@ -186,7 +186,7 @@ The consequence is structural, not statistical. The sample covariance $\hat\Sigm
 
 $$\mathrm{rank}(\hat\Sigma) \le \min(N,\, T-1) = 59$$
 
-A $500 \times 500$ matrix of rank 59 has at least 441 exactly zero eigenvalues. It is singular, so $\hat\Sigma^{-1}$ does not exist and mean-variance optimization has no solution. Worse than "no solution": every vector $w$ in the null space satisfies $w^\top \hat\Sigma w = 0$, a portfolio the data asserts has literally zero risk. Hand that to an optimizer and it levers the position without bound. This is Michaud's "error maximizer" in its purest form, because the optimizer does not find the best portfolio, it finds the largest estimation error.
+A $500 \times 500$ matrix of rank 59 has at least 441 exactly zero eigenvalues. It is singular, so $\hat\Sigma^{-1}$ does not exist and mean-variance optimization has no solution. Worse than having no solution: every vector $w$ in the null space satisfies $w^\top \hat\Sigma w = 0$, a portfolio the data asserts has literally zero risk. Hand that to an optimizer and it levers the position without bound. This is Michaud's "error maximizer": the optimizer does not find the best portfolio, it finds the largest estimation error.
 
 Even when $T > N$ the matrix is ill-conditioned, and random matrix theory says how badly. For pure noise with true covariance $I$, the Marchenko-Pastur law puts the sample eigenvalues in $[(1-\sqrt{q})^2, (1+\sqrt{q})^2]$ with $q = N/T$. At $N = 500$, $T = 60$, $q = 8.33$ and the upper edge is $(1 + 2.887)^2 = 15.1$, so noise alone produces eigenvalues fifteen times the true value. With five years of daily data, $T = 1260$, $q = 0.397$ and the edge is $2.66$: everything below 2.66 is still indistinguishable from noise.
 
