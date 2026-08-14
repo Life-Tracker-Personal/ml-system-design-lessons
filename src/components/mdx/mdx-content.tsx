@@ -12,6 +12,8 @@ import {
   RegularizationBalls,
   ShrinkageCurves,
   PCARotation,
+  PCAPointSpace,
+  PCAFeatureSpace,
 } from "./regression-figures";
 import {
   RowVsColumnStorage,
@@ -80,6 +82,8 @@ export function MdxContent({ source }: { source: string }) {
         RegularizationBalls,
         ShrinkageCurves,
         PCARotation,
+        PCAPointSpace,
+        PCAFeatureSpace,
         RowVsColumnStorage,
         SplitStrategyPanels,
         LeakageTimeline,
