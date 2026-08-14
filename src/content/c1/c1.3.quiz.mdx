@@ -6,7 +6,7 @@ description: Conceptually difficult questions on OLS, MLE, Gauss-Markov, regular
 estimatedMinutes: 45
 ---
 
-These 14 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
+These 11 questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
 
 <Quiz id="1">
 
@@ -99,7 +99,7 @@ Only the second term depends on $\beta$, and the positive constant $1/(2\sigma^2
 
 **Both clauses are wrong as stated.**
 
-**Clause 1 — "minimum-variance unbiased."** Gauss–Markov says OLS is **BLUE — best *linear* unbiased estimator**: minimum variance *within the class of linear unbiased estimators*. It is **not** necessarily the minimum-variance estimator among *all* unbiased estimators (that stronger property — MVUE / attaining the Cramér–Rao bound — does hold for OLS under added Gaussianity, but Gauss–Markov alone gives only the "linear" qualifier). And it's certainly not best among *all* estimators: biased estimators (ridge, James–Stein) can have lower MSE.
+**Clause 1 — "minimum-variance unbiased."** Gauss–Markov says OLS is **BLUE — best *linear* unbiased estimator**: minimum variance *within the class of linear unbiased estimators*. It is **not** necessarily the minimum-variance estimator among *all* unbiased estimators (that stronger property — MVUE, meaning it attains the Cramér–Rao bound, the smallest variance any unbiased estimator can achieve — does hold for OLS under added Gaussianity, but Gauss–Markov alone gives only the "linear" qualifier). And it's certainly not best among *all* estimators: biased estimators (ridge, James–Stein) can have lower MSE.
 
 **Clause 2 — "requires Gaussian errors."** Gauss–Markov needs only: linearity, strict exogeneity $\mathbb{E}[\varepsilon\mid X]=0$, homoskedasticity $\text{Var}(\varepsilon\mid X)=\sigma^2I$, and no perfect collinearity. **Normality is not among them.** Normality is needed only for the *finite-sample* $t$/$F$ distributions and exact confidence intervals; without it, inference holds asymptotically via the CLT, but BLUE still stands.
 
@@ -194,7 +194,7 @@ $$
 (\beta_j-\hat\beta_j^{\text{OLS}})+\lambda\beta_j=0.
 $$
 
-Therefore
+Collect the two $\beta_j$ terms on one side and divide through by the factor they share:
 
 $$\hat\beta_j^{\text{ridge}}=\frac{\hat\beta_j^{\text{OLS}}}{1+\lambda}.$$
 
@@ -304,7 +304,7 @@ So if feature $j$'s remaining correlation with the residual is not strong enough
 
 <Quiz id="9">
 
-**Q11. Ridge through the geometry of the data cloud.** In the SVD $X=UDV^\top$, a small singular value marks a direction in feature space with little observed variation and therefore unstable estimation. Read the factor $d_j^2/(d_j^2+\lambda)$ in that light: which directions does ridge trust, and which does it suppress? Compare this smooth weighting with PCR's keep-or-drop rule, then give one case where suppressing a low-variance direction helps and one where it destroys predictive signal.
+**Q11. Ridge through the geometry of the data cloud.** In the SVD $X=UDV^\top$ — $U$ and $V$ orthogonal, $D$ diagonal with the singular values $d_1\ge d_2\ge\dots$ down its diagonal — a small singular value $d_j$ marks a direction in feature space with little observed variation and therefore unstable estimation. Read the factor $d_j^2/(d_j^2+\lambda)$ in that light: which directions does ridge trust, and which does it suppress? Compare this smooth weighting with PCR's keep-or-drop rule, then give one case where suppressing a low-variance direction helps and one where it destroys predictive signal.
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -335,7 +335,7 @@ So if feature $j$'s remaining correlation with the residual is not strong enough
 <details>
 <summary>Model answer + rubric</summary>
 
-**Different coefficients.** scikit-learn's `LogisticRegression` is **L2-regularized by default** (`C=1.0`, where `C` is the *inverse* regularization strength) — it returns a penalized (shrunk) point estimate, *not* the textbook MLE. statsmodels' `Logit().fit()` is **unregularized maximum likelihood** by default. So the two optimize different objectives and land on different $\hat\beta$ (sklearn's are shrunk toward 0). This is the single most commonly-missed fact about sklearn logistic regression: out of the box it is not "plain" logistic regression.
+**Different coefficients.** scikit-learn's `LogisticRegression` is **L2-regularized by default** (`C=1.0`, where `C` is the *inverse* regularization strength) — it returns a penalized (shrunk) point estimate, *not* the textbook MLE. statsmodels' `Logit().fit()` is **unregularized maximum likelihood** by default. So the two optimize different objectives and land on different $\hat\beta$ (sklearn's are shrunk toward 0). The fact most often missed about sklearn logistic regression: out of the box it is not "plain" logistic regression.
 
 **No $p$-values from sklearn.** sklearn is a *prediction* library — it returns a point estimate and **no inferential statistics** (no standard errors, $t$/$z$-stats, $p$-values, or confidence intervals). statsmodels is built for *inference* and reports the full table from the asymptotic sampling distribution of the MLE. (Also: statsmodels does **not** add an intercept — you must `sm.add_constant(X)` — whereas sklearn adds one via `fit_intercept=True`.)
 
@@ -391,11 +391,11 @@ The denominator, again by independence:
 
 $$\operatorname{Var}(x^{obs})=\operatorname{Var}(x+u)=\sigma_x^2+\sigma_u^2$$
 
-Hence
+The noise left the numerator untouched and enlarged the denominator. Divide one by the other and the slope the regression converges to falls out:
 
 $$\boxed{\ \operatorname{plim}\hat\beta=\frac{\operatorname{Cov}(x^{obs},y)}{\operatorname{Var}(x^{obs})}=\beta\,\frac{\sigma_x^2}{\sigma_x^2+\sigma_u^2}\ }$$
 
-**Why this is attenuation *toward zero*.** The multiplier $\lambda=\sigma_x^2/(\sigma_x^2+\sigma_u^2)$ lies in $(0,1]$, so $|\operatorname{plim}\hat\beta|<|\beta|$ while the **sign is preserved**. The limits are the sanity check: $\sigma_u^2\to0$ gives $\lambda\to1$ (recover $\beta$); $\sigma_u^2\to\infty$ gives $\lambda\to0$ — the estimate collapses to *zero specifically*, not to some other wrong number. Concretely, noise variance equal to signal variance ($\sigma_u^2=\sigma_x^2$) means $\lambda=\tfrac12$: you measure **half** the true effect, no matter how much data you have.
+**Why this is attenuation *toward zero*.** The multiplier $\lambda=\sigma_x^2/(\sigma_x^2+\sigma_u^2)$ — the *reliability ratio*, which reuses the letter $\lambda$ but has nothing to do with the penalty strength of Q5 to Q7 — lies in $(0,1]$, so $|\operatorname{plim}\hat\beta|<|\beta|$ while the **sign is preserved**. The limits are the sanity check: $\sigma_u^2\to0$ gives $\lambda\to1$ (recover $\beta$); $\sigma_u^2\to\infty$ gives $\lambda\to0$ — the estimate collapses to *zero specifically*, not to some other wrong number. Concretely, noise variance equal to signal variance ($\sigma_u^2=\sigma_x^2$) means $\lambda=\tfrac12$: you measure **half** the true effect, no matter how much data you have.
 
 **The geometry, in one sentence:**
 

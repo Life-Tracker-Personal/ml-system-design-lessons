@@ -30,6 +30,8 @@ $$
 z_1 = \begin{bmatrix} 2(0.4) + (-1)(-0.5) + 0.1 & \; 2(0.1) + (-1)(0.3) - 0.2 \end{bmatrix} = \begin{bmatrix} 1.4 & -0.3 \end{bmatrix}
 $$
 
+Unit 2's pre-activation is negative, so ReLU clamps it to zero and only unit 1 reaches the output layer.
+
 $$
 a_1 = \begin{bmatrix} 1.4 & 0 \end{bmatrix}, \qquad \hat y = 1.4(2.0) + 0(-1.0) + 0.1 = 2.9, \qquad L = \tfrac12(2.9)^2 = 4.205
 $$
@@ -39,7 +41,7 @@ $$
 1. $\delta_2 = \hat y - y = 2.9$.
 2. $\partial L/\partial W_2 = a_1^{\top}\delta_2 = \begin{bmatrix} 1.4 \\ 0\end{bmatrix}(2.9) = \begin{bmatrix} 4.06 \\ 0 \end{bmatrix}$, shape $h \times k = 2 \times 1$.
 3. $\partial L/\partial a_1 = \delta_2 W_2^{\top} = 2.9\begin{bmatrix} 2.0 & -1.0\end{bmatrix} = \begin{bmatrix} 5.8 & -2.9\end{bmatrix}$.
-4. ReLU mask is $\mathbb{1}[z_1 > 0] = \begin{bmatrix} 1 & 0\end{bmatrix}$, so $\delta_1 = \begin{bmatrix} 5.8 & 0 \end{bmatrix}$.
+4. ReLU's local derivative is the 0/1 mask $\mathbb{1}[z_1 > 0]$, which is $1$ where the pre-activation was positive and $0$ elsewhere. Here $\mathbb{1}[z_1 > 0] = \begin{bmatrix} 1 & 0\end{bmatrix}$, so $\delta_1 = \begin{bmatrix} 5.8 & 0 \end{bmatrix}$.
 5. $\partial L/\partial W_1 = x^{\top}\delta_1 = \begin{bmatrix} 2 \\ -1\end{bmatrix}\begin{bmatrix} 5.8 & 0\end{bmatrix} = \begin{bmatrix} 11.6 & 0 \\ -5.8 & 0 \end{bmatrix}$, shape $d \times h = 2 \times 2$.
 
 (For completeness, $\partial L/\partial b_2 = 2.9$ and $\partial L/\partial b_1 = \begin{bmatrix} 5.8 & 0\end{bmatrix}$.)
@@ -76,15 +78,15 @@ Agreement to the first-order accuracy you expect from a one-sided difference. Th
 <details>
 <summary>Model answer + rubric</summary>
 
-**Softmax Jacobian.** With $p_i = e^{z_i} / \sum_j e^{z_j}$,
+**Softmax Jacobian.** With logits $z_1, \dots, z_k$ over $k$ classes and $p_i = e^{z_i} / \sum_j e^{z_j}$ the predicted probability of class $i$, where $i$ and $j$ both range over the classes,
 
 $$
 \frac{\partial p_i}{\partial z_j} = p_i(\delta_{ij} - p_j)
 $$
 
-(diagonal term $p_i(1-p_i)$ from differentiating the numerator and the denominator together; off-diagonal $-p_i p_j$ from the denominator alone).
+Here $\delta_{ij}$ is $1$ when $i = j$ and $0$ otherwise, the Kronecker delta, which has nothing to do with the backprop $\delta$ of Q1 beyond an unlucky choice of letter. The two cases it selects are the diagonal term $p_i(1-p_i)$, from differentiating the numerator and the denominator together, and the off-diagonal $-p_i p_j$, from the denominator alone.
 
-**Chain through cross-entropy.** $L = -\sum_i y_i \log p_i$, so $\partial L/\partial p_i = -y_i/p_i$ and
+**Chain through cross-entropy.** With $y$ the one-hot label vector, $L = -\sum_i y_i \log p_i$, so $\partial L/\partial p_i = -y_i/p_i$ and
 
 $$
 \frac{\partial L}{\partial z_j} = \sum_i \left(-\frac{y_i}{p_i}\right) p_i(\delta_{ij} - p_j) = -\sum_i y_i(\delta_{ij} - p_j) = -y_j + p_j \sum_i y_i = p_j - y_j
@@ -100,7 +102,7 @@ $$
 
 Take $y = 1$ and $z = -10$, the maximally-wrong case. Then $\sigma(z) = 4.54\times 10^{-5}$, the error term is $\approx -1$, but $\sigma'(z) \approx 4.54\times 10^{-5}$. The gradient is about $-4.5\times 10^{-5}$: near zero precisely when the model is as wrong as it can be. Cross-entropy on the same unit gives $p - y \approx -0.99995$, four orders of magnitude larger.
 
-So the saturation factor is the problem, and cross-entropy's log cancels it. This is also why "use MSE for classification" is a real bug and not just a style preference.
+So the saturation factor is the problem, and cross-entropy's log cancels it. That is why "use MSE for classification" is a real bug rather than a style preference.
 
 **Rubric:**
 - Softmax Jacobian $p_i(\delta_{ij} - p_j)$, both diagonal and off-diagonal terms
@@ -175,13 +177,13 @@ Two rules cover the whole function: a weight gradient is `inputs.T @ delta`, and
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a) The arithmetic.** The gradient at layer $\ell$ is
+**(a) The arithmetic.** In a network $L$ layers deep, with $i$ indexing layers and $\ell$ naming the layer whose gradient you want, the gradient at layer $\ell$ is
 
 $$
 \frac{\partial L}{\partial z_\ell} = \frac{\partial L}{\partial z_L}\prod_{i=\ell+1}^{L}\bigl(D_i W_i^{\top}\bigr)
 $$
 
-where $D_i$ is diagonal with the activation derivatives. For sigmoid, $\sigma' = \sigma(1-\sigma)$ peaks at $z=0$ with value exactly $0.25$.
+where $D_i$ is diagonal with the activation derivatives of layer $i$, one per unit. The letter $L$ works twice here: as a layer count in the index range and as the loss inside $\partial L$. For sigmoid, $\sigma' = \sigma(1-\sigma)$ peaks at $z=0$ with value exactly $0.25$.
 
 - Best case, every unit at its most favourable point: $0.25^{20} = 2^{-40} \approx 9.1\times 10^{-13}$.
 - At $|z| = 3$: $\sigma(3) = 0.9526$, so $\sigma'(3) = 0.9526 \times 0.0474 \approx 0.0452$. Then $0.0452^{20} \approx 1.3\times 10^{-27}$.
@@ -217,7 +219,7 @@ The price is the other branch. $\mathrm{ReLU}'(z) = 0$ for $z \le 0$, so a unit 
 
 **What gets built.** Every operation on a tensor that requires grad appends a node to a directed acyclic graph. Each node records its inputs' nodes (the edges) and **saves whatever values its local derivative will need**: a multiply saves both operands, a matmul saves both matrices, ReLU saves the sign mask, softmax saves its own output. The graph is constructed dynamically on each forward pass and discarded after the backward. It is a record of the computation, not a compiled program.
 
-**What `.backward()` does.** It seeds the output scalar with gradient $1$ and walks the graph in **reverse topological order**. At each node it performs a **vector-Jacobian product**: given the incoming gradient $\bar v$, it returns $\bar v J$ without ever materializing $J$. That is why reverse mode is cheap. For $f: \mathbb{R}^n \to \mathbb{R}$, one reverse sweep produces all $n$ partials for roughly the cost of one forward pass; forward-mode AD would need $n$ sweeps. Results accumulate into `.grad` by addition, which is why you need `zero_grad()` and also why a tensor consumed by two branches correctly gets both contributions summed.
+**What `.backward()` does.** It seeds the output scalar with gradient $1$ and walks the graph in **reverse topological order**. At each node it multiplies the gradient arriving from above by the node's local derivative: the local derivative is a Jacobian $J$ holding the derivative of each of the node's outputs with respect to each of its inputs, and the arriving gradient is a row vector $\bar v$ of the loss's sensitivities to the node's outputs, the bar marking "derivative of the loss with respect to this". The node returns $\bar v J$ without ever materializing $J$, since for real operations that product has a closed form (a matmul for a matmul, a mask for ReLU). The operation is called a **vector-Jacobian product**. Sweeping this direction is what makes it cheap: one backward sweep gives the sensitivity of one output to everything, whereas a forward sweep gives the sensitivity of everything to one input. A loss is one number and the parameters are millions, so backwards is the paying direction. For $f: \mathbb{R}^n \to \mathbb{R}$ of $n$ inputs, one reverse sweep produces all $n$ partials for roughly the cost of one forward pass; forward-mode AD would need $n$ sweeps. Results accumulate into `.grad` by addition, which is why you need `zero_grad()` and also why a tensor consumed by two branches correctly gets both contributions summed.
 
 **In-place inside a residual block.** `x = x + self.f(x)` allocates a new tensor; the old `x`, which some upstream node saved, is untouched. `x += self.f(x)` overwrites that buffer in place. When the backward pass reaches the node that saved it, the value it needs is gone, and PyTorch raises *"one of the variables needed for gradient computation has been modified by an inplace operation."* The graph structure is fine; the saved tensor is not. Same mathematics, different bookkeeping.
 
@@ -270,7 +272,7 @@ Same factorization, opposite verdict, because the thing being approximated chang
 <details>
 <summary>Model answer + rubric</summary>
 
-**What the theorem says.** A single hidden layer of sufficient width, with a non-polynomial activation, can approximate any continuous function on a compact set to arbitrary accuracy. This is true and it is essentially useless for practice, because it is silent on two things that decide everything: *how many* units you need, and whether gradient descent will find them. A statement that permits $10^{40}$ units and gives no learning guarantee predicts nothing about your training run.
+**What the theorem says.** A single hidden layer of sufficient width, with a non-polynomial activation, can approximate any continuous function on a compact set to arbitrary accuracy. This is true and it is useless in practice, because it is silent on two things that decide everything: *how many* units you need, and whether gradient descent will find them. A statement that permits $10^{40}$ units and gives no learning guarantee predicts nothing about your training run.
 
 **The useful statement: pieces per parameter.** A ReLU network is a piecewise-linear function, so count linear pieces.
 
@@ -314,7 +316,7 @@ Why the loss plateaus rather than diverging: the surviving units compensate as f
 2. **Check the bias initialization.** Large negative bias init, or a bias that drifted negative, is the usual proximate cause. A small positive bias init (e.g. $0.01$) is the classic prophylactic.
 3. **Check input and activation scale.** If pre-activations are entering the layer with a large negative mean, the layer below is the real problem, not this one.
 4. **Switch the activation.** Leaky ReLU gives slope $\alpha$ on the negative branch so the gradient is never exactly zero; GELU or SwiGLU, what modern transformers actually use, are smooth with a small nonzero gradient just below zero, so the dead branch is soft rather than absolute.
-5. **Add gradient clipping** to cap the step that caused it. Note that this is the symptom fix: it prevents the killing step but does not address why steps that large were being taken.
+5. **Add gradient clipping** to cap the step that caused it. This is the symptom fix: it prevents the killing step but does not address why steps that large were being taken.
 
 **Rubric:**
 - Names dead ReLUs and ties them to the LR change, not to "overfitting" or "bad data"

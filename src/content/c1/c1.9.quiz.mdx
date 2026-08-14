@@ -6,7 +6,7 @@ description: Questions on metrics, thresholds, calibration and imbalanced data.
 estimatedMinutes: 80
 ---
 
-These 12 questions test whether you understand AUC as a *ranking statistic* and can reason about class balance, calibration, and operating points — not whether you can call `roc_auc_score`. Try to answer before revealing.
+These 24 questions test whether you understand AUC as a *ranking statistic* and can reason about class balance, calibration, and operating points — not whether you can call `roc_auc_score`. Try to answer before revealing.
 
 <Quiz id="1">
 
@@ -15,15 +15,15 @@ These 12 questions test whether you understand AUC as a *ranking statistic* and 
 <details>
 <summary>Model answer + rubric</summary>
 
-Positives score $X\sim F_+$, negatives $Y\sim F_-$. The ROC plots $\text{TPR}=1-F_+(t)$ vs $\text{FPR}=1-F_-(t)$; parameterize by $u=\text{FPR}=1-F_-(t)$:
+Let $X$ be the score of a random positive and $Y$ the score of a random negative, with cumulative distribution functions $F_+$ and $F_-$. Sweeping the threshold $t$, the ROC plots $\text{TPR}=1-F_+(t)$ vs $\text{FPR}=1-F_-(t)$; parameterize by the horizontal coordinate $u=\text{FPR}=1-F_-(t)$:
 
 $$\text{AUC}=\int_0^1\text{ROC}(u)\,du=\int_0^1\bigl[1-F_+(F_-^{-1}(1-u))\bigr]\,du$$
 
-Substitute $t=F_-^{-1}(1-u)$, $du=-f_-(t)\,dt$ (limits flip):
+The inverse $F_-^{-1}$ is only translating a false positive rate back into the threshold that produced it, which makes $u$ an awkward variable to integrate in. Substitute $t=F_-^{-1}(1-u)$, with $f_-$ the density of the negative scores, so $du=-f_-(t)\,dt$ (limits flip):
 
 $$\text{AUC}=\int_{-\infty}^{\infty}\bigl[1-F_+(t)\bigr]f_-(t)\,dt=\int\Pr(X>t)f_-(t)\,dt=\mathbb{E}_Y[\Pr(X>Y\mid Y)]=\Pr(X>Y)$$
 
-— the **concordance probability**. Empirically, replace the probability with the fraction of concordant pairs:
+The integrand is the chance a positive beats $t$ times the chance a negative lands at $t$, so integrating over $t$ averages "the positive beats the threshold" over wherever the negative happened to fall — which is the probability the positive beats the negative, the **concordance probability**. Empirically, replace that probability with the fraction of concordant pairs. Take $n_+$ positives with scores $x_i$ and $n_-$ negatives with scores $y_j$, and let $\mathbb{1}(\cdot)$ be the 0/1 indicator of its condition:
 
 $$\widehat{\text{AUC}}=\frac{1}{n_+n_-}\sum_{i=1}^{n_+}\sum_{j=1}^{n_-}\Bigl[\mathbb{1}(x_i>y_j)+\tfrac12\mathbb{1}(x_i=y_j)\Bigr]=\frac{U}{n_+n_-}$$
 
@@ -101,7 +101,7 @@ Using $P=\frac{\text{TPR}\,\pi}{\text{TPR}\,\pi+\text{FPR}(1-\pi)}$:
 
 $$\text{AP}=\sum_n (R_n-R_{n-1})\,P_n$$
 
-— the precision at each threshold weighted by the increase in recall. `auc(recall, precision)` runs the generic **trapezoidal** integrator, which **linearly interpolates** between consecutive (recall, precision) operating points.
+where $n$ indexes the distinct thresholds in decreasing order of score, and $P_n$, $R_n$ are the precision and recall at the $n$-th one — so each term is the precision at a threshold weighted by the increase in recall that threshold bought. `auc(recall, precision)` runs the generic **trapezoidal** integrator, which **linearly interpolates** between consecutive (recall, precision) operating points.
 
 **Why interpolation is wrong in PR space (Davis–Goadrich 2006).** Unlike ROC space, linear interpolation between two PR points is *not* achievable — the true precision between two operating points follows a nonlinear curve (precision depends on the TP:FP ratio gained, which isn't linear in recall). Trapezoidal PR area therefore connects points with straight lines that lie *above* the true achievable curve, so it **over-estimates** PR-AUC — badly on skewed data (e.g. ~0.53 trapezoidal vs ~0.41 AP on the same model).
 
@@ -247,7 +247,7 @@ Predict positive iff its expected cost is lower: $(1-p)c_{\text{FP}}<p\,c_{\text
 
 $$F_\beta=(1+\beta^2)\frac{PR}{\beta^2P+R}=\left(\frac{1}{1+\beta^2}\cdot\frac1P+\frac{\beta^2}{1+\beta^2}\cdot\frac1R\right)^{-1}$$
 
-— a harmonic mean of $P$ and $R$ with weight $\frac{1}{1+\beta^2}$ on precision and $\frac{\beta^2}{1+\beta^2}$ on recall. So $\beta^2$ is the ratio of how much you weight recall vs precision; $\beta>1$ favors recall, $\beta<1$ favors precision, $\beta=1$ is the symmetric F1.
+— with $P$ precision and $R$ recall, this is a harmonic mean of the two, carrying weight $\frac{1}{1+\beta^2}$ on precision and $\frac{\beta^2}{1+\beta^2}$ on recall. So $\beta^2$ is the ratio of how much you weight recall vs precision; $\beta>1$ favors recall, $\beta<1$ favors precision, $\beta=1$ is the symmetric F1.
 
 **Mapping the preference.** "Missing a fraud (a false negative → hurts recall) is 4× worse than a false alarm (a false positive → hurts precision)" → weight recall 4× precision → $\beta^2=4 \Rightarrow \boxed{\beta=2}$. (F2 is the standard "recall matters more" choice.)
 
@@ -351,7 +351,7 @@ So to recover true-prevalence probabilities, **subtract** that constant (King & 
 
 Predict positive iff $(1-p)C_{\text{FP}}<p\,C_{\text{FN}} \iff p>\dfrac{C_{\text{FP}}}{C_{\text{FP}}+C_{\text{FN}}}=t^\star$.
 
-**Oversampling ≡ a threshold.** Oversampling the minority by a factor $k$ (until the training odds are $k\times$ the true odds) makes the model learn shifted log-odds: $\text{logit}(p_{\text{re}})=\text{logit}(p_{\text{true}})+\ln k$ (Q1, with $\ln k$ the log of the prior-odds change). The resampled model then uses the *naive* threshold $p_{\text{re}}\ge0.5$, i.e. $\text{logit}(p_{\text{re}})\ge0$, which in terms of the true probability is $\text{logit}(p_{\text{true}})\ge-\ln k$, i.e.
+**Oversampling ≡ a threshold.** Write the oversampling ratio $\rho$ of the question as a factor $k$ by which the minority is duplicated. Oversampling the minority by $k$ (until the training odds are $k\times$ the true odds) makes the model learn shifted log-odds: $\text{logit}(p_{\text{re}})=\text{logit}(p_{\text{true}})+\ln k$ (Q1, with $\ln k$ the log of the prior-odds change). The resampled model then uses the *naive* threshold $p_{\text{re}}\ge0.5$, i.e. $\text{logit}(p_{\text{re}})\ge0$, which in terms of the true probability is $\text{logit}(p_{\text{true}})\ge-\ln k$, i.e.
 
 $$p_{\text{true}}\ge\sigma(-\ln k)=\frac{1}{1+k}$$
 
@@ -429,7 +429,7 @@ cross_val_score(pipe, X, y, cv=5, scoring="average_precision")
 <details>
 <summary>Model answer + rubric</summary>
 
-**Same expected gradient.** Let the minority have per-example loss gradient $g_+$ and there be $n_+$ minority, $n_-$ majority examples. **Oversampling** the minority $k\times$ makes the (summed) training gradient $\sum_{\text{maj}}g + k\sum_{\text{min}}g_+$. **Reweighting** the minority loss by $k$ gives the same summed gradient $\sum_{\text{maj}}g + k\sum_{\text{min}}g_+$. So over a full pass they produce identical (expected) parameter updates — they're equivalent in expectation.
+**Same expected gradient.** Let the minority have per-example loss gradient $g_+$, write $g$ for a generic per-example gradient (so $\sum_{\text{maj}}g$ is the summed majority contribution), and let there be $n_+$ minority and $n_-$ majority examples. **Oversampling** the minority by a factor $k$ makes the (summed) training gradient $\sum_{\text{maj}}g + k\sum_{\text{min}}g_+$. **Reweighting** the minority loss by $k$ gives the same summed gradient $\sum_{\text{maj}}g + k\sum_{\text{min}}g_+$. So over a full pass they produce identical (expected) parameter updates — they're equivalent in expectation.
 
 **Divergence under minibatch SGD.** They differ in *variance and dynamics*:
 - **Oversampling** changes the *empirical distribution*: the duplicated minority rows appear in many minibatches, so the model takes *many gradient steps on the exact same points* → it can **memorize/overfit** those duplicates (especially with exact ROS). The per-step gradient has normal magnitude but the *data* is repeated.
@@ -534,7 +534,7 @@ So precision falls from **0.90 to ~0.083** (and the PR baseline from 0.5 to 0.01
 
 Borderline-SMOTE synthesizes only from the **danger** set (concentrate effort on the boundary). E.g. with $m=10$: $m'=2$ → safe, $m'=7$ → danger, $m'=10$ → noise.
 
-**ADASYN allocation.** For each minority point $i$, $r_i=(\text{\# majority among its }k\text{-NN})/k$; normalize $\hat r_i=r_i/\sum_j r_j$; generate $g_i=\hat r_i\cdot G$ synthetic points (G = total to create). So *harder* minority points (more majority neighbors) get *more* synthesis — a continuous version of Borderline's hard threshold.
+**ADASYN allocation.** For each minority point $i$, let $r_i=(\text{\# majority among its }k\text{-NN})/k$ be its difficulty score; normalize it to $\hat r_i=r_i/\sum_j r_j$, the hat marking the version that sums to one across minority points; then generate $g_i=\hat r_i\cdot G$ synthetic points at point $i$, where $G$ is the total number to create. So *harder* minority points (more majority neighbors) get *more* synthesis — a continuous version of Borderline's hard threshold.
 
 **The failure (mislabeled outlier).** Consider a single minority point mislabeled deep inside majority territory: all $k$ of its neighbors are majority, so $r_i=1$ (the maximum), and if other minority points are "safe" ($r_j$ small), this outlier's normalized $\hat r_i$ dominates → ADASYN pours a large share of $G$ synthetic positives **around a mislabeled point in the majority region**, manufacturing a cluster of bogus positives that wrecks the boundary. (Borderline-SMOTE would tag it *noise* ($m'=m$) and skip it — which is exactly why the noise category exists.) Lesson: density-adaptive synthesis is sensitive to label noise; clean labels or prefer threshold+calibrate.
 
@@ -639,8 +639,8 @@ These 14 questions do not depend on the numbered questions above, so you can stu
 7. **What calibration means** Define a calibrated classifier in one sentence, then explain how a model with near-perfect AUC can be badly miscalibrated. Name the two standard fixes and say what each one does to AUC.
 8. **Where does the threshold come from** Missing a fraud costs you 10 times what a false alarm does. Given a calibrated probability, what threshold do you use and where does that number come from? Then say what breaks if the model is not calibrated.
 9. **F1 and when to move beta** Define F1 and say which part of the confusion matrix it deliberately ignores. Then someone tells you a missed fraud is four times worse than a false alarm, so what $\beta$ do you use in $F_\beta$, and would you rather use $F_\beta$ or a cost-based threshold here?
-10. **How do you handle imbalance** Your dataset is 1:1000 positive to negative, so how do you handle the imbalance? Give your ordered answer, say what you would check before touching the data at all, and say which of your levers change the predicted probabilities.
+10. **How do you handle imbalance** Your dataset is 1:1000 positive to negative. How do you handle the imbalance? Give your ordered answer, say what you would check before touching the data at all, and say which of your levers change the predicted probabilities.
 11. **SMOTE before the split** An engineer runs SMOTE on the full dataset, then does 5-fold CV and reports PR-AUC of $0.97$. A clean pipeline gives $0.78$. Explain exactly what leaked, and describe the correct ordering.
-12. **Fixed review budget** Your fraud ops team reviews exactly 500 cases a day. Argue why precision at $k$ and recall at that $k$ are the numbers you would report, and what PR-AUC averages over that your system will never do. How can two models with the same PR-AUC differ badly at your $k$?
+12. **Fixed review budget** Your fraud ops team reviews exactly 500 cases a day, so $k=500$. Argue why precision at $k$ and recall at that $k$ are the numbers you would report, and name the operating points PR-AUC averages over that your system will never occupy. How can two models with the same PR-AUC differ badly at your $k$?
 13. **Offline up, A/B flat** Offline AUC improved two points but the A/B test is flat. Give three mechanically distinct causes, and say which one you would check first and why.
 14. **CTR up, product worse** A ranker change lifts CTR by 3% in the A/B test. Give a concrete way that change could be making the product worse, name the guardrail metrics that would catch it, and say how long you would run the test before believing the lift.
