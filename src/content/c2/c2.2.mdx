@@ -55,6 +55,8 @@ $$
 
 $v_t$ is a running velocity, started at $v_0 = 0$ and built as an exponentially weighted sum of past gradients; the decay factor $\beta$ sits between 0 and 1 and sets how far back that sum reaches. Components that keep the same sign accumulate; components that flip sign cancel. With $\beta = 0.9$ the effective averaging window is $1/(1-\beta) = 10$ steps, and along a direction where the gradient stays put the velocity settles at the sum of a geometric series in $\beta$, which is $1/(1-\beta) = 10\times$ the raw gradient. That is a 10x speedup along the valley floor and near-zero net movement across it. It fixes the direction. It does nothing about scale.
 
+<MomentumRavine caption="Look at how much of each red step goes across the ravine instead of along it: gradient descent needs 134 steps to reach the dashed circle, momentum with β = 0.9 and the same η needs 14, and 134/14 is the 1/(1−β) = 10 speedup." />
+
 ### RMSProp: normalize the magnitude per parameter
 
 $$

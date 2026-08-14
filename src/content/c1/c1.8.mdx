@@ -108,6 +108,9 @@ Which loss, and why does it matter? Compare the surrogate losses as functions of
 
 That flat region is the whole personality difference, and it is precisely *why SVMs are sparse in support vectors*. A point that is already comfortably right exerts zero pull on the solution, so the fit forgets it exists. Under logistic loss the same point still contributes a small nudge forever, so nothing is ever forgotten and nothing is ever sparse.
 
+<MarginLosses caption="Follow the red hinge curve left to right and watch it reach zero exactly at m = 1 and stay there. Flat means zero gradient, so a point sitting out in that shaded region contributes nothing to the objective and drops out of the solution — that is the sparsity argument in one picture. Now follow the blue logistic curve through the same region: it keeps falling but never touches the axis (0.127 at m = 2, 0.049 at m = 3, zero only in the limit), so every point keeps nudging w forever. Gray is the 0-1 loss you actually want, discontinuous at m = 0 and non-convex; both surrogates sit above it. Both axes use the same pixels per unit, so the hinge's slope of −1 is a true 45 degrees." />
+
+
 ### The dual, support vectors, and why kernels need it
 
 You could stop at the unconstrained hinge form and optimize it directly, and for linear SVMs on large data that is exactly what production solvers do. So why does every textbook detour through the dual? The answer is the reason kernels exist at all, and it only becomes visible once the dual is on the page.
