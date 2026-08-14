@@ -1,0 +1,384 @@
+---
+lessonId: c2.3
+chapter: 2
+title: Quiz — Making training work
+description: Diagnosing loss curves, the debugging ladder, transfer learning, mixed precision, and gradient accumulation.
+estimatedMinutes: 55
+---
+
+These eight questions are the diagnostic half of the chapter: you are handed a curve or a symptom and asked what it rules in and what it rules out. Try to answer each one out loud before revealing the model answer. The rapid-fire section at the bottom stands on its own.
+
+<Quiz id="1">
+
+**Q1. Reading step zero.** You are handed a training run for a 1000-class image classifier with softmax cross-entropy. (a) What loss should step zero print if the model is correctly initialized, and why? (b) The run prints 0.02 on step zero and stays there. What is wrong? (c) A different run prints 34.7 on step zero. Give two distinct causes. (d) A third run prints 6.91 on step zero and 6.91 at step 5000. Name three candidate causes and say how you would separate them.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** A correctly initialized final layer produces logits near zero and therefore near-uniform probabilities $p_c \approx 1/C$. Cross-entropy on the true class is $-\ln(1/C) = \ln C$. For $C = 1000$, $\ln 1000 = 6.908$. This is the single cheapest sanity check in deep learning: it tests the output layer, the label encoding, and the loss reduction all at once, before a single gradient is taken.
+
+**(b) 0.02 at step zero is impossibly low.** The model cannot know anything yet, so the loss is not measuring what you think. Likely causes: the loss is being computed against the model's own predictions (labels accidentally derived from the output), the reduction is wrong (summing over classes and dividing by the wrong count, or a `mean` over a dimension that flattens the batch away), or the targets are already one-hot probabilities being fed to a function that expects class indices and is silently broadcasting. Also check that you are not passing softmax outputs into a function that applies softmax again — the double softmax flattens the distribution and can produce nonsense magnitudes in either direction.
+
+**(c) 34.7 is roughly $5\times$ the correct value.** Two distinct causes:
+1. **Logits are far too large at init.** The final layer's weight scale is wrong (uninitialized, or initialized with a large std), so the model starts out confidently wrong on most examples. Confidently wrong under cross-entropy costs a lot: $-\ln(10^{-15})$ is 34.5, which is suspiciously close to the number here and suggests saturated softmax outputs.
+2. **The label indexing is off** — labels shifted by one, or a mismatch between label ordering and the output-layer ordering. The model then assigns near-zero probability to the true class by construction.
+
+A third, cheaper possibility: the reduction sums over the batch instead of averaging, in which case the number scales with batch size and $34.7 / 6.908 \approx 5$ would mean a batch of 5.
+
+**(d) 6.91 forever means the model is predicting the class prior and never leaving it.** Three candidates and their separators:
+- **No gradient is reaching the parameters.** Separator: log per-layer gradient norms. All-zero norms confirm it. Look for `requires_grad=False`, a `detach()`, a `torch.no_grad()` around the forward pass, or the classic bug of constructing the optimizer over `model.parameters()` before `model.to(device)` so the optimizer holds parameters that are no longer the ones being trained.
+- **The learning rate is effectively zero.** Separator: print the LR the scheduler is actually returning at step 500 — a misconfigured warmup can hold it at $10^{-9}$ — and sweep the base rate by powers of ten.
+- **The labels carry no information about the inputs.** Separator: overfit a single batch of 8 examples. If the model cannot drive 8 examples to zero loss, either the graph is broken or the labels are noise; if it *can*, the graph is fine and the full-dataset labels are misaligned, most commonly shuffled independently of the inputs.
+
+**Rubric — full credit:**
+- States $\ln C$ and computes 6.908 for 1000 classes
+- Recognizes a too-low step-zero loss as a measurement bug, not a good model
+- Gives at least two causes for a too-high step-zero loss, one of them about logit scale at init
+- Names three distinct causes for the flat run
+- For each cause, gives a *separator* (an observable that distinguishes it), not just the cause
+- Mentions gradient-norm logging or overfit-one-batch as the discriminating instrument
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. Validation below train.** You are training a large language model and validation loss is consistently below training loss for the whole run. Your colleague says the model is underfitting and wants to add parameters. (a) Give the three mundane explanations that account for almost all real cases. (b) For each, say what you would plot or measure to confirm it. (c) Under what circumstance is the "something is wrong with the split" explanation the right one, and how would you check?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) The three mundane causes.**
+
+1. **The training forward pass is handicapped and the eval one is not.** Dropout is active during training and disabled at eval; BatchNorm uses noisy batch statistics during training and stable running statistics at eval. So train loss is measured on a deliberately degraded model. This alone can invert the gap.
+2. **The two numbers are measured at different times.** Training loss is typically averaged over an entire epoch, including the early steps when the model was worse. Validation loss is measured once, at the end of the epoch, after all of those updates have landed. You are comparing a running average of a worse model against a snapshot of a better one.
+3. **Augmentation is applied to train only.** The training distribution is literally harder than the validation distribution. Heavier augmentation widens the inversion.
+
+Underfitting is the wrong read twice over: underfitting means both losses are high *and* flat, and it says nothing about their ordering.
+
+**(b) Confirmations.**
+1. Run one evaluation pass over a fixed subset of the *training* data with the model in eval mode. If that number drops below the reported train loss and lands at or under validation loss, the train/eval mode asymmetry is the cause. This is the single most informative check and it costs one forward pass.
+2. Plot train loss per step rather than per epoch, and overlay the epoch-average as a horizontal segment. If the end-of-epoch train loss is at or below validation while the epoch average sits above it, you have found cause 2. Equivalently, log both losses at the same step.
+3. Turn augmentation off for one evaluation pass over train, or evaluate validation *with* the training augmentation applied. If the gap closes, augmentation is doing the work.
+
+For a modern LLM pretraining run specifically, causes 1 and 3 are usually absent (dropout is typically 0, no augmentation, LayerNorm has no batch-dependent train/eval asymmetry), so cause 2 plus an easier validation shard is the live hypothesis.
+
+**(c) When the split is genuinely the problem.** If eval-mode train loss still sits above validation loss with everything measured at the same step, then the validation set is easier than the training set, not the model being mysterious. Concretely: the split was made by time or by source and the validation slice is cleaner, shorter, more templated, or drawn from a lower-entropy domain (a validation shard that is mostly boilerplate code or repeated web pages will have genuinely lower per-token loss).
+
+How to check: compare the *distributions*, not the means. Sequence-length histograms, per-domain loss broken out by source, and duplicate detection between train and validation. A leaked or near-duplicate validation set shows up as an unusually tight loss distribution with a heavy left tail. Also inspect a random sample of validation documents by hand; on this kind of question the honest senior answer includes "I would read fifty of them."
+
+**Rubric — full credit:**
+- Names all three mundane causes, and does not lead with the split
+- Explicitly rejects "underfitting" and says why (underfitting is about level and slope, not ordering)
+- Gives eval-mode-on-train as the confirmation for cause 1
+- Gives same-step measurement for cause 2
+- Treats "easier or leaked validation" as a fourth, less likely hypothesis, checked by distributional comparison and duplicate detection, not by a single mean
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Early stopping is ridge in disguise.** Show that stopping gradient descent early produces roughly the same shrinkage as an explicit L2 penalty, and derive the correspondence $\lambda \approx 1/(\eta t)$. Then state two consequences a practitioner should actually act on.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Setup.** Take a quadratic objective, which is what any smooth loss looks like near its optimum:
+
+$$J(w) = \tfrac{1}{2}(w - w^\*)^\top H (w - w^\*)$$
+
+with $H$ symmetric positive definite, eigendecomposition $H = Q\Lambda Q^\top$. Work in the eigenbasis, writing $\tilde{w} = Q^\top w$ so the problem decouples into independent one-dimensional problems indexed by eigenvalue $\lambda_i$.
+
+**Gradient descent from $w^{(0)} = 0$.** The update is $w \leftarrow w - \eta H(w - w^\*)$, which in the eigenbasis is
+
+$$\tilde{w}^{(t)}_i = \left[1 - (1 - \eta\lambda_i)^t\right]\tilde{w}^\*_i$$
+
+Assume $0 < \eta\lambda_i < 1$ so the run is stable. The bracket is the fraction of the optimum recovered along direction $i$ after $t$ steps. High-curvature directions (large $\lambda_i$) converge fast; low-curvature directions are still near zero after $t$ steps.
+
+**Ridge.** Minimizing $J(w) + \tfrac{\lambda}{2}\lVert w\rVert^2$ gives, in the same basis,
+
+$$\tilde{w}^{\text{ridge}}_i = \frac{\lambda_i}{\lambda_i + \lambda}\,\tilde{w}^\*_i$$
+
+Same structure: a per-direction shrinkage factor that is near 1 for large $\lambda_i$ and near 0 for small $\lambda_i$.
+
+**Matching them.** Equate the two shrinkage factors:
+
+$$(1 - \eta\lambda_i)^t = \frac{\lambda}{\lambda_i + \lambda}$$
+
+Take the directions that matter for regularization, the poorly determined ones with $\lambda_i \ll \lambda$ and $\eta\lambda_i \ll 1$. Expand both sides to first order:
+
+$$(1 - \eta\lambda_i)^t \approx e^{-\eta\lambda_i t} \approx 1 - \eta\lambda_i t, \qquad \frac{\lambda}{\lambda_i + \lambda} = \frac{1}{1 + \lambda_i/\lambda} \approx 1 - \frac{\lambda_i}{\lambda}$$
+
+Matching the first-order terms, $\eta\lambda_i t = \lambda_i/\lambda$, so
+
+$$\lambda \approx \frac{1}{\eta t}$$
+
+**Reading it.** Training longer, or with a larger step size, is *exactly* weakening the penalty. $\eta t$ is the total distance the optimizer is allowed to travel, and the implicit penalty is its reciprocal.
+
+**Two things to act on.**
+
+1. **Number of steps and weight decay are one knob, not two.** If you double the training budget and hold everything else fixed, you have implicitly halved your regularization; expect the train/validation gap to widen and be ready to raise weight decay to compensate. Tuning both independently on a small grid wastes most of the grid on redundant combinations.
+2. **Early stopping is only as trustworthy as the validation set.** Because it is a regularizer whose strength is chosen by the validation curve, a leaked or near-duplicate validation set does not merely give you an optimistic number, it actively picks the wrong stopping point — usually hundreds of steps too late, so the model that ships is the overfit one. Explicit weight decay does not have this failure mode, which is a real argument for using both rather than leaning entirely on early stopping.
+
+Caveat worth saying out loud: the derivation assumes a quadratic objective, gradient descent from zero, and a fixed step size. With Adam and a cosine schedule the correspondence is qualitative, not exact. The direction of the effect survives; the constant does not.
+
+**Rubric — full credit:**
+- Sets up a quadratic objective and works in the eigenbasis
+- Derives the GD shrinkage factor $1 - (1-\eta\lambda_i)^t$
+- Writes the ridge shrinkage factor $\lambda_i/(\lambda_i + \lambda)$
+- Matches them in the small-$\lambda_i$ regime to get $\lambda \approx 1/(\eta t)$
+- Interprets $\eta t$ as total travel distance and the penalty as its reciprocal
+- Gives the budget/weight-decay coupling as a practical consequence
+- Flags the quadratic/fixed-LR assumptions rather than overclaiming
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. Gradient accumulation is not a large batch.** You run out of memory at batch size 256 and switch to 8 micro-batches of 32 with gradient accumulation. (a) Write the correct loop and say where the $1/k$ goes and why. (b) Name the one architectural component for which this is genuinely not equivalent to a batch of 256, and explain the mechanism. (c) Give the distributed-training detail that costs you throughput if you miss it. (d) You now want the true batch of 256 to train as well as your old batch of 32 did. What do you change?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) The loop.**
+
+```python
+optimizer.zero_grad()
+for i, (x, y) in enumerate(micro_batches):        # k = 8 of them
+    loss = criterion(model(x), y) / k             # <- the division
+    loss.backward()                               # gradients accumulate in .grad
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+optimizer.step()
+```
+
+**Where the $1/k$ goes and why.** `criterion` already averages over the 32 examples in the micro-batch, producing $\frac{1}{32}\sum_{j \in \text{micro}} \ell_j$. Backward on each micro-batch *adds* its gradient into `.grad`. Summing 8 of those micro-averages gives $8 \times$ the average over all 256, so without the division your gradient is 8 times too large and your effective learning rate is 8 times what you configured. A previously stable run starts spiking and you blame the batch size. Dividing the loss by $k$ before each backward restores the true mean gradient over 256 examples.
+
+Two related details: `zero_grad()` goes *outside* the inner loop, and clipping goes *after* the last backward and before the step, since clipping a partial gradient clips the wrong vector.
+
+**(b) BatchNorm.** BN computes mean and variance over the examples present in the current forward pass. Under accumulation that is 32 examples, not 256, so the normalization statistics — and therefore the forward outputs and the gradients that flow from them — are those of a batch-32 model. Accumulation makes the *optimizer step* match batch 256 while leaving the *forward computation* at batch 32. Small-batch BN statistics are noisier, which shifts both the regularization effect and the running statistics that inference will use.
+
+LayerNorm normalizes across the feature dimension of each example independently, so it is untouched by how examples are grouped. This is one more quiet reason transformer training scales cleanly across memory configurations, and it is worth saying out loud because it connects to the LayerNorm-vs-BatchNorm question the interviewer is probably heading toward next.
+
+**(c) Distributed data parallel.** DDP triggers an all-reduce of gradients on every `backward()` by default. Under accumulation you would pay that communication $k$ times per optimizer step, and $k-1$ of them are pure waste since the intermediate gradients are never used for a step. Wrap all but the final micro-batch in `model.no_sync()` so gradients accumulate locally and only the last backward all-reduces. On a communication-bound cluster this is close to a $k\times$ difference in the sync cost per step.
+
+**(d) Raise the learning rate, and add or lengthen warmup.** A larger batch gives a lower-variance gradient estimate, so you can afford a longer step. The two standard heuristics: **linear scaling** (multiply the LR by the same factor as the batch — $8\times$ here — the usual choice for SGD with momentum on vision workloads) and **square-root scaling** ($\sqrt{8} \approx 2.8\times$, generally the better fit for Adam, because Adam's per-parameter normalization already divides by a gradient-magnitude estimate). Either way, add warmup proportional to the increase: the larger step is only safe once the optimizer's variance estimates have stabilized, and large-batch runs are exactly the ones that diverge in the first few hundred steps without it.
+
+Also note what does *not* change: you have the same number of examples per step but $k$ times the wall-clock per step, so accumulation buys memory, never speed.
+
+**Rubric — full credit:**
+- Correct loop with `zero_grad` outside, division by $k$ inside, clip and step after
+- Explains the $1/k$ as restoring the mean rather than the sum, and names the consequence (effective LR $k\times$ too high)
+- Identifies BatchNorm as the non-equivalence and explains it via per-forward-pass statistics
+- Contrasts with LayerNorm's per-example normalization
+- Names DDP `no_sync` and the $k\times$ communication waste
+- Gives both linear and sqrt LR scaling with the SGD/Adam distinction, plus warmup
+- States that accumulation trades wall-clock for memory
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Mixed precision arithmetic.** (a) Explain the bit budgets of fp16 and bf16 and derive why loss scaling exists for one and mostly not the other. (b) A colleague says "we switched to mixed precision to halve our memory." Do the parameter-side arithmetic for a 1-billion-parameter model trained with Adam and tell them what actually happened. (c) Where does the memory saving really come from? (d) Describe a mixed-precision failure that produces no NaN at all.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Bit budgets.** Both formats use 16 bits, and they spend them differently.
+
+| Format | Sign | Exponent | Mantissa | Smallest normal | Relative precision |
+|---|---|---|---|---|---|
+| fp32 | 1 | 8 | 23 | $\approx 1.2\times10^{-38}$ | ~7 decimal digits |
+| fp16 | 1 | 5 | 10 | $\approx 6.1\times10^{-5}$ | ~3 decimal digits |
+| bf16 | 1 | 8 | 7 | $\approx 1.2\times10^{-38}$ | ~2 decimal digits |
+
+fp16 spent its bits on precision and starved its exponent. Its smallest normal magnitude is about $6\times10^{-5}$, and activation gradients deep in a network routinely sit below that. Anything smaller flushes to zero, so those parameters simply stop receiving gradient — silent, partial, and worst in exactly the layers you care about.
+
+**Loss scaling** is the fix and it is pure exponent bookkeeping. Multiply the loss by a constant $S$ before `backward()`. By linearity of differentiation every gradient in the graph is multiplied by $S$ too, sliding the whole distribution up into fp16's representable window. Then divide the gradients by $S$ before clipping and before the optimizer step, so the math is unchanged. Dynamic scalers start near $2^{16}$, halve $S$ and skip the step whenever an inf or NaN appears, and double $S$ after a few thousand clean steps — a feedback loop that tracks the largest safe scale.
+
+bf16 keeps fp32's 8 exponent bits, so it has fp32's dynamic range and nothing to slide. That is why bf16 mostly removes the need for loss scaling, and why it became the default once hardware supported it. The price is precision: 7 mantissa bits is coarse, which is exactly why you still keep an fp32 master copy of the weights. A bf16 weight of magnitude 1.0 has a spacing of about $2^{-8} \approx 0.004$ between representable values, so an update of $10^{-6}$ would round away to nothing and training would stall.
+
+**(b) The 1B-parameter arithmetic.**
+
+Pure fp32 with Adam, 4 bytes per number:
+- weights: 4 GB
+- gradients: 4 GB
+- Adam first moment $m$: 4 GB
+- Adam second moment $v$: 4 GB
+- **total: 16 GB**
+
+Mixed precision with an fp32 master copy:
+- fp32 master weights: 4 GB
+- 16-bit working copy of the weights: 2 GB
+- 16-bit gradients: 2 GB
+- Adam moments, kept in fp32: 8 GB
+- **total: 16 GB, and more like 18 GB if you also keep an fp32 gradient accumulator**
+
+So the parameter-side memory did not halve. It went *up* slightly, because you now hold the weights twice. This is the part people get wrong, and stating it is the differentiator on this question.
+
+**(c) The saving is in activations.** Activation memory scales with batch size $\times$ sequence length $\times$ hidden dimension $\times$ number of layers, and every one of those tensors is stored for the backward pass. At long sequence lengths activations dominate total memory, and they genuinely halve when stored in 16 bits. The other real win is throughput: 16-bit matrix multiplies run on dedicated tensor-core paths at several times fp32 rates, and that is often the bigger reason to switch.
+
+The complementary lever, worth mentioning as the follow-up: **gradient checkpointing** discards most activations on the forward pass and recomputes them during backward, trading roughly 30% extra compute for a large activation-memory reduction. Mixed precision and checkpointing attack the same term.
+
+**(d) A failure with no NaN.** A model with a large-magnitude auxiliary loss under fp16. The combined loss overflows on some steps, so the dynamic scaler sees an inf, halves $S$, and skips the step. If this happens often enough, $S$ collapses toward 1 and never recovers, because it needs thousands of consecutive clean steps to double. Now no NaN is ever logged and no step visibly fails, but small gradients are once again flushing to zero, so most of the network stops learning and the loss curve simply flattens. The tell is the scaler value itself: log it. A healthy run has $S$ hovering high with occasional halvings; a sick run has it pinned at the floor.
+
+**Rubric — full credit:**
+- Gives exponent/mantissa splits for fp16 and bf16 and names fp16's ~$6\times10^{-5}$ underflow threshold
+- Explains loss scaling as multiply-before-backward, divide-before-step, justified by linearity
+- Explains that bf16 has fp32's range, hence no scaling needed, at the cost of mantissa bits
+- Explains why the fp32 master copy is still required (update rounding)
+- Does the arithmetic and concludes parameter memory does not fall
+- Locates the real saving in activations, and mentions throughput
+- Gives a no-NaN failure mode and names the scaler value as the instrument
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. The fine-tune that silently rots.** You fine-tune an ImageNet-pretrained ResNet on 4,000 medical images. You freeze the backbone with `for p in backbone.parameters(): p.requires_grad = False`, attach a new head, and train with batch size 8. Training loss falls smoothly. Validation accuracy climbs for 200 steps, then declines for the rest of the run. (a) Diagnose it. (b) Give the fix. (c) Even with the bug fixed, name two more things you would change about this setup, with reasoning.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) The backbone is not actually frozen.** `requires_grad = False` stops the *learnable* parameters (BatchNorm's affine $\gamma$ and $\beta$, along with the conv weights) from receiving updates. It does nothing to BatchNorm's **running mean and running variance**, which are buffers, not parameters, and are updated by the forward pass itself whenever the module is in train mode. Every forward pass over a batch of 8 medical images drags those running statistics away from the ImageNet statistics the frozen convolutional weights were trained against.
+
+So the head spends 200 steps learning to read a feature representation that is quietly changing underneath it. Training loss keeps falling because the head keeps adapting to the current features, but the representation is degrading, and evaluation (which uses those corrupted running statistics) gets worse. Batch size 8 makes it much worse: the per-batch statistics are extremely noisy, so the running estimates get pulled hard, and a medical-image distribution is far from ImageNet's to begin with.
+
+**(b) The fix.** Put the backbone into eval mode, and keep it there after every `model.train()` call, since `model.train()` recursively resets all submodules:
+
+```python
+model.train()
+backbone.eval()          # must come AFTER model.train(), every epoch
+```
+
+Belt and braces: also set `momentum=0` on the BN layers, or freeze the buffers explicitly. The check that proves it: snapshot `running_mean` before and after one epoch and assert they are identical. If you cannot state that check, you have not really fixed it.
+
+The general lesson to say out loud: freezing has two halves, gradients and buffers, and `requires_grad=False` only covers the first.
+
+**(c) Two more changes.**
+
+1. **Use two learning rates rather than a hard freeze.** With 4,000 images and a large domain gap (ImageNet natural photos versus medical scans), a fully frozen backbone is the wrong point on the table — its low-level edge and texture filters transfer, but the mid- and high-level features are tuned for object categories that do not exist in this domain. Unfreeze the last block and give it a learning rate 10 to 100 times below the head's, or apply layerwise decay (multiply the rate by ~0.75 per block going down). The head is randomly initialized and needs a normal rate; the backbone holds information you are trying not to erase.
+
+2. **Protect the backbone from the random head's early gradients.** On the first steps the head is random, so it produces large, meaningless gradients that flow back into good pretrained weights — this is how catastrophic forgetting starts. Either freeze the backbone entirely for the first epoch while the head stabilizes, or warm up the backbone learning rate from zero. Combined with the small dataset, this is also the moment to add real regularization: this is precisely the fine-tuning, small-data regime where dropout and weight decay still earn their keep, unlike large-model pretraining where dropout has largely disappeared.
+
+A third, if asked: with 4,000 images and batch size 8, consider replacing BatchNorm with GroupNorm in any layer you actually train, since BN's statistics are unreliable at that batch size — but only if you are training those layers, since swapping normalization in a frozen backbone throws away the pretrained statistics entirely.
+
+**Rubric — full credit:**
+- Identifies BN running statistics as buffers updated by the forward pass, independent of `requires_grad`
+- Explains the mechanism: features drift, head chases them, train loss falls while validation degrades
+- Notes batch size 8 and the domain gap as aggravating factors
+- Fix is `backbone.eval()` placed after `model.train()`, with a stated verification
+- Recommends partial unfreezing with two learning rates, justified by domain distance and data size
+- Mentions early-gradient protection (freeze-then-unfreeze or backbone warmup) against catastrophic forgetting
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Walk the ladder.** You inherit a training script. The loss decreases for 2,000 steps, then jumps from 2.1 to 9.4 in a single step, oscillates for a few hundred steps, and finally goes to NaN. (a) Give your ordered diagnostic plan and say what each step rules out. (b) You find the first non-finite value. How exactly did you find it, and why does the location of the *first* NaN matter? (c) Your fix is gradient clipping and it keeps the run alive. Your interviewer says "and?" — what is the expected answer?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) The ordered plan.**
+
+1. **Look at the logged gradient norm around step 2,000 first**, because it separates the two families of cause at zero cost. A norm that spikes by orders of magnitude one step *before* the loss spike means an optimization event: a bad step into a high-curvature region. A norm that stays ordinary while the loss explodes means the forward pass produced a bad value, so it is a numerics or data problem.
+2. **Check the learning-rate schedule at step 2,000.** A surprising number of these are a scheduler that just ended warmup, restarted a cycle, or has an off-by-one that produces a large rate at a boundary. Free to check.
+3. **Check whether the same data batch reproduces it.** Reload the checkpoint from step 1,900 and replay the same batches. If the spike reproduces from the same optimizer state but *not* when replayed from a different one, then it is an interaction between the data and the optimizer state, not a poisoned example — this is exactly what the PaLM team reported, and their remedy was procedural: rewind to a checkpoint ~100 steps back and skip a few hundred batches. If it reproduces regardless of state, go look at that specific batch: a pathological example, a corrupted record, an all-padding sequence producing a division by zero in a mask, or an outlier label.
+4. **Check for numerical instability in the loss and normalization.** A raw `log(p)` instead of a log-sum-exp-stable form, a variance that can hit zero without an epsilon, a `sqrt` of something that can be negative by rounding.
+5. **Check the precision configuration.** Under fp16, log the loss scaler; overflow plus scaler collapse looks exactly like this. Under bf16 this is much less likely, which is itself diagnostic information.
+
+**(b) Finding the first non-finite value.** Register forward hooks on every module that assert `torch.isfinite(output).all()`, or run under `torch.autograd.set_detect_anomaly(True)` (slow, but it points at the backward op that produced the NaN). Walk the forward pass in order and find the first tensor that is not finite.
+
+**Why the *first* matters:** NaN is absorbing. Once one appears, it propagates through every downstream operation and, on the next optimizer step, into essentially every parameter that touches it. So by the time you inspect parameters, everything is NaN and the tensor you are looking at tells you nothing about the origin. The first non-finite *activation* in the forward order is the actual crime scene; the first NaN in parameter space is just the aftermath. This ordering point is the graded part of the answer.
+
+**(c) "And?"** Clipping treats the symptom. It bounds the step size so a single bad gradient cannot destroy the run, which is worth having as insurance in any large run, but it does not change the conditioning that produced an enormous gradient in the first place. The actual fixes live upstream:
+
+- **Learning rate:** lower it, or add or lengthen warmup, so the optimizer is not taking large steps while Adam's second-moment estimate is still noise.
+- **Normalization placement:** pre-LN rather than post-LN keeps the residual path clean and is the standard reason deep transformers train stably without heroics.
+- **Residual connections:** the identity path gives the gradient an unattenuated route back, so $\partial(x + F(x))/\partial x = I + \partial F/\partial x$ never multiplies down to nothing.
+- **Initialization:** scale the weights so the forward variance is preserved layer to layer; the residual-branch scaling by $1/\sqrt{2N}$ in deep transformers exists for exactly this.
+- **Numerics:** stable loss formulations, epsilons in denominators, bf16 over fp16.
+
+The framing that ties it together: everything in this list is the same question, which is whether signal variance stays sane going forward and gradient magnitude stays sane coming back. Clipping is a cap on the top end of the second one, applied after the fact.
+
+**Rubric — full credit:**
+- Leads with the gradient norm as the cheap separator between optimization and numerics causes
+- Checks the LR schedule before touching the model
+- Knows the rewind-and-skip practice and what it implies (data–optimizer-state interaction, not a poisoned example)
+- Names forward hooks or anomaly detection as the instrument for locating the first non-finite tensor
+- Explains NaN absorption and why the first *activation* matters, not the first parameter
+- Says explicitly that clipping treats the symptom, then gives the upstream fix set
+- Frames the fix set as forward-signal-scale and backward-gradient-scale rather than as a list of tricks
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8. Two curves, two prescriptions.** You are shown two runs of the same architecture on the same dataset. Run A: training loss falls to 0.05, validation loss bottoms out at 0.9 at step 3,000 and rises steadily after. Run B: training loss and validation loss both plateau at 1.6 and sit there for 20,000 steps. (a) Name each condition and justify from the curve, not the definition. (b) Give the prescription for each in cost order and say what determines where you enter the ladder. (c) Which of the two is the easier problem, and why does that answer inform how you start every new project?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a) Diagnosis.**
+
+**Run A is overfitting.** The evidence is not that validation loss is high — it is the *shape*: training loss still falling while validation loss has turned around, so the gap is widening. The model has enough capacity to memorize the training set and nothing is stopping it. The turning point at step 3,000 is where the marginal update stopped buying generalization and started buying memorization.
+
+**Run B is underfitting.** Both losses are high *and* flat *and* equal. No gap means no memorization, so capacity or optimization is the binding constraint, not regularization. Note that 1.6 is a suspicious number to plateau at: check it against $\ln C$ for the class count, because "underfitting" and "the model never learned anything at all" look identical on the curve and have completely different fixes.
+
+**(b) Prescriptions.**
+
+**Run A**, cheapest and most effective first: **more data → augmentation → weight decay → dropout → early stopping → smaller model.** The ordering is the answer, not the list. More data comes first because it is the only intervention that raises the achievable ceiling instead of trading training fit for variance reduction. A smaller model comes last because it gives up capacity permanently and you cannot get it back later. Where you enter depends on what is actually available: if more data is not obtainable, start with augmentation *if you can name a true invariance for this task* — augmentation encodes an assumption, and a false one (horizontal flips on a task where left and right differ) makes things worse, not better. In a fine-tuning or small-data regime, dropout is live; in large-model pretraining it mostly is not, because with one pass over a corpus much larger than the parameter count there is nothing to memorize.
+
+Note the free win available immediately: Run A already tells you the best checkpoint is at step 3,000. Early stopping with best-checkpoint restore costs nothing and is the first thing to turn on.
+
+**Run B**, before adding a single parameter: **prove the optimization works by overfitting a single batch.** Take 8 examples, disable augmentation, regularization, and shuffling, and train until loss approaches zero. If it cannot, the problem is in the model or the loss and no amount of capacity will help. Only once a single batch overfits do you move on to: sweep the learning rate by powers of ten, check that gradients are flowing at every depth, then train longer, then add capacity, then remove regularization. Adding parameters to a model that cannot fit 8 examples is the single most common wasted week in applied ML.
+
+**(c) Run A is the far easier problem.** Overfitting means you have proven the model can fit the data; everything after that is trading a known quantity of training fit for generalization, and you have a whole ladder of cheap, reversible levers. Underfitting means you do not yet know whether the model, the loss, the data pipeline, or the optimizer is broken — the hypothesis space is still wide open.
+
+**How this informs project setup:** deliberately overfit first. Start with a model large enough to drive a small subset of the data to near-zero loss with regularization off. That converts an open-ended "why isn't this working" into a bounded "how much do I regularize," and it front-loads the discovery of pipeline bugs, which are otherwise indistinguishable from a model that needs more capacity. This is also the canonical answer to the interview question "should you overfit or underfit first?", and the interviewer is listening for the reasoning, not the word.
+
+**Rubric — full credit:**
+- Diagnoses from shape (gap widening vs both flat), not from absolute loss level
+- Checks Run B's plateau value against $\ln C$
+- Gives the fix ladder in cost order with the reasoning for why data is first and smaller model is last
+- Conditions augmentation on a genuine invariance and notes the false-invariance failure
+- Notes dropout's retreat from large-model pretraining
+- For underfitting, leads with overfit-a-single-batch before adding capacity
+- Answers that overfitting is the easier state and connects it to overfitting deliberately at project start
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: Training diagnostics and the debugging ladder
+
+These 15 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest — several of them are near-verbatim from real 2026 loops, and the diagnostic ones show up as entire dedicated rounds at Stripe, Airbnb, OpenAI, and Spotify.
+
+1. **Overfitting, start to finish** What is overfitting, how do you detect it, and how do you prevent it? Define it from the shape of the curves rather than from the error level, then give the fix ladder in cost order and say which rung you would reach for on a 5,000-example dataset versus a 50-million-example one.
+2. **Overfit or underfit first** When you start building a new neural network, should you deliberately overfit it or underfit it first? Say what the first thing you train on is, what you turn off while doing it, and what a failure at that stage rules out.
+3. **Validation below train** You are training a billion-parameter language model and validation loss is consistently *lower* than training loss. Give the three mundane explanations before you reach for anything exotic, and say what single cheap measurement would confirm the biggest one.
+4. **Debug this run** A training script that used to work now has a loss that decreases for 2,000 steps, spikes by an order of magnitude, and goes to NaN. Walk me through your diagnostic order and say what each check rules out. What do you look at *first*, and why that?
+5. **Flat from step zero** A 10-class classifier's loss sits at 2.30 from step zero and never moves. What is that number, what does it tell you, and what are the three most likely causes? How would you distinguish them?
+6. **Exploding gradients** How do you know gradients are exploding, and what do you do about it? After you say "clip by global norm," assume the interviewer says "and?" — give the upstream fixes and explain why clipping alone is not one of them.
+7. **Won't overfit one batch** You take 8 examples, turn off augmentation and regularization, train for 500 steps, and the loss will not go near zero. What does that rule out, and where do you look next? Name three concrete bugs that produce exactly this.
+8. **Freezing policy** You are fine-tuning a pretrained model. How do you decide what to freeze? Give the two axes that drive the decision, then the two implementation details that show you have actually done this before.
+9. **Frozen but not frozen** You set `requires_grad=False` on a pretrained backbone and train a new head with batch size 8. Validation gets *worse* over the run while training loss falls. What is happening and what is the one-line fix?
+10. **Gradient accumulation** You add gradient accumulation to fit a larger effective batch in memory. What must you change in the training loop, and in what precise sense is this not identical to actually training at that batch size? What does it buy you and what does it not buy you?
+11. **Batch size and learning rate** What happens to training if you drop the batch size to 1? What happens if you use the entire dataset as one batch? And how should the learning rate move when you change the batch size — give both common heuristics and say which optimizer each suits.
+12. **Loss scaling** What is loss scaling in mixed-precision training, what problem does it solve, and why does bf16 mostly remove the need for it? Follow up on yourself: what is the cost of bf16's smaller mantissa, and why do you still keep an fp32 copy of the weights?
+13. **Mixed-precision memory** A colleague says switching to mixed precision will halve their training memory. Is that right? Do the parameter-side arithmetic for a model trained with Adam, and say where the saving actually comes from.
+14. **Weight decay** Some training loops multiply the weights by a factor slightly less than 1 after every update. What is that for, and how does it relate to training for more steps? Then say why `Adam(weight_decay=λ)` is not the same thing as AdamW.
+15. **Reproducibility** Your teammate reruns your training script with the same seed and gets a different final accuracy. Walk through everything you would seed and configure, then be honest about where determinism still leaks — and say what you report in a paper or a design doc instead of chasing bitwise equality.

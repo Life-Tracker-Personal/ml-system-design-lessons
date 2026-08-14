@@ -1,0 +1,207 @@
+---
+id: c6.3
+chapter: 6
+title: Statistical rigor in evals
+subtitle: How many examples you actually need, why paired comparison changes everything, and the arithmetic that kills "model B scored 2 points higher"
+refs: []
+estimatedMinutes: 55
+---
+
+## TL;DR
+
+Almost every eval number you will ever be shown is a point estimate with no error bar, computed on a sample small enough that the error bar would swallow the claim. "Model B got 72% versus model A's 70% on our 100-example set" is the canonical example: the 95% confidence interval on that 2-point gap runs from about $-11$ to $+15$ points. The data is equally consistent with B being ten points *worse*. To resolve a true 2-point difference with unpaired evaluation you need roughly 8,000 examples per model, not 100. That single piece of arithmetic is the most valuable thing in this lesson, because it converts a vibe into a number you can say out loud in a design review.
+
+The rest is how to get out of that hole. **Paired comparison** — run both models on the same items and analyze the per-item differences — removes item difficulty from the variance and typically cuts the required sample by 3–7x. **Bootstrap** gives you a confidence interval for metrics like F1, recall@k or a rubric mean where no closed form exists. **Repeated sampling** handles the fact that an LLM's output is stochastic, and the variance decomposition tells you to buy more items before you buy more runs. **Multiple-comparison control** stops you from declaring a winner because you looked at twenty slices. **CUPED** and stratification buy you power for free. And in online A/B tests, power, minimum detectable effect and a pre-committed stopping rule are what separate a real readout from a peeked one.
+
+## What you'll be able to do after this lesson
+
+- Put a confidence interval on any eval score, and invert it to get the sample size the decision requires.
+- Show, with arithmetic, that a 2-point gap on 100 examples is noise, and state what n would settle it.
+- Run a paired analysis (McNemar for binary, paired differences otherwise) and explain why it is far more powerful than comparing two independent means.
+- Bootstrap a CI for an arbitrary metric, and know when to resample clusters instead of items.
+- Split eval variance into item variance and run-to-run variance, and spend budget on the term that dominates.
+- Control false discoveries across many slices and metrics with Bonferroni or Benjamini-Hochberg, and say which you chose and why.
+- Compute A/B sample size from a stated MDE and power, apply CUPED, and defend a fixed-horizon or alpha-spending stopping rule.
+
+## Part 1 — The width of the interval is the whole question
+
+An eval score on a random sample of items is an estimate. For a **proportion** (pass rate, accuracy, groundedness rate) measured on $n$ independent items, the standard error is
+
+$$
+\mathrm{SE}(\hat{p}) = \sqrt{\frac{\hat{p}(1-\hat{p})}{n}}
+$$
+
+and the 95% interval is $\hat p \pm 1.96\,\mathrm{SE}$. At $\hat p = 0.7$ and $n = 100$: $\mathrm{SE} = \sqrt{0.21/100} = 0.0458$, so the interval is $70\% \pm 9.0$ points. Your single-model number is only known to within nine points.
+
+Invert it and you get a sample-size rule, which is how the question is actually asked. If you can tolerate a half-width $w$, then
+
+$$
+n \ge \left(\frac{1.96}{w}\right)^2 \hat p (1-\hat p)
+$$
+
+For $w = 0.03$ at $\hat p = 0.7$: $n \ge (65.3)^2 \times 0.21 = 896$. For $w = 0.01$: $n \ge 8{,}068$. The quadratic is the thing to internalize — **three times tighter costs nine times more data.** Note also that $p(1-p)$ peaks at $p = 0.5$, so use $0.25$ as the worst case when you have no prior. That gives the pocket rule $n \approx 1/w^2$: 1% precision needs about 10,000 items, 3% needs about 1,100.
+
+### The headline arithmetic
+
+Two models, 100 shared eval items, A scores 70%, B scores 72%. Treat them as independent samples for a moment. The standard error of the *difference* is
+
+$$
+\mathrm{SE}(\hat p_B - \hat p_A) = \sqrt{\frac{p_A(1-p_A)}{n} + \frac{p_B(1-p_B)}{n}} = \sqrt{\frac{0.21 + 0.2016}{100}} = 0.0642
+$$
+
+So $z = 0.02 / 0.0642 = 0.31$, and the 95% CI on the gap is $2 \pm 12.6$ points. Nowhere near significance.
+
+How many items would settle a true 2-point gap at 80% power and two-sided $\alpha = 0.05$? Use $(z_{\alpha/2} + z_\beta)^2 = (1.96 + 0.84)^2 = 7.85$:
+
+$$
+n = \frac{(z_{\alpha/2}+z_\beta)^2\,[\,p_A(1-p_A) + p_B(1-p_B)\,]}{\Delta^2} = \frac{7.85 \times 0.4116}{0.0004} \approx 8{,}078
+$$
+
+Eight thousand items per model. Small differences are expensive. This is why teams ship on gut feeling: nobody wants to hear that their 200-item golden set cannot detect anything smaller than about 12 points.
+
+## Part 2 — Paired comparison is the cheapest power you will ever buy
+
+You did not run two independent samples. You ran both models on the *same* items. Use that.
+
+For per-item scores $Y_A^{(i)}$ and $Y_B^{(i)}$, define $D_i = Y_B^{(i)} - Y_A^{(i)}$ and analyze the $D_i$ as one sample. The variance is
+
+$$
+\mathrm{Var}(D) = \sigma_A^2 + \sigma_B^2 - 2\rho\,\sigma_A \sigma_B
+$$
+
+With $\sigma_A \approx \sigma_B = \sigma$ this collapses to $2\sigma^2(1-\rho)$. Item difficulty is shared: hard prompts are hard for both models, so $\rho$ is usually 0.6–0.9. At $\rho = 0.8$ the variance of the difference is one fifth of the unpaired value, so you need **five times fewer items** for the same power. Pairing does not make your models better; it removes "some questions are harder than others" from the noise, because that source of variation cancels item by item.
+
+### McNemar, for the binary case
+
+When the metric is pass/fail, all the information about the difference lives in the **discordant** items — the ones where exactly one model passed. Let $b$ be the count where B passes and A fails, $c$ the reverse. Items where both pass or both fail tell you nothing about which is better.
+
+Concretely, on 200 items: A passes 140 (70%), B passes 148 (74%). Suppose $b = 16$ and $c = 8$; the other 176 items agree. The paired test statistic is
+
+$$
+z = \frac{b - c}{\sqrt{b + c}} = \frac{8}{\sqrt{24}} = 1.63 \quad (p \approx 0.10)
+$$
+
+The unpaired comparison on the same data gives pooled $\bar p = 0.72$, $\mathrm{SE} = \sqrt{2 \times 0.72 \times 0.28/200} = 0.0449$, and $z = 0.04/0.0449 = 0.89$ ($p \approx 0.37$). Same data, same 4-point gap, and the paired analysis is nearly twice the z-statistic. Neither clears 0.05, which is the honest lesson: **a 4-point gap on 200 items is still not a result.**
+
+Now size it. Hold the observed rates fixed and scale $n$ by a factor $k$: the numerator grows like $8k$ and the denominator like $\sqrt{24k}$, so $z$ grows like $\sqrt{k}$. For 80% power you need $z$ to reach $2.80$, giving $\sqrt{k} \ge 2.80/1.63 = 1.72$, so $k \ge 2.95$ and $n \approx 590$ paired items. The unpaired route to the same 4-point difference needs about 1,960 per model. Roughly 590 versus 3,900 total evaluations.
+
+Two operational notes. Pair on the item *and* fix the sampling seed and decoding settings where you can — the tighter the pairing, the higher $\rho$. And report the paired CI, not just the p-value: $(b-c)/n \pm 1.96\sqrt{b+c}/n$, here $4.0 \pm 2.4$ points.
+
+## Part 3 — Bootstrap, for metrics with no formula
+
+There is no closed-form standard error for F1, recall@k, NDCG, a mean rubric score, or "percent of answers whose spans are all supported by retrieved context." Bootstrap gives you one without any distributional assumption.
+
+```python
+# percentile bootstrap CI for any metric over eval items
+import numpy as np
+
+def boot_ci(items, metric_fn, B=2000, alpha=0.05, rng=np.random.default_rng(0)):
+    n = len(items)
+    stats = np.empty(B)
+    for b in range(B):
+        idx = rng.integers(0, n, n)          # resample ITEMS, with replacement
+        stats[b] = metric_fn([items[i] for i in idx])
+    lo, hi = np.quantile(stats, [alpha/2, 1 - alpha/2])
+    return metric_fn(items), lo, hi
+```
+
+Three things people get wrong. **Resample the unit of independence.** If your eval set has 40 documents with 10 questions each, questions from one document are correlated; resample documents (a cluster bootstrap), otherwise your interval is too narrow. **For A-vs-B, resample the pair**, recomputing both metrics on the same resampled index set, so the bootstrap distribution is of the *difference* and inherits the pairing benefit. And **the bootstrap cannot manufacture information**: with $n = 30$ it will faithfully report a very wide interval, which is the correct answer, not a bug.
+
+$B = 2000$ resamples is plenty for a 95% interval. Use bias-corrected accelerated (BCa) intervals only if the metric is badly skewed; percentile is fine to say in an interview.
+
+## Part 4 — Stochastic output: items versus runs
+
+An LLM at temperature $> 0$ gives a different answer on a rerun, so an eval score has two variance components: differences between items, and run-to-run noise on the same item. With $n$ items and $r$ runs per item, the variance of the mean is
+
+$$
+\mathrm{Var}(\bar Y) = \frac{\sigma^2_{\text{item}}}{n} + \frac{\sigma^2_{\text{run}}}{n\,r}
+$$
+
+Notice $n$ divides both terms and $r$ divides only the second. Suppose $\sigma^2_{\text{item}} = 0.09$ and $\sigma^2_{\text{run}} = 0.04$. At $n=200, r=1$: $0.00045 + 0.0002 = 0.00065$, $\mathrm{SE} = 0.0255$. Triple the runs ($n=200, r=3$, cost 600 generations): $0.00045 + 0.0000667 = 0.000517$, $\mathrm{SE} = 0.0227$. Instead double the items ($n=400, r=1$, cost 400 generations): $0.000225 + 0.0001 = 0.000325$, $\mathrm{SE} = 0.0180$. **More items beats more runs, at lower cost**, because repeats only attack the smaller term.
+
+Repeats still earn their place for two other jobs: estimating $\sigma^2_{\text{run}}$ in the first place, and measuring *reliability* directly — "this agent completes the task on 4 of 5 runs" is a different and often more decision-relevant claim than a mean.
+
+## Part 5 — Many slices, many metrics
+
+You evaluate 20 slices at $\alpha = 0.05$ with no true differences anywhere. The probability of at least one "significant" result is $1 - 0.95^{20} = 64\%$. Slice-hunting manufactures wins.
+
+Decide which error you care about. **Family-wise error rate** (probability of *any* false positive) is what you want for a release gate: use Bonferroni, test each at $\alpha/m$. For $m=20$ that is $0.0025$ — brutal, but a release gate should be brutal.
+
+**False discovery rate** (expected fraction of your rejections that are false) is what you want for exploration, where you are generating hypotheses to chase. Benjamini-Hochberg: sort the $m$ p-values ascending, find the largest $i$ with $p_{(i)} \le \frac{i}{m} q$, and reject everything up to it. With $m = 10$, $q = 0.10$, and p-values $0.001, 0.008, 0.02, 0.03, 0.04, 0.12, \ldots$ the thresholds are $0.01, 0.02, 0.03, 0.04, 0.05, 0.06$. Ranks 1 through 5 all clear; rank 6 ($0.12 > 0.06$) does not. Reject the first five, expecting about 0.5 of them to be false.
+
+The senior version of this answer names the alternative too: **pre-register a small number of slices that matter** (top languages, top intents, the safety-critical population) as confirmatory tests, and treat everything else as exploratory and flagged for follow-up rather than acted on. That is cheaper than correcting for 200 tests you never should have run.
+
+## Part 6 — Online A/B: power, MDE, peeking, CUPED
+
+Offline evals rank candidates. The online test decides. The formula to have memorized, for comparing two means with equal allocation:
+
+$$
+n_{\text{per arm}} = \frac{2(z_{\alpha/2} + z_\beta)^2 \sigma^2}{\Delta^2}
+$$
+
+Work a real one. Baseline mean 3.2 per user-day, SD 2.1, detect a 1.5% *relative* lift, 90% power, two-sided $\alpha = 0.05$. Then $\Delta = 0.015 \times 3.2 = 0.048$, $z_{\alpha/2} = 1.96$, $z_\beta = 1.2816$, so $(1.96+1.2816)^2 = 10.51$:
+
+$$
+n = \frac{2 \times 10.51 \times 2.1^2}{0.048^2} = \frac{92.7}{0.002304} \approx 40{,}200 \text{ user-days per arm}
+$$
+
+About 80,400 user-days total. Say the units out loud: if the randomization unit is the user and the analysis unit is the user-day, you must either analyze at the user level or use cluster-robust standard errors, because a user's days are correlated. Run in whole weeks — weekday and weekend traffic differ — with a minimum of one full week even if the arithmetic says three days.
+
+**Minimum detectable effect** is the same equation solved for $\Delta$ given the traffic you actually have. Do this *before* the test. If your MDE is 4% and the expected effect is 1%, the test is not worth running; go find a bigger swing, a lower-variance metric, or a variance reduction technique.
+
+### Peeking
+
+Under the null, testing repeatedly and stopping at the first $p < 0.05$ inflates the false positive rate: about 14% with five equally spaced looks, around 19% with ten, and it approaches 1 as looks become continuous. You will be watching the dashboard daily, so the fix is not "don't look," it is **commit to a stopping rule before the test starts.** Two acceptable answers: a fixed horizon (compute $n$, run to $n$, analyze once) or a group-sequential design with **alpha spending** — allocate the total $\alpha$ across planned interim looks, spending very little early. O'Brien-Fleming does exactly that; its first interim boundary is far stricter than 0.05, so early stops must be dramatic. Either way, guardrail and safety metrics are exempt: you monitor those continuously and stop for harm at any time. That asymmetry is the right thing to say and candidates rarely say it.
+
+### CUPED
+
+Covariate-adjusted metrics buy power for free using pre-experiment data. Let $X$ be the same metric measured on each user during a pre-period. Define
+
+$$
+Y_{\text{adj}} = Y - \theta (X - \bar X), \qquad \theta = \frac{\mathrm{Cov}(Y, X)}{\mathrm{Var}(X)}
+$$
+
+$Y_{\text{adj}}$ has the same expectation (since $E[X - \bar X] = 0$) but $\mathrm{Var}(Y_{\text{adj}}) = \mathrm{Var}(Y)(1 - \rho^2)$. At $\rho = 0.7$ that is a 51% variance cut, which halves the required sample. The covariate must be measured *before* randomization — using post-treatment data reintroduces the treatment effect into the adjustment and biases the estimate. Stratified assignment and analyzing a less heavy-tailed metric (winsorized, or a rate instead of a raw count) are the cheaper cousins.
+
+One more check to name: **sample ratio mismatch**. Expected 50/50, observed 100,000 versus 98,800. Chi-square against 99,400 expected each: $2 \times 600^2/99{,}400 = 7.25$, $p \approx 0.007$. Alarm at $p < 0.001$ and investigate rather than analyze — an SRM means the assignment or logging is broken, and every downstream number is suspect.
+
+## Tradeoff matrix
+
+| Technique | Buys you | Costs | Use when |
+|---|---|---|---|
+| Larger eval set | Precision, quadratically | Labeling, inference $ | The MDE you need is smaller than your current interval |
+| Paired design | 3–7x effective sample | Must run both systems on same items | Always, for A-vs-B offline |
+| Bootstrap CI | Interval for any metric | Compute, nothing else | F1, NDCG, rubric means, anything with no formula |
+| More runs per item | Reliability estimate, small variance cut | Linear inference $ | Output is highly stochastic, or reliability is the claim |
+| Bonferroni | Controls any false positive | Very low power | Release gates, confirmatory tests |
+| Benjamini-Hochberg | Controls false discovery fraction | Some false positives by design | Exploratory slice scans |
+| CUPED | Up to 2x effective sample | Needs clean pre-period data | Metric correlates with its own history |
+| Fixed horizon | Exact $\alpha$, simple | Cannot stop early for wins | Short tests, clear power calculation |
+| Alpha spending | Legal early stops | Stricter boundaries, more complexity | Long or expensive tests |
+
+## Production failure modes
+
+1. **The 100-example golden set that gates releases.** Its 95% CI is roughly $\pm 9$ points, so every ship decision under 9 points is a coin flip dressed as data. Nobody notices because the number always looks precise.
+2. **Unpaired comparison of paired data.** The team runs both models on the same set, then compares two aggregate percentages. They throw away most of their power and conclude "no difference."
+3. **Correlated items counted as independent.** 500 questions generated from 30 documents, or 2,000 turns from 150 sessions. Standard errors come out roughly $\sqrt{\text{cluster size}}$ too small, and "significant" wins evaporate in production.
+4. **Slice mining after the fact.** Twenty slices, one hits $p = 0.03$, it goes in the launch doc. It replicates a third of the time.
+5. **Peeking until green.** The dashboard is checked daily and the test is stopped the day it crosses. Actual false positive rate is triple the nominal one.
+6. **A judge whose noise is unmeasured.** The LLM grader disagrees with itself across reruns, adding a variance component nobody put in the error bar. Rerun the judge on a fixed sample and measure it.
+7. **SRM ignored.** A 50.3/49.7 split gets waved off as rounding; it is actually a bot-filtering rule that fires on one arm, and the whole readout is biased.
+8. **Metric with a fat tail.** Revenue per user, tokens per session. A handful of whales dominate the variance, the CLT approximation is poor at your $n$, and the interval lies. Winsorize, or bootstrap, or both.
+
+## Interview gotchas
+
+- **"Model B beat model A by 2 points on our eval. Do we ship?"** No, and here is why in numbers: on 100 items the SE of that difference is about 6.4 points, so the CI is roughly $-11$ to $+15$. I would move to a paired analysis of the same runs, report the paired CI, and compute the n needed for the MDE we care about — roughly 8,000 unpaired, or about 2,000 paired given typical item correlation.
+- **"How many eval examples do you need?"** Start from the decision. Give me the smallest difference that would change what we do; I get $n$ from $n \approx (1.96/w)^2 p(1-p)$, or the two-sample formula for a comparison. 3% precision needs about 1,000 items; 1% needs about 8,000. Never quote a sample size without a target width.
+- **"Why is a paired test more powerful?"** Because $\mathrm{Var}(D) = \sigma_A^2 + \sigma_B^2 - 2\rho\sigma_A\sigma_B$. Item difficulty is common to both systems, so it cancels. At $\rho = 0.8$ the difference variance is one fifth of the unpaired value.
+- **"How do you get a confidence interval on F1 / recall@k / a rubric mean?"** Bootstrap over items, 2,000 resamples, percentile interval. Resample clusters if items are grouped, and resample the shared index for A-vs-B so the pairing is preserved.
+- **"You're checking 3 cuts of the population. How do you control false discovery?"** Pre-register the cuts, then Benjamini-Hochberg at $q = 0.1$ for exploration or Bonferroni at $\alpha/3$ if any single cut can block the release. Say which error rate you are controlling and why.
+- **"State your stopping rule."** Fixed horizon at the pre-computed $n$, analyzed once, or a group-sequential design with O'Brien-Fleming alpha spending at named interim points. Guardrails and safety metrics are monitored continuously and can stop the test at any time.
+- **"Compute the sample size for a 1.5% relative lift, 90% power, baseline 3.2, SD 2.1."** $n = 2(1.96+1.2816)^2\sigma^2/\Delta^2$ with $\Delta = 0.048$, giving about 40,200 user-days per arm. Then state the randomization unit and whether the analysis unit matches it.
+- **"How would you cut the sample size you just quoted?"** CUPED on a pre-period covariate — variance falls by $1-\rho^2$, so $\rho = 0.7$ roughly halves it. Also stratified assignment, a lower-variance version of the metric, and triggered analysis restricted to the eligible population.
+- **"The LLM output is stochastic. How many runs per item?"** Decompose the variance: repeats only shrink the $\sigma^2_{\text{run}}/(nr)$ term. Usually 1–3 runs and spend the rest of the budget on more items, unless run-to-run reliability is itself the thing being claimed.
+
+## Take the quiz
+
+**[Take the quiz →](/c/c6/c6.3/quiz)**

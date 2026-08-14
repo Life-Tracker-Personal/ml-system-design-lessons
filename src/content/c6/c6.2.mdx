@@ -1,0 +1,208 @@
+---
+id: c6.2
+chapter: 6
+title: Building the eval pipeline
+subtitle: Evals as infrastructure — discovering the dataset, gating a deploy, and the shadow-to-canary ladder
+refs: []
+estimatedMinutes: 55
+---
+
+## TL;DR
+
+An eval is not a score you compute at the end. It is a piece of infrastructure with a dataset, a version, a runner, a gate and an owner, and its job is to answer one question: **do we ship this change or not?** Everything in this lesson follows from that. If a number cannot block a deploy or trigger a rollback, it is a dashboard, not an eval. The most common failure is not a bad metric, it is a good metric attached to no decision.
+
+The two things that separate a senior answer here are both structural. First, **the eval set is discovered from production traces, not invented in a planning meeting** — you read real failures, cluster them into a counted taxonomy, and write one binary check per observed failure mode. Second, **the gate has to survive statistics**: your system is stochastic, your slices are many, and a naive per-slice threshold turns red about half the time for no reason. Get those two right and the rest of the pipeline is plumbing you can describe in ninety seconds.
+
+## What you'll be able to do after this lesson
+
+- Build an eval dataset from traces: sample, label the first upstream failure, count the taxonomy, write one binary check per mode.
+- Explain why binary pass/fail per named failure mode beats a 1-to-5 quality score.
+- Compute the standard error of a paired version comparison and show why pairing buys you a factor of two.
+- Quantify the false-alarm rate of a multi-slice CI gate and pick a correction that keeps the gate trusted.
+- Construct a case where the aggregate score improves while a real cohort collapses.
+- Design the version record that makes an eval run reproducible, and gate cost and p95 latency as hard budgets.
+- Lay out the shadow to canary to experiment ladder, and say which question each stage answers.
+
+> **Vocabulary primer.** *Trace*: the full logged record of one request — inputs, retrieved documents, tool calls, intermediate model outputs, final response, timings, cost. *Golden set*: a small human-verified set with agreed-correct answers. *Regression suite*: cases that once broke in production and must never break again. *Slice*: a subpopulation of the eval set (language, tenant size, device, intent). *Guardrail metric*: a metric you are not trying to improve, only to not damage. *Shadow deploy*: run the new version on live traffic without showing its output to anyone. *Canary*: show the new version to a small fraction of real traffic. *p95 latency*: the latency below which 95% of requests complete. *FDR*: false discovery rate, the expected fraction of your flagged alarms that are false.
+
+## Part 1 — Evals are discovered, not invented
+
+The instinct is to sit down and write a list of things the system should do well. That list is a list of your imagination's failure modes, and your imagination is not where the failures are.
+
+The method that works: pull a sample of real traces, around 100, stratified so it is not all the head intent. Read each one end to end. Write a free-text note on **the first upstream failure only**. This constraint matters more than it looks. A trace where retrieval missed the document and then the model hallucinated and then the citation was wrong is one failure, not three, and if you count it as three you will spend a quarter tuning the citation formatter.
+
+Then cluster the notes into a taxonomy and count. A real distribution looks like this:
+
+| Failure mode | Count / 100 |
+|---|---|
+| Retrieved the right doc, answered from priors anyway | 21 |
+| Query needed two documents, retrieved one | 14 |
+| Answered a question about a policy that expired | 11 |
+| Refused a benign request | 6 |
+| Wrong output format for the downstream parser | 4 |
+| Everything else, singletons | 9 |
+
+Now you have a build order. Fifty-six of your failures are covered by five checks, and the check for each is **binary**: did this response cite a source that supports every factual claim, yes or no. Not "rate groundedness 1 to 5." Nobody in the room can say what separates a 3 from a 4, which means the score is unreproducible, and an unreproducible number cannot gate anything. Binary per named mode also gives you the taxonomy back for free: when the gate fails you already know which mode moved.
+
+> **Stop and think.** You ship the first five checks and the aggregate pass rate climbs from 61% to 88% in a month. Is the system better? Consider what happens to the singleton bucket, and to failure modes that only appear in traffic you started serving after the sample was drawn.
+
+## Part 2 — What goes in the set, and in what proportion
+
+The eval set is three sets that live in one place and get reported separately.
+
+**Golden set.** Human-verified inputs and agreed-correct outputs, or agreed-correct properties of outputs. Small — a few hundred cases. Expensive. Refreshed from real traffic quarterly, because a set built in March stops resembling August traffic.
+
+**Regression suite.** Every production incident becomes a permanent case here, with the trace attached. This set only grows. It is the one that runs on every commit, because it is cheap, deterministic where possible, and it encodes bugs you have already paid for once.
+
+**Adversarial set.** Prompt injection, jailbreaks, ambiguous requests, empty retrieval, contradictory sources, inputs in the wrong language. Deliberately unrepresentative. Report it separately and never mix it into the headline number, or a routine adversarial expansion will look like a quality regression.
+
+Stratify the golden set by the dimensions along which your system's behavior actually varies, and hold each stratum large enough to measure. A slice with 12 cases has a standard error of roughly $\sqrt{0.85 \times 0.15 / 12} \approx 10$ percentage points on its pass rate. You cannot gate on that. Either fund the slice to 100+ cases or accept that it is a monitor, not a gate.
+
+## Part 3 — Making a gate that is not noise
+
+**Goal — decide whether version B is worse than version A, when both are stochastic and you have finite cases.**
+
+Two versions run on 200 cases, both around an 85% pass rate. Treat them as independent samples and the standard error of the difference is
+
+$$
+\mathrm{SE}_{\text{unpaired}} = \sqrt{\frac{2p(1-p)}{n}} = \sqrt{\frac{2 \times 0.85 \times 0.15}{200}} = \sqrt{0.001275} \approx 0.036
+$$
+
+That is 3.6 percentage points. A real 3-point regression is invisible. The naive conclusion is "we need thousands of eval cases," which is why teams give up on gating.
+
+The fix is that the samples are not independent — you ran both versions on **the same cases**. Define $d_i = \mathbf{1}[A_i \text{ passes}] - \mathbf{1}[B_i \text{ passes}]$, so $d_i \in \lbrace -1, 0, 1 \rbrace$. Then
+
+$$
+\mathrm{Var}(d) = \mathrm{Var}(A) + \mathrm{Var}(B) - 2\,\mathrm{Cov}(A,B) = 2p(1-p)(1 - \rho)
+$$
+
+With correlation $\rho = 0.8$ between the two versions' per-case outcomes, which is conservative for two prompt variants of the same model:
+
+$$
+\mathrm{Var}(d) = 2 \times 0.1275 \times 0.2 = 0.051, \qquad \mathrm{SE}_{\text{paired}} = \sqrt{0.051/200} \approx 0.016
+$$
+
+1.6 points instead of 3.6, from the same 200 cases. And notice what $\mathrm{Var}(d) = 0.051$ means concretely: $E[d^2]$ is exactly the probability the two versions **disagree**, so about 10 of your 200 cases are discordant. All of your statistical power lives in those 10. That is the McNemar view, and it tells you where to spend labeling budget: cases where versions disagree are worth ten of the ones where they both pass.
+
+Two more requirements before this is a real gate.
+
+**Repeat the trials.** At temperature above zero the same input gives different outputs. Run each case $k = 3$ or $5$ times and treat the per-case pass rate as the unit. This shrinks the within-case noise and, more usefully, exposes cases that pass 2 times out of 5 — a flaky case is itself a finding.
+
+**Correct for the number of slices.** Suppose you gate 12 slices independently at $\alpha = 0.05$. Under a true null on every slice,
+
+$$
+P(\text{at least one alarm}) = 1 - 0.95^{12} = 1 - 0.540 = 0.46
+$$
+
+Your CI goes red 46% of the time when nothing is wrong, and within three weeks the team is clicking through it. Control the false discovery rate across slices with Benjamini-Hochberg, or, more practically, run a two-tier gate: **blocking** on the aggregate and on any severity-1 safety check, **alerting** on per-slice moves that a human triages. State the tiering explicitly in an interview; it is the difference between someone who has run a gate and someone who has read about one.
+
+## Part 4 — The average hides the cohort
+
+Slice analysis is not a nice-to-have, because an aggregate is a traffic-weighted average and traffic weights are extremely uneven.
+
+Take 94% of traffic going from 88.0% to 89.9% pass, and 6% of traffic — Spanish-language mobile, say — going from 71% to 58%.
+
+$$
+\text{before} = 0.94(88.0) + 0.06(71.0) = 86.98, \qquad \text{after} = 0.94(89.9) + 0.06(58.0) = 87.99
+$$
+
+The headline reads plus one point. A cohort fell thirteen. Ship it and you will learn about it from support tickets in a month. This is why the per-slice report is the primary artifact and the aggregate is a summary of it, not the other way around.
+
+Fix your slices up front: language, tenant size, device, intent, new versus returning user, and any dimension where you know the data distribution is thin. Adding a slice after you see a bad result is how you p-hack yourself.
+
+## Part 5 — Versioning and the run record
+
+**Goal — be able to reproduce any eval number six weeks later, and attribute a move to one changed thing.**
+
+The unit of versioning is not the model. It is the tuple. Every eval run writes an immutable record:
+
+```
+run_id
+dataset_version      content hash of the case set
+prompt_version       git sha of the prompt templates
+model_id             exact served version, not "the latest"
+retrieval_index_ver  index build id + embedding model version
+grader_version       judge prompt sha + judge model id
+config               temperature, k, timeout, retries, concurrency
+env                  tools mocked / replayed / live
+results              per-case, not just aggregate
+cost, latency        per-case
+```
+
+Two rules follow. **Change one component per run**, or you cannot attribute the delta. And **version the grader like everything else** — a judge prompt edit that quietly raises every score is indistinguishable from a real improvement unless the grader version is in the record and pinned during a comparison.
+
+Per-case results are non-negotiable. Aggregates cannot tell you that the regression is entirely in 4 cases that all involve tables.
+
+Tracing is the upstream half of this. Log the whole trajectory: inputs, retrieved chunk ids and scores, each tool call and its response, intermediate outputs, token counts, per-stage latency, and a stable trace id. The eval set is built from these traces, so a system with thin logging cannot have a good eval set. That is a real coupling and worth saying out loud in a design round.
+
+## Part 6 — Cost and latency are gated axes, not footnotes
+
+Attach hard budgets and treat them as pass/fail alongside quality. A frontier-lab design round will hand you the numbers: p95 $\le$ 1.2s, $\le$ \$0.002 per query.
+
+Worked: version B is +2.1 points on quality, p95 goes 1.2s to 1.9s, cost goes from 0.0018 to 0.0031 USD per query. At 4M queries a day the cost delta is $0.0013 \times 4{,}000{,}000 = 5{,}200$ USD per day, about 1.9M USD a year. B fails the latency budget outright. The honest framing is that **a better answer that is three times slower may not ship**, and the decision belongs to whoever owns the budget — but the eval's job is to surface the trade as a hard number in the same report, not to let it be discovered in a post-launch review.
+
+## Part 7 — Online: shadow, canary, experiment
+
+Offline evals answer "is this version plausibly not broken." They cannot answer "does this help users," and the seam between the two is where interviewers push. Three stages, each answering a different question.
+
+**Shadow.** Run version B on live traffic in parallel with A, discard B's output, log it. Answers: does B crash, time out, blow the cost budget, or produce structurally invalid output on real inputs? Catches training-serving skew and distribution mismatch with zero user risk. Cannot answer anything about user behavior, because no user saw it.
+
+**Canary.** Route 1% of traffic to B. Answers: do the operational and guardrail metrics hold under real exposure — error rate, p95, cost per query, refusal rate, escalation rate. Watch for an hour, then a day, then ramp. Automatic rollback on a guardrail breach.
+
+**Experiment.** A randomized A/B test is the actual arbiter of quality. It is a large topic with its own machinery — unit of randomization, primary metric formula, power, SRM checks, stopping rules — and it gets its own treatment. What belongs here is the handoff: the offline gate and the canary decide whether a version is *eligible* for an experiment. They do not decide whether it is better.
+
+**Implicit feedback** is what you measure online when explicit ratings are sparse, which they always are. Copy events, follow-up question rate, edit-then-accept, session abandonment, retry rate, escalation to a human agent, and for support flows, recontact within 72 hours. All of them are biased. Thumbs-down is dominated by users who were already angry; acceptance of an agent's proposed edit reflects how easy the change was to review, not how good it was. Use them as directional guardrails and validate them against a labeled sample before trusting one as a primary.
+
+**Guardrails are not evals.** Guardrails are synchronous, deterministic, inline and blocking — a schema check, a PII filter, a refusal-policy classifier that runs before the response reaches the user. Evals are asynchronous measurement feeding an improvement loop. They share checks and share nothing else. Naming this distinction is a cheap and reliable seniority signal.
+
+## Part 8 — What to do when a metric moves
+
+**Goal — turn "the number dropped" into a mechanism.** Work the list in order, cheapest first.
+
+1. **Is the metric real?** Instrumentation change, logging deploy, a slice definition edit, a grader version bump. Roughly a third of alarms die here.
+2. **Is it one slice or all of them?** A single-slice drop points at data; an everywhere drop points at the model or the serving path.
+3. **Sample-ratio mismatch.** If the traffic split is not what you configured, the comparison is invalid before you interpret anything.
+4. **Training-serving skew.** Feature computed one way offline and another way online, or a feature that went stale because its upstream job failed.
+5. **Distribution shift.** New traffic your eval set does not contain — a marketing campaign, a new locale, a seasonal intent.
+6. **Feedback loop.** The model's own outputs are now in its inputs, through logs, retrieved documents, or user behavior it shaped.
+7. **Eval set rot.** The set no longer resembles traffic, so the offline number is measuring a population you no longer serve.
+
+The canonical worked case for the offline-online gap: an offline retrieval metric jumps several points because the embedding was trained on a feature that encodes the outcome, and bookings fall online because that feature does not exist at prediction time. Offline it looked like a large win. It was leakage. When someone says "offline improved and users got worse," leakage, position bias in logged training data, and an unrepresentative eval set are the three mechanisms to name first.
+
+## Tradeoff matrix
+
+| Choice | Cheap option | Expensive option | When the expensive one earns it |
+|---|---|---|---|
+| Grader | Deterministic assertion | LLM judge, then human review | No programmatic ground truth exists |
+| Score type | Binary per failure mode | Likert 1-to-5 | Almost never; binary is usually better |
+| Eval set source | Synthetic cases | Sampled production traces | Always — synthetic misses real modes |
+| Comparison | Unpaired, two runs | Paired, same cases, repeated trials | Any gate; pairing halves the SE for free |
+| Slice gating | Aggregate only | Per-slice with FDR control | Traffic is uneven, which it always is |
+| Pre-launch | Offline gate only | Shadow then canary then experiment | Anything user-facing or revenue-touching |
+| Trial count | One run per case | $k = 5$ runs per case | Temperature above zero, agent trajectories |
+
+## Production failure modes
+
+1. **The gate everyone ignores.** Twelve slices at $\alpha = 0.05$, red 46% of the time under a true null. Within a month the team merges through it by habit and the gate is worse than none.
+2. **The judge drifted, not the model.** Someone edits the judge prompt to fix a false positive, every score rises two points, and a week of "improvements" is measurement error. Pin and version the grader.
+3. **Regression suite saturates.** All 400 cases pass for three months, so the suite is measuring nothing. Cases stay for permanent protection, but new cases must keep arriving from production incidents or the suite stops informing.
+4. **Reward hacking the eval.** The model learns to emit a citation-shaped string that the check accepts without the citation supporting the claim. Any check that can be satisfied by surface form eventually will be. Hold out a set the optimizer never sees.
+5. **Adversarial cases folded into the headline.** The safety team adds 200 jailbreaks, the aggregate falls four points, and a quarter is spent chasing a regression that never happened.
+6. **Eval set built from last year's traffic.** Passes at 94% while support tickets climb, because the top three current intents are not in the set at all.
+7. **Shadow mode that mutates production.** The shadow run issues real writes, sends real emails, or evicts the cache. Offline and shadow runs need tool mocking and a hard no-mutation boundary.
+8. **Cost discovered after launch.** Nobody put cost per query in the eval report, the new version does three retrieval passes, and the bill triples in a week.
+
+## Interview gotchas
+
+- **"How would you add evals to this system?"** The weak answer is "build a golden set and use an LLM judge." The strong answer is the loop: sample 100 traces, label the first upstream failure only, count the taxonomy, build one binary check per observed mode, gate CI on it, feed production failures back in. Naming error analysis as the *origin* of the eval set is the whole differentiator.
+- **"Offline quality went up and user task completion went down. Debug it."** Do not say "offline and online are different." Name mechanisms: leakage or look-ahead in the offline label, position bias in logged data, training-serving skew, a stale feature, an eval set that no longer matches traffic, a feedback loop. Then name the bridges: shadow mode, interleaving for ranking, a backtest with a correct label window.
+- **"How do you decide whether to block the deploy?"** Tier it. Blocking on safety and severity-1 checks and on the aggregate paired comparison; alerting on per-slice moves with FDR control; hard budgets on p95 and cost per query. Then say what rollback looks like and who can override.
+- **"Your eval is 200 cases. Is that enough?"** Show the paired arithmetic. Unpaired SE 3.6 points, paired SE 1.6 points, and the power lives in the roughly 10 discordant cases. Then say what you would do with more budget: more cases in the thin slices, not more cases overall.
+- **"Why binary and not a 1-to-5 quality score?"** Because nobody can reproduce the boundary between 3 and 4, so the score has no test-retest reliability, so it cannot gate. Binary per named failure mode is reproducible, gives you the taxonomy back, and is directly checkable against human labels.
+- **"How do you version this?"** The tuple: dataset hash, prompt sha, model id, index version, grader version, config, environment. One change per run. Per-case results stored, not just aggregates.
+- **"What is the difference between a guardrail and an eval?"** Guardrails are synchronous, inline, deterministic and blocking. Evals are asynchronous measurement feeding an improvement loop. Cheap sentence, reliably good signal.
+- **A warning about prep material.** Public AI-engineer prep repos are saturated with benchmark suites, contamination, leaderboards and named eval frameworks. Across a large corpus of reported interview questions, essentially none of that gets asked. The questions are about experimentation, metric definition, diagnosis and eval-system design. Study accordingly.
+
+## Take the quiz
+
+**[Take the quiz →](/c/c6/c6.2/quiz)**

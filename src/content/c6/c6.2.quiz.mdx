@@ -1,0 +1,214 @@
+---
+lessonId: c6.2
+chapter: 6
+title: Quiz — Building the eval pipeline
+description: Eval datasets, deploy gates, slicing, versioning, cost and latency as gated axes, and online evaluation.
+estimatedMinutes: 40
+---
+
+These questions treat evals as infrastructure rather than as a report. The distinguishing skill is being able to say what blocks a deploy, what you do when the number moves, and how you know the number was not noise.
+
+<Quiz id="1">
+
+**Q1. Where the eval set comes from.** Your PM asks you to sit down and write 200 eval examples.
+
+**(a)** Explain why that set will be systematically wrong, and where the set should come from instead.
+
+**(b)** What goes into it, and in what proportion?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** A set written from imagination samples from your *mental model* of user behavior, not from user behavior. It will over-represent the clean, well-formed cases you thought of and under-represent the messy reality: typos, ambiguous phrasing, out-of-scope requests, adversarial input, and the long tail of things nobody predicted. The distribution mismatch means your eval score will be systematically optimistic and will not move when real quality moves.
+
+The set should be **discovered from production traffic**: sample real queries, stratify them, and label them. Where there is no traffic yet, use whatever proxy exists (support tickets, search logs, competitor usage, a pilot) and replace it with real traffic as soon as you have any.
+
+**(b)** A defensible mix:
+
+- **Representative sample** of real traffic, stratified by whatever segments matter, so the headline number tracks the population.
+- **Regression cases**: every bug ever fixed becomes a permanent item. This set only grows.
+- **Adversarial and edge cases**: prompt injection attempts, out-of-scope requests, empty or malformed input.
+- **Golden set**: a small, very carefully labeled, high-trust subset used for calibrating judges and for arbitration.
+
+The representative slice should dominate the headline metric; the others are reported separately so a growing regression suite does not silently reweight your average.
+
+**Rubric:**
+- (a) Names the distribution mismatch, and that the invented set is biased toward clean cases
+- (a) Prescribes sampling from real traffic, with a proxy when there is none
+- (b) At least three categories with distinct purposes
+- (b) Notes regression cases must not silently dominate the headline average
+
+</details>
+
+</Quiz>
+
+<Quiz id="2">
+
+**Q2. A gate that is not noise.** You want CI to block a deploy when quality regresses.
+
+**(a)** Your first attempt blocks whenever the score drops at all. What happens?
+
+**(b)** Design a gate that is actually usable, and say what you are trading away.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** You block on noise. Any eval on a finite sample has a standard error, so run-to-run variation will trip a zero-tolerance gate constantly. The team learns the gate is meaningless, adds an override, and starts using the override by default. A gate that fires on noise is worse than no gate, because it trains people to ignore it.
+
+**(b)** The gate should fire when the drop is **larger than the noise you measured**. Concretely: establish the run-to-run variation empirically by running the same model against the same set several times, set the threshold outside that band (for example, block when the lower bound of the confidence interval on the *change* falls below a tolerated regression), and prefer a **paired** comparison against the previous release, since pairing on shared items removes item difficulty and gives far more power at the same set size.
+
+Also gate on **slices**, not just the average, because a large regression in a small segment can leave the mean unmoved.
+
+What you trade away: you will miss real regressions smaller than your noise floor. That is unavoidable, and the honest response is to state the minimum detectable regression explicitly so everyone knows what the gate does *not* catch, and to catch the rest online.
+
+**Rubric:**
+- (a) Blocks on noise, gate gets overridden, worse than nothing
+- (b) Threshold derived from measured run-to-run variation, not picked arbitrarily
+- (b) Paired comparison against the previous release for power
+- (b) Slice gates alongside the average
+- (b) States the minimum detectable regression as a known blind spot
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. The average hid the regression.** Your headline pass rate is unchanged at 84% after a model swap, but support tickets from enterprise customers have tripled.
+
+**(a)** Explain how both can be true.
+
+**(b)** How do you find it without running 200 uncorrected comparisons?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** The enterprise segment is a small fraction of volume. A large regression on 3% of traffic moves the overall average by a fraction of a point, which is invisible against the noise floor. Averages are volume-weighted and your business impact is not. It is also possible for two segments to move in opposite directions and cancel exactly.
+
+**(b)** Slice along **pre-declared, business-meaningful dimensions**: customer tier, language, query type, document length, whether retrieval fired. Pre-declaring is what stops it being a fishing expedition. Then:
+
+- Report per-slice intervals, not point estimates, so a noisy small slice does not look like a finding.
+- Apply a multiplicity correction, or better, designate one or two slices as primary decision slices in advance and treat the rest as exploratory and labeled as such.
+- Weight by business impact rather than volume when the decision is a business one.
+- Confirm anything the exploratory pass surfaces on fresh data before acting on it.
+
+**Rubric:**
+- (a) Small-segment regression is invisible in a volume-weighted average
+- (a) Mentions the cancellation case
+- (b) Pre-declared slices as the anti-fishing mechanism
+- (b) Intervals per slice, and correction or a primary/exploratory split
+- (b) Confirm on fresh data
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. What actually changed.** Quality dropped 6 points overnight. Nobody deployed a model.
+
+**(a)** List what you would check, in order.
+
+**(b)** What should have been recorded so this takes ten minutes instead of two days?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** In rough order of likelihood and cost to check:
+
+1. **Is the drop real?** Re-run the eval. Check whether the change is inside the noise band before investigating anything.
+2. **Did the eval change?** New items added, labels edited, judge prompt or judge model version changed. The judge silently upgrading underneath you is a very common cause.
+3. **Did an upstream dependency change?** Provider model version, a retrieval index rebuild, an embedding model change, a prompt template edit, a library upgrade.
+4. **Did the input distribution change?** A new customer, a marketing launch, a seasonal shift. Quality can drop with no code change because the traffic changed.
+5. **Infrastructure:** timeouts, truncation, rate limiting producing degraded fallbacks.
+
+**(b)** Every eval run should record a **complete run record**: model identifier and version, prompt template version, judge model and judge prompt version, eval dataset version, retrieval index version, decoding parameters, code commit, and timestamp. If all of those are pinned and logged, the diff between two runs is a lookup rather than an investigation. The single most common gap is not versioning the **judge** and the **dataset**, because people think of those as fixed when they are not.
+
+**Rubric:**
+- (a) Confirms the drop is outside noise before investigating
+- (a) Checks the eval and the judge before assuming the model changed
+- (a) Includes distribution shift as a cause with no code change
+- (b) Names a concrete set of pinned versions including judge and dataset
+- (b) Identifies judge and dataset versioning as the usual gap
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Cost and latency are gates too.** A new model is 3 points better on quality, 2.5× the cost, and adds 400ms at p95.
+
+**(a)** How do you decide?
+
+**(b)** How would you have made this decision easier to make?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)** Turn all three onto a common footing rather than arguing about which matters more. Ask what 3 points of the quality metric is worth in the outcome the business actually cares about, using whatever link you have between offline quality and an online outcome, and compare that to the incremental spend at your volume. Separately, treat latency against a **product constraint**: if p95 has a hard budget, a 400ms increase either fits or it does not, and no amount of quality buys it back.
+
+Also consider that the choice is not binary. Route by difficulty so the expensive model handles only the queries that need it, cascade with a cheap first pass and escalation, or cache aggressively. That usually recovers most of the quality at a fraction of the cost.
+
+**(b)** By making cost and latency **first-class gated axes in the eval from the start**, reported on every run next to quality with their own thresholds. When they are footnotes, every model upgrade turns into a fresh argument. When they are gates, the tradeoff is visible before anyone gets attached to the quality number.
+
+**Rubric:**
+- (a) Converts quality to business value; compares against incremental spend at real volume
+- (a) Treats latency as a hard product constraint, not a tradeable quantity
+- (a) Proposes routing, cascading, or caching rather than a binary choice
+- (b) Cost and latency reported and gated on every run, not raised at decision time
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. Offline said yes, online said no.** Your offline evals improved and the A/B test came back flat.
+
+**(a)** Give three distinct explanations.
+
+**(b)** What do you change about the pipeline as a result?
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**(a)**
+
+1. **The eval set does not match live traffic.** It is stale, or it over-represents cases you curated. The offline gain is real on that distribution and irrelevant on the live one.
+2. **The metric does not predict the outcome.** You improved groundedness and the business metric is task completion; the two may be only weakly linked, or linked with a ceiling you already hit.
+3. **The experiment lacked power.** Flat is not the same as no effect. If the MDE was 5% and the true effect is 1%, a flat result is exactly what you would see.
+
+Others worth naming: the improvement is real but confined to a small segment, or serving conditions differ from eval conditions (different decoding parameters, truncation, timeouts).
+
+**(b)** Close the loop between the two. **Log production inputs and outcomes and feed them back into the eval set** so it tracks the live distribution. Then **validate the offline metric against the online outcome**: check historically whether offline movements have predicted online movements, and if they have not, the metric is not fit for purpose and should be replaced rather than defended. Report the experiment's MDE alongside every flat result so "no effect" and "no power" stop being confused. Where possible, keep a small always-on holdback to measure cumulative drift.
+
+**Rubric:**
+- (a) Three genuinely distinct causes, including underpowered as distinct from no effect
+- (b) Feeds production data back into the eval set
+- (b) Validates offline-to-online predictiveness historically, and is willing to discard the metric
+- (b) Reports MDE with null results
+
+</details>
+
+</Quiz>
+
+## Rapid-fire: building the eval pipeline
+
+These 15 questions stand alone. Each should take 2 to 5 minutes to answer out loud. They are chosen for how often they come up when you have to own an eval system rather than report a number.
+
+1. **Where the set comes from.** Your PM asks you to write 200 eval examples from scratch. Push back and say where the set should actually come from, and why the invented one will be systematically optimistic.
+2. **What goes in it.** Describe the mix of a real eval set: representative traffic, regression cases, adversarial cases, golden set. Why must the growing regression suite be reported separately from the headline number?
+3. **A gate that fires on noise.** Your CI blocks any drop in score. Say what goes wrong socially and statistically, and design a threshold you would actually defend.
+4. **Paired against last release.** Why does comparing a release against the previous one on shared items need far fewer examples than comparing two independent samples? What is being cancelled?
+5. **The mean did not move.** Enterprise tickets tripled, the headline pass rate is flat. Explain how both are true, and how you would find the regression without fishing.
+6. **Pre-declare or p-hack.** What does pre-declaring your slices actually buy you, and what do you do with an interesting result that shows up in an exploratory slice?
+7. **Nobody deployed anything.** Quality dropped 6 points overnight with no model change. Give your check order, and name the two things people most often forget to version.
+8. **Version the judge.** Why is a silently upgraded judge model one of the nastiest failure modes in an eval pipeline, and what does it look like when it happens?
+9. **What is in a run record.** List what you pin and log on every eval run so that diffing two runs is a lookup instead of an investigation.
+10. **Cost as a gate.** A model is 3 points better, 2.5× the cost, and 400ms slower at p95. Walk through the decision. What makes latency different from the other two?
+11. **Do not choose, route.** Instead of picking the expensive model or the cheap one, what architectures let you have both? Name two and say what each costs you in complexity.
+12. **Offline up, online flat.** Give three distinct explanations, and be precise about the difference between "no effect" and "not enough power."
+13. **Shadow, canary, experiment.** Distinguish the three. What does each catch that the others do not, and in what order would you use them?
+14. **Guardrail metrics.** You are optimizing answer quality. Name the guardrails you would hold fixed, and describe a change that improves the primary metric while doing real damage.
+15. **Defend the design.** You built an eval pipeline and an engineer says it is overhead that slows the team down. Give your actual answer, in terms of what it caught.
