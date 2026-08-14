@@ -181,6 +181,8 @@ Read the pseudo-residual out loud before moving on. For row $i$, it asks how the
 
 “Gradient descent in function space” sounds more exotic than it is. Ordinary gradient descent asks which direction to move each parameter. Gradient boosting asks which change to the current *prediction function* would decrease loss fastest on the training points. The pseudo-residual is that desired change evaluated row by row; the new tree approximates it using patterns in $X$.
 
+<BoostingResidualStrip caption="Read the panels left to right along the top row, then the bottom row, and keep your eye on the vertical red segments. In (a) they are the gaps the current ensemble f₁ leaves behind; in (b) those same gaps are redrawn about zero, and they — not the targets yᵢ — are what round 2 regresses on. That is the whole trick: the tree in (c) is fitted to the residual, so its four leaf values are corrections, not predictions. Then compare the two amber curves in (c): solid is the tree h₂ the residuals ask for, dashed is ν h₂ with ν = 0.5, which is all the update actually applies — the leaf spanning the trough asks for −0.45 and gets −0.22. Panel (d) is the consequence: f₂ steps from the gray dashed f₁ toward the data by exactly that shrunken amount, cutting squared error from 3.10 to 1.29 instead of closing the gap in one greedy jump. Every number was produced by running the procedure, not by drawing it." />
+
 Turn the loss knob and watch what the correction asks for:
 
 - Under squared loss, a prediction 3 units too low requests a correction of $+3$.

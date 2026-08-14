@@ -41,6 +41,8 @@ The other half of the problem is the fixed order you debug in. Overfit a single 
 
 **Validation below train.** The naive read is "underfitting" and it is wrong twice over: underfitting is a statement about level and slope, both curves high and both flat, and it says nothing at all about which of the two sits lower. Three mundane explanations account for nearly all real cases. Dropout and BatchNorm are active during training and disabled at eval, so the training forward pass is a noisier, handicapped model. Training loss is averaged over the whole epoch while validation is measured at the end of it, after the model has already improved. And data augmentation is applied to the training set only, so the training distribution is literally harder. Only after ruling out those three should you suspect an unrepresentative or leaked validation split.
 
+<LossCurveShapes caption="Find your shape first, then read the line under it. All six panels start at ln C = 2.303 and share one pair of axes (0 to 3000 steps, loss 0 to 2.6), so the shapes are directly comparable; an amber arrow marks a curve that leaves the top of its panel." />
+
 > **Stop and think.** You add heavy augmentation and the gap between train and validation loss inverts, with validation now well below train. Which of the three explanations above is doing the work, and what would you plot to confirm it?
 
 ## Part 2 — Overfitting, underfitting, and the fix ladder

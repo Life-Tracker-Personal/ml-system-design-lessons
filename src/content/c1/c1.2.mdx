@@ -76,6 +76,8 @@ Now turn the crank twice. If $p_\text{noise}$ is Gaussian, $\log p_\text{noise}(
 
 > **Stop and think.** If the noise distribution is something else entirely — say, Student-$t$ with $\nu$ degrees of freedom — what loss would MLE prescribe? *Hint:* $-\log p_\nu(r) = \frac{\nu + 1}{2}\log(1 + r^2/\nu) + \text{const}$. This is "robust regression" and we'll meet a numerical cousin (log-cosh) below.
 
+<NoiseModelToLoss caption="Read down each column: the bottom curve is the top one flipped about the r-axis, because the loss IS the negative log-density. Then read across the bottom row at r = 4, where the tangent slopes are 4.00, 1.00 and 0.84 — that slope is the pull a single residual exerts on the fit, which is why the Gaussian chases an outlier, the Laplace gives it one vote, and the Student-t is already letting go." />
+
 ## Mean squared error (MSE)
 
 ### Definition

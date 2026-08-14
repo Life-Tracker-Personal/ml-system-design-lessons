@@ -448,6 +448,8 @@ OLS uses shrinkage factor $1$ on every principal direction; ridge multiplies dir
 
 Two methods, one axis, two shapes of decision: a step and a slope.
 
+<RidgeVsPcrShrinkage caption="Follow each singular value dⱼ up from the axis: the blue step is PCR's verdict, the red ramp is ridge's, and the gray gap between them is what ridge keeps that PCR throws away. With λ = 4 the ramp passes through exactly ½ at dⱼ = √λ = 2, which is where the cliff has been placed: ridge is only half-committed at the exact singular value where PCR flips from all to nothing." />
+
 Seen this way, regularization is a decision about singular directions. OLS divides by singular values; a very small $d_j$ can amplify noise enormously. Ridge replaces the dangerous inversion with a shrinkage factor that approaches 0 for weak directions and 1 for strong directions. PCR uses a step function; ridge uses a smooth dial. Neither asks whether the direction predicts $y$ before deciding how strongly to retain it, although ridge's $\lambda$ is chosen using predictive validation.
 
 That target-blindness is where PCA goes badly wrong.
