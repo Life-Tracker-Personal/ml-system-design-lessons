@@ -324,7 +324,7 @@ The monitor watches production, where there is no ground truth. Track the judge 
 
 ## Rapid-fire: RAG in production
 
-These 16 questions do not depend on anything above, so this section stands on its own. Each is answerable out loud in two to five minutes, and they are chosen for how often they actually get asked, not for how interesting they are. If you drill one part of this quiz, drill this one.
+These 18 questions do not depend on anything above, so this section stands on its own. Each is answerable out loud in two to five minutes, and they are chosen for how often they actually get asked, not for how interesting they are. If you drill one part of this quiz, drill this one.
 
 1. **Walk me through a RAG system** Design a RAG system for customer support, end to end. Give it in two phases, indexing and query time, and name every stage. Then say where these systems most often fail, before anyone asks.
 2. **How do you evaluate it** How would you evaluate that system, given there is no single ground-truth answer? Cover retrieval and generation separately, name the specific metrics for each, and say where the labels come from.
@@ -342,3 +342,5 @@ These 16 questions do not depend on anything above, so this section stands on it
 14. **Multi-tenant access control** Design permission-filtered retrieval for a shared index serving hundreds of enterprise customers. Explain what goes wrong if you filter after retrieving, where the permissions come from at query time, and when you would give a tenant a separate index.
 15. **Prompt injection through documents** A retrieved document contains instructions aimed at your model. Walk through what happens and what stops it. Say what makes this dangerous in an agent with tools versus a read-only Q&A bot.
 16. **Is RAG dead at 1M tokens** Context windows are huge now. When do you skip retrieval and put everything in the prompt? Give cost and latency numbers for both, and name the reasons RAG survives that have nothing to do with cost.
+17. **Summarize the whole report** A user asks for the main themes across a 300-page report and your flat index returns five paragraphs and a shallow answer. Explain why this fails for a reason that has nothing to do with chunk size, why raising top-$k$ does not rescue it either, and what you would change at index time instead.
+18. **When does the loop stop** Your retriever is iterative: retrieve, decide, retrieve again. What gates the next hop? Say why a fixed iteration cap is the wrong primary control, what you replace it with, and how you would measure whatever you replace it with.
