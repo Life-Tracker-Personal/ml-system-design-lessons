@@ -1,0 +1,235 @@
+---
+id: c9.2
+chapter: 9
+title: The bias-variance decomposition for prediction
+subtitle: Where the three terms come from, what the expectation is actually over, and what each one responds to
+refs: []
+estimatedMinutes: 60
+---
+
+## TL;DR
+
+Move from "how good is my estimate of $\mu$" to "how good is my prediction of $y$" and the accounting gains a third term. Write the world as $y = f(x) + \varepsilon$ with mean-zero noise of variance $\sigma^2$, fit $\hat f$ on a random training set, and the expected squared error at a fixed input splits **exactly** into irreducible noise plus squared bias plus variance. The split is not an approximation and it is not a heuristic. It is two rounds of add-and-subtract, each with a cross-term that vanishes for a reason you can state in one sentence.
+
+The part people get wrong is what the expectation is over. **Bias and variance here are properties of a training procedure applied to a random training set, not properties of the fitted model sitting in your repo.** A single trained model has no variance. Refit it on a fresh sample of the same size and the spread of its predictions at one input is the variance; the gap between the average of those predictions and the truth is the bias. Everything else in this lesson follows from taking that definition literally: why overfitting is a variance statement, why training error is biased downward by an amount you can compute exactly, why ridge helps precisely in the near-collinear directions, and why more data cures variance and does nothing at all for bias.
+
+## What you'll be able to do after this lesson
+
+- Derive the pointwise decomposition end to end, naming what each expectation is over and why each cross-term is exactly zero.
+- Compute bias, variance and total error numerically for a $k$-nearest-neighbour fit and find the optimal $k$ by hand.
+- Prove that expected in-sample test error exceeds expected training error by exactly $2\sigma^2 \operatorname{tr}(S)/n$ for a linear smoother, and use it to size the optimism gap.
+- Show algebraically that ridge always beats OLS for some positive penalty, and identify which eigen-directions supply the gain.
+- Predict what happens to each term when you change $n$, change capacity, or add pure-noise features.
+- Say precisely where the decomposition stops being valid: 0-1 loss, cross-entropy, and the interpolating regime.
+
+> **Vocabulary primer.** *$\hat f$* ("f-hat"): the model your procedure produces, a random object because the training set is random. *$\bar f(x_0) = E_{\mathcal D}[\hat f(x_0)]$* ("f-bar"): the average prediction at $x_0$ over training sets, a fixed number, not something you ever hold in memory. *$\mathcal D$*: one training set of $n$ labelled rows. *Irreducible noise $\sigma^2$*: variance of the label given the input. *Linear smoother*: any method whose fitted values are $\hat y = S y$ for a matrix $S$ that does not depend on $y$; OLS, ridge, kernel smoothers and $k$-NN all qualify. *Optimism*: expected test error minus expected training error. *BLUE*: best linear unbiased estimator.
+
+## Part 1 — Setting up the prediction problem
+
+**Goal — write down exactly what is random before touching any algebra.** Estimating a parameter has one source of randomness: the sample. Prediction has two, and keeping them apart is the whole game.
+
+The data-generating assumption is
+
+$$
+y = f(x) + \varepsilon, \qquad E[\varepsilon \mid x] = 0, \qquad \operatorname{Var}(\varepsilon \mid x) = \sigma^2 .
+$$
+
+Here $f$ is the true regression function, the thing that would be the best possible prediction if you knew it. $\varepsilon$ is everything about $y$ that $x$ cannot explain: unmeasured drivers, measurement error, genuine randomness. Its variance $\sigma^2$ is a property of the world and of your feature set, not of your model.
+
+You draw a training set $\mathcal D = \lbrace (x_1, y_1), \dots, (x_n, y_n) \rbrace$ and run a fitting procedure on it, producing $\hat f_{\mathcal D}$. Then a new observation arrives at a fixed input $x_0$, carrying its own fresh noise $\varepsilon_0$, and you predict $\hat f_{\mathcal D}(x_0)$.
+
+Two independent random things are now in play. The first is $\varepsilon_0$, the noise on the future observation you are trying to hit. The second is $\mathcal D$, which makes $\hat f_{\mathcal D}(x_0)$ a random number even though $x_0$ is pinned down. Independence between them is an assumption, and it is the honest one: the future row was not in your training set. If it was, the cross-term below does not vanish, and that is exactly the leakage story.
+
+### The derivation, both cross-terms shown
+
+Write $f = f(x_0)$ for the truth at that point and $\hat f = \hat f_{\mathcal D}(x_0)$ for the prediction. The quantity of interest is
+
+$$
+\mathrm{Err}(x_0) = E_{\mathcal D,\, \varepsilon_0}\bigl[(y_0 - \hat f)^2\bigr], \qquad y_0 = f + \varepsilon_0 .
+$$
+
+Substitute and expand:
+
+$$
+(y_0 - \hat f)^2 = \bigl(\varepsilon_0 + (f - \hat f)\bigr)^2 = \varepsilon_0^2 + 2\,\varepsilon_0 (f - \hat f) + (f - \hat f)^2 .
+$$
+
+Take expectations term by term. The first gives $\sigma^2$. The middle term is where the independence assumption earns its keep: $\varepsilon_0$ is independent of $\mathcal D$, so the expectation factorises into $2\,E[\varepsilon_0]\,E_{\mathcal D}[f - \hat f]$, and $E[\varepsilon_0] = 0$ kills it. Nothing was assumed about the model to get this. So
+
+$$
+\mathrm{Err}(x_0) = \sigma^2 + E_{\mathcal D}\bigl[(f - \hat f)^2\bigr].
+$$
+
+Now the second round. Insert $\bar f = E_{\mathcal D}[\hat f]$, the average prediction over training sets, by adding and subtracting it:
+
+$$
+(f - \hat f)^2 = \bigl((f - \bar f) + (\bar f - \hat f)\bigr)^2 = (f - \bar f)^2 + 2(f - \bar f)(\bar f - \hat f) + (\bar f - \hat f)^2 .
+$$
+
+Take $E_{\mathcal D}$ of each piece. The first term contains no randomness at all: $f$ is a fixed truth and $\bar f$ is an expectation, so it is a constant and passes through. The middle term has the constant factor $(f - \bar f)$ pulled out, leaving $E_{\mathcal D}[\bar f - \hat f] = \bar f - \bar f = 0$. The cross-term vanishes because a variable's deviation from its own mean has mean zero, which is the same reason it vanishes in $\operatorname{Var}(Z) = E[Z^2] - (E Z)^2$. The last term is the variance by definition. Putting it together:
+
+$$
+\mathrm{Err}(x_0) = \underbrace{\sigma^2}_{\text{irreducible}} + \underbrace{\bigl(f(x_0) - \bar f(x_0)\bigr)^2}_{\text{bias}^2} + \underbrace{E_{\mathcal D}\bigl[(\hat f_{\mathcal D}(x_0) - \bar f(x_0))^2\bigr]}_{\text{variance}} . \qquad \text{QED}
+$$
+
+> **Stop and think.** Both cross-terms died for the same structural reason, but the assumptions behind them differ in strength. Which one survives if the noise is heteroskedastic, and which one survives if your test point leaked into training? Check which expectation each argument actually used.
+
+### What the expectation is over, said plainly
+
+Every expectation in that derivation is over **the training set** (plus the single fresh test noise). Three readings of that sentence are common, and all three are wrong.
+
+It is not an expectation over test points. The result is pointwise, evaluated at one fixed $x_0$. If you want an average over the input distribution you take a further expectation over $x_0$, and then the reported "bias" and "variance" are averages of pointwise quantities, a separate operation.
+
+It is not a property of your fitted model. The model in your repo is one draw. Its variance is zero in the same way one coin flip has no variance. Variance is the spread of $\hat f_{\mathcal D}(x_0)$ as $\mathcal D$ is redrawn from the same distribution at the same $n$.
+
+It is not something cross-validation splits for you. CV estimates the sum, which is the only thing you can measure from held-out labels. To separate bias from variance you need repeated refits on resampled training sets, which is why every empirical bias-variance study is a bootstrap or Monte Carlo study.
+
+### The floor, and when to stop tuning
+
+$\sigma^2$ has no $\hat f$ in it. No architecture, no hyperparameter sweep, no amount of compute changes it, because it is the variance of $y$ that the features do not resolve. Only two things move it: measuring better labels, or adding features that genuinely carry information about $y$.
+
+That makes it the stopping rule. If you have a credible estimate of $\sigma^2$ and your test MSE is sitting near it, tuning is finished and any further gain must come from data, not modelling. Estimating the floor is doable when you have repeated measurements at the same input: the within-group variance of $y$ across duplicate rows is a direct estimate of $\sigma^2$. Ranking systems with repeat impressions of the same query-document pair, and lab assays run in triplicate, both give you this for free.
+
+### Worked example: $k$-NN with real arithmetic
+
+**Goal — compute all three terms exactly for a method simple enough to do by hand.** Take $f(x) = x^2$, evaluate at $x_0 = 1$, put training inputs on a grid of spacing $0.05$, and set $\sigma^2 = 1$. The $k$-nearest-neighbour prediction averages the $k$ nearest labels, so with $k = 2m$ neighbours placed symmetrically at offsets $\pm 0.05 j$ for $j = 1, \dots, m$:
+
+$$
+\hat f(x_0) = \frac{1}{k}\sum_{\ell=1}^{k} y_{(\ell)}, \qquad \bar f(x_0) = \frac{1}{k}\sum_{\ell=1}^{k} f(x_{(\ell)}), \qquad \operatorname{Var} = \frac{\sigma^2}{k}.
+$$
+
+The variance is $\sigma^2/k$ because the $k$ labels carry independent noise. The bias is the averaging error of the true function. Since $(1 \pm h)^2 = 1 + h^2 \pm 2h$ and the symmetric $\pm 2h$ terms cancel, the bias is exactly the mean of $h^2$ over the neighbours:
+
+$$
+\text{bias} = \frac{0.0025}{m}\sum_{j=1}^{m} j^2 = 0.0025 \cdot \frac{(m+1)(2m+1)}{6}.
+$$
+
+Run the numbers. At $k = 2$: bias $= 0.0025$, bias$^2 = 0.000006$, variance $= 0.5$, total error $= 1.5000$. At $k = 10$: bias$^2 = 0.00076$, variance $= 0.1$, total $= 1.1008$. At $k = 22$: bias$^2 = 0.0132$, variance $= 0.0455$, total $= 1.0587$. At $k = 40$: bias$^2 = 0.1287$, variance $= 0.025$, total $= 1.1537$. At $k = 50$: bias$^2 = 0.3053$, variance $= 0.02$, total $= 1.3253$.
+
+The minimum sits at $k = 22$, where the marginal variance saving from one more neighbour stops covering the marginal bias cost of reaching further from $x_0$. Two things to read off this table. First, the sweep from $k=2$ to $k=22$ buys you $0.44$ of error, and every remaining tenth of a point you might want is inside the $1.0$ noise floor and therefore unreachable. Second, the curve is flat near the bottom and steep at both ends, which is why "roughly the right capacity" is usually good enough and "badly wrong capacity" is not.
+
+<BiasVarianceUCurve caption="The same arithmetic as the k-NN table, drawn as a sweep. Squared bias falls with capacity (blue), variance rises (red), and the total is their sum sitting on top of the dashed noise floor. The optimum is where the two marginal effects cancel, not where the curves cross, and no amount of tuning pushes the total below the dashed line." />
+
+## Part 2 — Translating the words people actually use
+
+**Goal — replace the vague vocabulary with the term of the decomposition each word names.**
+
+**Overfitting is a variance statement.** A model overfits when it responds to the noise in its particular training set. Operationally: refit the same procedure on a fresh sample of the same size and the prediction at a fixed $x_0$ moves a lot. That movement is literally the variance term, which is why "it memorised the training set" and "its predictions are unstable across refits" are the same sentence said twice.
+
+**Underfitting is a bias statement.** The procedure cannot represent $f$, so $\bar f(x_0) \ne f(x_0)$ no matter how much data you feed it. Fit a straight line to a quadratic and the population-best line is a fixed object determined by the joint distribution of $x$ and $y$. More rows make you converge to that line faster. They never make it curve.
+
+<LearningCurveDiag caption="How the two words look on a learning curve. Left: train and validation errors meet at a high common level, so the gap is gone and what remains is bias. More rows cannot help. Right: a persistent gap that does not close, which is variance. The diagnosis is a shape question, and it tells you which of the two levers in the next section to pull." />
+
+### Why training error is a biased estimate of test error
+
+**Goal — turn "training error is optimistic" into an exact number.** The fitted values used your labels, including the noise in those labels, so the residuals you measure are smaller than the errors you will make on fresh labels. For linear smoothers you can compute the gap exactly.
+
+Let $\hat y = S y$ with $y = f + \varepsilon$, where $f$ is the vector of true values at the $n$ training inputs and $S$ does not depend on $y$. Training error is
+
+$$
+E[\overline{\mathrm{err}}] = \tfrac{1}{n} E\lVert (I-S)(f + \varepsilon) \rVert^2 = \tfrac{1}{n}\Bigl[ \lVert (I-S) f\rVert^2 + \sigma^2 \operatorname{tr}\bigl((I-S)^\top (I-S)\bigr)\Bigr].
+$$
+
+In-sample test error draws fresh labels $y^\star = f + \varepsilon^\star$ at the same inputs and scores the same $\hat y$:
+
+$$
+\mathrm{Err}_{\text{in}} = \tfrac{1}{n} E\lVert y^\star - S y \rVert^2 = \sigma^2 + \tfrac{1}{n}\Bigl[\lVert (I-S) f \rVert^2 + \sigma^2 \operatorname{tr}(S^\top S)\Bigr].
+$$
+
+Subtract. The bias-squared pieces are identical and cancel. Expanding $\operatorname{tr}((I-S)^\top(I-S)) = n - 2\operatorname{tr}(S) + \operatorname{tr}(S^\top S)$, the trace terms cancel too, and what survives is
+
+$$
+\mathrm{Err}_{\text{in}} - E[\overline{\mathrm{err}}] = \frac{2\sigma^2 \operatorname{tr}(S)}{n}.
+$$
+
+For OLS with $p$ parameters, $S$ is a projection and $\operatorname{tr}(S) = p$, so the optimism is $2p\sigma^2/n$. Take $n = 200$, $p = 20$, $\sigma^2 = 1$, and a correctly specified model. Expected training MSE is $\sigma^2 (n-p)/n = 0.90$. Expected test MSE is $\sigma^2(1 + p/n) = 1.10$. The gap is $0.20$, and the reported training number understates the truth by 18%. This exact expression is what Mallows' $C_p$ adds back, and taking logs of the Gaussian likelihood version of it gives AIC. The quantity $\operatorname{tr}(S)$ is the honest definition of "effective number of parameters" and it is what you use for ridge, where the parameter count is not an integer.
+
+## Part 3 — Ridge, worked out where the gain actually comes from
+
+**Goal — show that a deliberately biased estimator can beat the unbiased one, and pinpoint where.** Ridge solves $\hat\beta_\lambda = (X^\top X + \lambda I)^{-1} X^\top y$. Take the singular value decomposition $X = U D V^\top$ with singular values $d_j$, and rotate into the eigen-coordinates $\alpha = V^\top \beta$. The problem decouples completely, one scalar per direction:
+
+$$
+\hat\alpha_{\lambda,j} = \frac{d_j^2}{d_j^2 + \lambda}\,\hat\alpha_{\text{ols},j}, \qquad s_j = \frac{d_j^2}{d_j^2+\lambda} \in (0,1).
+$$
+
+Each coordinate is the OLS estimate multiplied by a shrinkage factor $s_j$ strictly below one. Because $\hat\alpha_{\text{ols},j}$ is unbiased with variance $\sigma^2/d_j^2$, the two terms follow immediately:
+
+$$
+\text{bias}_j = (s_j - 1)\alpha_j = \frac{-\lambda\,\alpha_j}{d_j^2+\lambda}, \qquad \operatorname{Var}_j = s_j^2\frac{\sigma^2}{d_j^2} = \frac{\sigma^2 d_j^2}{(d_j^2+\lambda)^2},
+$$
+
+so the per-direction mean squared error is $\mathrm{MSE}_j(\lambda) = (\lambda^2\alpha_j^2 + \sigma^2 d_j^2)/(d_j^2+\lambda)^2$.
+
+Differentiate at $\lambda = 0$. The numerator's derivative contributes nothing there because it carries a factor of $\lambda$, leaving $\mathrm{MSE}_j'(0) = -2\sigma^2/d_j^4$, which is strictly negative in every direction. **Starting from OLS, an infinitesimal amount of shrinkage always reduces MSE**, whatever the true $\beta$ is. That existence result is Hoerl and Kennard 1970, and it is the cleanest possible demonstration that unbiasedness is not the same thing as accuracy.
+
+Solving $\mathrm{MSE}_j(\lambda) < \sigma^2/d_j^2$ gives the exact window. Cancelling one factor of $\lambda$ leaves the condition $\lambda\,(d_j^2\alpha_j^2 - \sigma^2) < 2\sigma^2 d_j^2$. If $\alpha_j^2 \le \sigma^2/d_j^2$, meaning the signal in that direction is smaller than the noise in that direction, the inequality holds for every $\lambda$ and ridge wins no matter how hard you shrink. Otherwise it holds up to $\lambda_j^\star = 2\sigma^2/(\alpha_j^2 - \sigma^2/d_j^2)$.
+
+Numbers make the point sharper. Two directions, $\sigma^2 = 1$, true $\alpha_1 = \alpha_2 = 1$, and $d_1^2 = 100$ (well-conditioned) against $d_2^2 = 0.5$ (near-collinear). Set $\lambda = 1$.
+
+| Direction | OLS variance | Ridge bias$^2$ | Ridge variance | Ridge MSE | Change |
+|---|---|---|---|---|---|
+| $d_1^2 = 100$ | 0.0100 | 0.000098 | 0.009803 | 0.009901 | $-0.0001$ |
+| $d_2^2 = 0.5$ | 2.0000 | 0.444444 | 0.222222 | 0.666667 | $-1.3333$ |
+| Total | 2.0100 | 0.444542 | 0.232025 | 0.676568 | $-66\%$ |
+
+The well-conditioned direction is essentially untouched, because $s_1 = 0.99$ means ridge barely moves it. All of the 66% improvement comes from the near-collinear direction, where OLS variance is $\sigma^2/d_j^2 = 2$ and shrinkage cuts it by nine-tenths at a squared-bias cost of $0.44$. **Ridge helps exactly where OLS is unstable, and near-collinearity is the definition of unstable.** This is also why standardising features before ridge matters: $\lambda$ is applied in the units of the design, so an unscaled column changes which directions get shrunk.
+
+<ShrinkageCurves lambda={0.6} caption="Estimated coefficient against its OLS value at lambda = 0.6, with the dashed gray line marking no shrinkage. Ridge (blue) multiplies by a constant factor, so the bias it introduces grows with the size of the coefficient and never reaches zero. Lasso (red) subtracts a constant and clips, so its bias is capped at lambda for survivors and equals the whole coefficient for the ones it zeroes." />
+
+**Lasso, in one paragraph.** Lasso replaces the multiplicative shrink with a soft threshold: in an orthonormal design $\hat\beta_j = \operatorname{sign}(b_j)\,(|b_j| - \lambda)_+$ where $b_j$ is the OLS coefficient. That gives a different bias-variance trade. For a coefficient that survives, the bias is capped at $\lambda$ regardless of how large the true value is, which is gentler than ridge on strong signals, and the variance is roughly the OLS variance because the threshold is a shift rather than a scale. For a coefficient that gets zeroed, the variance drops to exactly zero and the squared bias is the entire $\beta_j^2$. So lasso is a bet on sparsity: it is a large win when the true coefficient really is near zero, since you buy the full $\sigma^2/d_j^2$ variance saving for almost no bias, and a large loss when it zeroes a genuine effect. The capped bias on survivors is also why the coefficients that survive are still shrunk toward zero, and why relaxed lasso and debiased-lasso refits exist.
+
+## Part 4 — What actually moves each term
+
+**Goal — three levers, and what each one does to which term.**
+
+**Sample size cuts variance and leaves bias alone.** For OLS the variance of a fitted value scales like $p\sigma^2/n$, so doubling $n$ halves it. Bias does not budge, because $E[\hat\beta] = \beta$ holds at every $n$, and under misspecification the pseudo-true parameter that OLS converges to is defined by the population, not by your sample size. Concretely: fitting a line to a quadratic, the asymptotic line is fixed by the joint distribution of $x$ and $y$. Ten million rows locate that line very precisely and it is still a line. Underfitting is the one disease more data does not treat.
+
+**Model complexity trades one term for the other.** Every capacity knob is the same knob. Decrease $k$ in $k$-NN, deepen a tree, raise polynomial degree, lower $\lambda$: bias falls, variance rises. The $k$-NN table above is the whole story in five rows. This monotone trade is what produces the U-curve, and it is why the answer to "should I use a bigger model" is always "relative to how much data".
+
+**Pure-noise features raise variance with no bias benefit.** Add a column that is independent of $y$. The true coefficient on it is zero, so a correctly specified OLS was already unbiased and the bias term cannot improve. But $\operatorname{tr}(S)$ goes up by one, so in-sample test error rises by $\sigma^2/n$ and, by the optimism formula, training error falls by $\sigma^2/n$. Keeping $n=200$ and $\sigma^2=1$ and going from $p=20$ to $p=40$ by adding twenty junk columns: training MSE drops from $0.90$ to $0.80$ while test MSE climbs from $1.10$ to $1.20$. Your dashboard improves by 11% while the model gets 9% worse. This is the mechanism behind most feature-store bloat, and it is why regularisation and feature selection are the same conversation.
+
+## Part 5 — Where the decomposition stops being true
+
+**Goal — know the boundary, because the strongest version of this answer is the one that names its own limits.**
+
+**It is exact for squared error and does not transfer cleanly.** Both cross-terms died because of the algebraic identity for expanding a square. Nothing analogous exists for 0-1 loss. The published 0-1 analogues (Kong and Dietterich 1995, Kohavi and Wolpert 1996, Domingos 2000, James 2003) are definitional choices that differ from each other, and they lose the clean additivity: in Domingos' formulation the variance term enters with a sign that flips depending on whether the average prediction is already correct. That is not a technicality. Suppose the true class at $x_0$ is 1 with probability 0.6. A zero-variance classifier that always predicts 0 has 60% error. A high-variance classifier that predicts 1 with probability 0.55 and 0 otherwise has error $0.55 \times 0.4 + 0.45 \times 0.6 = 0.49$. Variance rescued it, because under a thresholded loss, randomness around a wrong mean can land you on the right side of the boundary. Under squared error variance is never helpful.
+
+**Cross-entropy has a decomposition, but not the one you would guess.** Log loss is a Bregman divergence, and Bregman divergences do admit a noise-plus-bias-plus-variance split (Heskes 1998, Pfau 2013). The catch is that the "average model" you must centre on is the normalised **geometric** mean of the predicted distributions, not the arithmetic mean, and the variance term is a Jensen gap rather than a plain second moment. So the arithmetic intuition that ensembling averages predictions and kills variance needs restating for probabilistic outputs: averaging log-odds and averaging probabilities are different operations with different bias.
+
+**The identity survives the interpolating regime, but the U-curve does not.** Nothing in the derivation mentions model size, so the three-term split holds for a model with a hundred times more parameters than rows exactly as it holds for a straight line. What does not survive is the extra claim smuggled in alongside it in Part 4: that variance rises monotonically with capacity. Once a model can fit its training set exactly, that claim fails empirically, and test error can fall again past the point where it should have exploded. Keep the identity, drop the monotonicity.
+
+## Tradeoff matrix
+
+| Lever | Effect on bias | Effect on variance | Effect on $\sigma^2$ | When it is the right move |
+|---|---|---|---|---|
+| More rows, same model | none | falls like $1/n$ | none | Train-validation gap is wide and not closing |
+| More capacity (deeper, smaller $k$, higher degree) | falls | rises | none | Train and validation both plateau high |
+| Ridge penalty $\lambda$ | rises smoothly, largest on big coefficients | falls, most in small-$d_j$ directions | none | Correlated features, $p$ comparable to $n$ |
+| Lasso penalty $\lambda$ | capped at $\lambda$ for survivors, full $\beta_j$ for zeroed | falls to zero for zeroed coordinates | none | Genuinely sparse truth, want selection |
+| Adding informative features | falls | rises slightly | falls | The floor is above your target error |
+| Adding noise features | none | rises by $\sigma^2/n$ each | none | Never |
+| Better labels or instruments | none | none | falls | Test error is already near the floor |
+
+## Production failure modes
+
+1. **Tuning past the noise floor.** A team runs a six-week hyperparameter sweep on a CTR model whose labels are single Bernoulli impressions. The per-impression noise floor dominates, and every reported gain is inside the resampling error of the evaluation set. Estimate $\sigma^2$ first, from repeated observations of the same query-item pair, and set the stopping target against it.
+2. **Reporting variance from one seed.** A model is declared better on a single train-test split. The next retrain, on a week of fresh data, undoes the gain. The measured difference was a draw from the variance term. Fix it by repeating the fit over seeds and data windows and reporting the spread, not the point.
+3. **Feature-store bloat.** Hundreds of features are added because each one lowered training loss. Each pure-noise column costs $\sigma^2/n$ of test error and pays back $\sigma^2/n$ of training error, so the offline dashboard improves monotonically while the live model degrades. Monitor the train-test gap, not the training curve.
+4. **Ridge on unstandardised features.** The penalty is applied in the units of the design matrix, so a column measured in dollars and one in millions of dollars receive wildly different effective shrinkage. The directions that get shrunk are then an artefact of units rather than of conditioning.
+5. **Choosing $\lambda$ on the split you then report.** The penalty is a fitted parameter. Selecting it by minimising error on a held-out set and then reporting that same error makes the reported number the minimum of a noisy curve, which is biased low by roughly the spread of the curve near its bottom. The penalty needs its own validation set, separate from the set the final number comes from.
+6. **Treating leakage as an accuracy bug.** A leaked test row makes $\varepsilon_0$ dependent on $\mathcal D$, so the first cross-term stops vanishing and offline error is biased downward by a term nobody is measuring. The offline number is not merely optimistic, it is estimating a different quantity.
+
+## Interview gotchas
+
+- **"Derive the bias-variance decomposition."** Write $y_0 = f + \varepsilon_0$, expand once and kill the $\varepsilon_0$ cross-term using independence of the fresh noise from the training set, then add and subtract $\bar f = E_{\mathcal D}[\hat f]$ and kill the second cross-term because a deviation from its own mean has mean zero. Name what the expectation is over as you go, rather than leaving it implicit.
+- **"Is bias a property of the model or the procedure?"** The procedure, applied to a distribution at a given $n$. One fitted model has no bias and no variance in this sense. The follow-up is usually "so how would you measure them", and the answer is repeated refits on resamples, because cross-validation only gives you the sum.
+- **"Why can't you just get more data to fix underfitting?"** Bias is defined against $\bar f$, the average fit over training sets, and the misspecified model's population-optimal parameter is set by the joint distribution, not by $n$. More rows shrink the variance around a target that is in the wrong place.
+- **"Show that a biased estimator can beat an unbiased one."** Ridge in one eigen-direction: $\mathrm{MSE}_j'(0) = -2\sigma^2/d_j^4 < 0$, so some positive $\lambda$ strictly improves MSE for any true $\beta$. Then name the mechanism, that the gain concentrates in small-$d_j$ directions where OLS variance $\sigma^2/d_j^2$ is largest. This connects straight back to Gauss-Markov: OLS is best among **linear unbiased** estimators, and dropping the unbiasedness constraint is exactly how you beat it.
+- **"By how much is training error optimistic?"** $2\sigma^2\operatorname{tr}(S)/n$ for a linear smoother, and $2p\sigma^2/n$ for OLS. Have a number ready: $n=200$, $p=20$, $\sigma^2=1$ gives training $0.90$ against test $1.10$. The full answer adds that $C_p$ is this quantity added back to training error, and AIC is the same correction on the log-likelihood scale.
+- **"How would you actually measure the two terms?"** Repeated refits. Draw $B$ resamples of the same size, refit the entire pipeline on each including feature selection and hyperparameter search, and record predictions at fixed evaluation points. The spread across refits is the variance; the mean is an estimate of $\bar f$. Cross-validation cannot do this, because it gives you the sum in one number.
+- **"Ridge or lasso?"** Neither dominates, and the answer is a statement about the truth you believe in. Lasso bets on sparsity: it buys the entire $\sigma^2/d_j^2$ variance saving on a coefficient it zeroes, and pays the entire $\beta_j^2$ if that coefficient was real. Ridge makes no such bet and spreads weight across correlated features. With features correlated in blocks, lasso's choice of which member survives is itself unstable across resamples, which is what elastic net's $\ell_2$ component fixes.
+- **"Does this apply to classification?"** Not as a theorem. It is exact for squared error only. For 0-1 loss the published decompositions are definitional and non-additive, and variance can reduce error when the mean prediction is on the wrong side of the boundary. Give the 0.6/0.55 counterexample, and give the escape hatch: score probabilities under Brier and the identity comes back, because Brier is squared error.
+
+## Take the quiz
+
+**[Take the quiz →](/c/c9/c9.2/quiz)**
