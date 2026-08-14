@@ -37,11 +37,13 @@ $$
 0.97^{30} = e^{30 \ln 0.97} = e^{-0.9137} = 0.401
 $$
 
-40% of tasks complete. With a checker that catches a fraction $c = 0.7$ of errors and retries once, effective per-step success is
+40% of tasks complete. Now add the checker. It catches a fraction $c = 0.7$ of errors and triggers one retry, so a step succeeds either outright, with probability $p$, or after being caught and redone, with probability $(1-p)\,c\,p$. Their sum is the effective per-step rate $p'$, the prime marking the rate after check-and-retry:
 
 $$
 p' = p + (1-p)\,c\,p = 0.97 + 0.03 \times 0.7 \times 0.97 = 0.99037
 $$
+
+Feed that rate back into the exponent, since the 30 steps have not changed:
 
 $$
 0.99037^{30} = e^{30 \times (-0.009677)} = e^{-0.2903} = 0.748
@@ -55,7 +57,7 @@ $$
 0.97^{12} = e^{-0.3655} = 0.694
 $$
 
-69%, versus 75% for the verifier. They are the same order of magnitude, but cutting $n$ is usually the cheaper and more durable move: it also cuts latency and cost, it does not add a second LLM call per step, and a deleted step can never regress. The honest answer is that they compose. Cut $n$ first because it is free forever, then verify what is left. Combining both here: $0.99037^{12} = 0.891$.
+69%, versus 75% for the verifier. They are the same order of magnitude, but cutting $n$ is usually the cheaper and more durable move: it also cuts latency and cost, it does not add a second LLM call per step, and a deleted step can never regress. The honest answer is that they compose. Cut $n$ first, because a removed step keeps paying back, then verify what is left. Combining both here: $0.99037^{12} = 0.891$.
 
 **(d)** Worse than $p^n$: **error correlation through the context**. A bad retrieval or a misread tool result at step 3 stays in the context and every later step reasons from it, so failures cluster rather than being independent draws.
 
@@ -142,7 +144,7 @@ It is a different control because it is about the *origin* of a value, not its *
 
 1. Hash the pair (tool name, canonicalized arguments) — canonicalized meaning sorted keys, normalized whitespace and numbers — and count exact repeats. Three identical calls is a stop condition, not a warning.
 2. Keep a sliding window of the last, say, eight hashes and look for cycles of period 2 and 3. A-B-A-B trips it while no single hash has repeated three times consecutively.
-3. Track an explicit progress signal: distinct entities touched, subgoals marked complete, bytes written to the artifact, whatever the task makes measurable. Stop when it flatlines for $k$ consecutive steps. This is the hardest and most valuable detector, and it is the one that requires you to have defined what progress means.
+3. Track an explicit progress signal: distinct entities touched, subgoals marked complete, bytes written to the artifact, whatever the task makes measurable. Stop when it flatlines for $k$ consecutive steps, with $k$ a small constant set from the task's normal pace. This is the hardest and most valuable detector, and it is the one that requires you to have defined what progress means.
 
 **(c)** Steps, wall-clock time, tokens, and dollars catch different pathologies:
 
@@ -172,13 +174,13 @@ It is harder to catch because it looks exactly like success. The infinite loop a
 
 <Quiz id="4">
 
-**Q4. Cost, with the numbers.** An interviewer bolts a constraint onto a design prompt: keep it under \$0.50 per task. Your loop has a fixed prefix $B = 1500$ tokens (system prompt plus tool schemas), adds $\Omega = 1200$ tokens of context per turn, and generates 250 output tokens per turn. Price it at \$3 per million input tokens and \$15 per million output.
+**Q4. Cost, with the numbers.** An interviewer bolts a constraint onto a design prompt: keep it under USD 0.50 per task. Your loop has a fixed prefix $B = 1500$ tokens (system prompt plus tool schemas), adds $\Omega = 1200$ tokens of context per turn, and generates 250 output tokens per turn. Price it at USD 3 per million input tokens and USD 15 per million output.
 
 **(a)** Derive total billed input tokens over $n$ turns and say what the growth rate is in $n$.
 
 **(b)** Compute cost at $n = 10$ and at $n = 25$. State the ratio of steps and the ratio of cost.
 
-**(c)** What is the largest $n$ that fits the \$0.50 budget?
+**(c)** What is the largest $n$ that fits the USD 0.50 budget?
 
 **(d)** Name the two main mitigations and the specific way each one conflicts with the other.
 
@@ -193,17 +195,19 @@ $$
 
 Quadratic in $n$. That is the single most important structural fact about agent cost, and it is why a step cap is a cost control and not just a safety control.
 
-**(b)** At $n = 10$: input $= 10 \times 1500 + 1200 \times 55 = 15{,}000 + 66{,}000 = 81{,}000$ tokens, at \$3/M that is \$0.243. Output is $10 \times 250 = 2{,}500$ tokens, at \$15/M that is \$0.038. Total about **\$0.28**.
+**(b)** At $n = 10$: input $= 10 \times 1500 + 1200 \times 55 = 15{,}000 + 66{,}000 = 81{,}000$ tokens, at USD 3 per million that is USD 0.243. Output is $10 \times 250 = 2{,}500$ tokens, at USD 15 per million that is USD 0.038. Total about **USD 0.28**.
 
-At $n = 25$: input $= 37{,}500 + 1200 \times 325 = 37{,}500 + 390{,}000 = 427{,}500$ tokens, or \$1.28. Output is 6,250 tokens, or \$0.09. Total about **\$1.38**.
+At $n = 25$: input $= 37{,}500 + 1200 \times 325 = 37{,}500 + 390{,}000 = 427{,}500$ tokens, or USD 1.28. Output is 6,250 tokens, or USD 0.09. Total about **USD 1.38**.
 
 2.5 times the steps, 4.9 times the cost. Quote that shape in an interview and the budget constraint stops being decorative.
 
-**(c)** Write cost as a function of $n$, in dollars:
+**(c)** Write cost as a function of $n$, in dollars. The input term is the token count from (a) at three dollars per million, using $\Omega n(n+1)/2 = 600\,n(n+1)$, and the output term is 250 tokens per turn at fifteen dollars per million:
 
 $$
 C(n) = 3\times 10^{-6}\left(1500n + 600n(n+1)\right) + 15\times10^{-6}(250n)
 $$
+
+Multiplying out and collecting the $n^2$ and $n$ terms:
 
 $$
 C(n) = 0.0018\,n^2 + 0.01005\,n
@@ -282,7 +286,7 @@ Counter-offer, because refusing without an alternative reads as obstruction: fiv
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** Every side-effecting tool takes a caller-supplied **idempotency key**, and the server deduplicates on it. The key is derived from the run ID plus the step index — deterministic, so a retry of the *same* logical action regenerates the *same* key, while a genuinely new action gets a new one. Enforcement is server-side and must be atomic: a unique constraint on the key, or a insert-then-act pattern, so two concurrent requests with the same key cannot both proceed.
+**(a)** Every side-effecting tool takes a caller-supplied **idempotency key**, and the server deduplicates on it. The key is derived from the run ID plus the step index — deterministic, so a retry of the *same* logical action regenerates the *same* key, while a genuinely new action gets a new one. Enforcement is server-side and must be atomic: a unique constraint on the key, or an insert-then-act pattern, so two concurrent requests with the same key cannot both proceed.
 
 Two details worth saying. The tool's error responses must distinguish **"did not happen"** from **"unknown outcome"**, because those license different client behavior; a bare 500 tells the model nothing. And a retry with a matching key should return the *original* result, not an error, so the model can proceed normally instead of treating dedup as a failure.
 
@@ -391,9 +395,9 @@ Three other sources: **model versions move** under floating aliases like `-lates
 
 **(b)** Pin what is pinnable: explicit model version strings, never a floating alias; sampling parameters; tool and schema versions, recorded in the trace so a run can be attributed to a configuration.
 
-Then make **record/replay a first-class mode**. Record every tool call and its result in the trace. A replay run serves tool results from the recording instead of hitting the world. The orchestrator becomes deterministic even though the model is not, which lets you test a prompt change, a new cap, or a schema change against 200 recorded runs in seconds instead of re-running against production systems. It also gives you the ability to fork a run at step $k$ with an edited context, which is the single most useful debugging affordance an agent system can have. Call this the highest-leverage investment in the answer, because it is.
+Then make **record/replay a first-class mode**. Record every tool call and its result in the trace. A replay run serves tool results from the recording instead of hitting the world. The orchestrator becomes deterministic even though the model is not, which lets you test a prompt change, a new cap, or a schema change against 200 recorded runs in seconds instead of re-running against production systems. It also gives you the ability to fork a run at step $k$ with an edited context, which is the single most useful debugging affordance an agent system can have. Nothing else on this list buys as much per unit of engineering time.
 
-**(c)** $\hat p = 34/40 = 0.85$. Standard error:
+**(c)** The observed pass rate is $\hat p = 34/40 = 0.85$, the hat marking an estimate from a sample rather than the true rate. Standard error:
 
 $$
 \text{SE} = \sqrt{\frac{0.85 \times 0.15}{40}} = \sqrt{0.0031875} = 0.0565
@@ -401,7 +405,7 @@ $$
 
 The 95% interval is roughly $0.85 \pm 1.96 \times 0.0565 = [0.74, 0.96]$. That interval is 22 points wide, so a 3-point regression is invisible — it moves the point estimate well inside the noise.
 
-For a two-sided comparison of two rates at resolution $\delta$, you need roughly
+Write $\delta$ for the smallest difference in pass rate you want to detect; here $\delta = 0.03$. For a two-sided comparison of two rates at that resolution, with the conventional 95% confidence and 80% power, you need roughly
 
 $$
 n \approx \frac{16\,\hat p(1-\hat p)}{\delta^2} = \frac{16 \times 0.1275}{0.0009} \approx 2270

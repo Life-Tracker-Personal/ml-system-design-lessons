@@ -11,7 +11,7 @@ estimatedMinutes: 60
 
 **RAG** (retrieval-augmented generation) means: before answering, fetch relevant text from a corpus and paste it into the prompt. It exists because a language model's weights are a lossy, frozen, unattributable compression of whatever it saw during training. Retrieval fixes exactly three things that weight-editing cannot: the knowledge is **fresh** (you re-index, you don't re-train), it is **private** (your documents never enter anyone's training set), and it is **attributable** (you can point at the sentence the answer came from). Fine-tuning teaches a model *how to behave* — format, tone, tool-call syntax, a domain's phrasing. It is a bad way to teach volatile facts, because facts change weekly and gradient descent does not give you a citation.
 
-The rest of the machinery is a chain, and the chain is only as good as its weakest link: text is **chunked** into passages, each passage is **embedded** into a vector, the vectors go into an **index** that answers nearest-neighbour queries approximately but fast, and at query time a **dense** (embedding) search and a **sparse** (keyword/BM25) search are run and fused, because each one fails on exactly the queries the other handles. This lesson derives why each stage exists and what breaks it. Everything here has a measurable version, and the interview follow-up to every design choice below is the same sentence: *how would you know it's any good?*
+The rest of the machinery is a chain, and the weakest link caps the whole system: text is **chunked** into passages, each passage is **embedded** into a vector, the vectors go into an **index** that answers nearest-neighbour queries approximately but fast, and at query time a **dense** (embedding) search and a **sparse** (keyword/BM25) search are run and fused, because each one fails on exactly the queries the other handles. Each stage below is derived from the problem it solves and from what breaks it. Every design choice here has a measurable version, and the question that settles each one is the same: *how would you know it's any good?*
 
 ## What you'll be able to do after this lesson
 
@@ -27,21 +27,21 @@ The rest of the machinery is a chain, and the chain is only as good as its weake
 
 Start from the failure. Ask a model about your company's Q3 refund policy. Three things can go wrong: it never saw the policy, it saw the Q1 version, or it produces something plausible and unsourced. Retrieval attacks all three at once by moving the fact out of the weights and into the prompt, where it is a string you control, timestamped, with a URL attached.
 
-**Fine-tuning** adjusts weights on your data. It is right when you need the model to *act* differently — emit valid JSON in your schema, adopt a clinical register, call your internal tools correctly. It is wrong for facts: every document change means another training run, you cannot cite, and you cannot revoke a fact for one tenant without retraining. The sentence to have ready is "fine-tuning teaches behaviour and format; retrieval supplies volatile facts."
+**Fine-tuning** adjusts weights on your data. It is right when you need the model to *act* differently — emit valid JSON in your schema, adopt a clinical register, call your internal tools correctly. It is wrong for facts: every document change means another training run, you cannot cite, and you cannot revoke a fact for one tenant without retraining. The clean separation: fine-tuning teaches behaviour and format; retrieval supplies volatile facts.
 
-**Long context** is the live 2026 challenge: models take a million tokens, so why not paste the corpus in? Arithmetic. A 1M-token prompt at roughly \$3 per million input tokens costs about \$3 before you generate a single token, and time-to-first-token runs into tens of seconds. Retrieving 5 chunks of 500 tokens is 2,500 tokens — a fraction of a cent and tens of milliseconds. Quality degrades too: models underweight material in the middle of a very long context (the "lost in the middle" effect), so stuffing can be *worse* than a tight context. But invert it honestly — if the corpus is small and static, a 30-page product spec, skip retrieval and put it in the prompt with caching. Retrieval earns its complexity when the corpus is large, changing, or permissioned.
+**Long context** is the live 2026 challenge: models take a million tokens, so why not paste the corpus in? Arithmetic. A 1M-token prompt at roughly \$3 per million input tokens costs about \$3 before you generate a single token, and time-to-first-token runs into tens of seconds. Retrieving 5 chunks of 500 tokens is 2,500 tokens — a fraction of a cent and tens of milliseconds. Quality degrades too: models underweight material in the middle of a very long context (the "lost in the middle" effect), so stuffing can be *worse* than a tight context. The inversion holds too: if the corpus is small and static, a 30-page product spec, skip retrieval and put it in the prompt with caching. Retrieval earns its complexity when the corpus is large, changing, or permissioned.
 
-That generalizes into the framing worth stealing: **retrieval is a tool, not automatically a pipeline.** Corpus shape decides. A navigable, structured corpus (a codebase, a well-organized wiki) often does better with an agent running keyword search and following links. A large unstructured permissioned corpus gets the full hybrid-plus-filter treatment. You settle it by prototyping the cheap option and measuring recall on labelled questions, not by arguing.
+The general form of that argument: **retrieval is a tool, not automatically a pipeline.** Corpus shape decides. A navigable, structured corpus (a codebase, a well-organized wiki) often does better with an agent running keyword search and following links. A large unstructured permissioned corpus gets the full hybrid-plus-filter treatment. You settle it by prototyping the cheap option and measuring recall on labelled questions, not by arguing.
 
 ## Part 2 — Embeddings
 
-An embedding model maps a string to a fixed-length vector, typically 384 to 3072 dimensions, trained so that texts humans consider related land close together. It is trained contrastively: pull true (query, passage) pairs together, push mismatched pairs apart. So the geometry encodes **whatever relatedness the training pairs expressed** — usually topical and paraphrase similarity. That is the whole story, and it explains all the failures later.
+An embedding model maps a string to a fixed-length vector, typically 384 to 3072 dimensions, trained so that texts humans consider related land close together. It is trained contrastively: pull true (query, passage) pairs together, push mismatched pairs apart. So the geometry encodes **whatever relatedness the training pairs expressed** — usually topical and paraphrase similarity. That is the whole story, and it accounts for every failure class below.
 
 Two non-negotiables. The query encoder and the document encoder must be **the same model** (or a matched pair the model ships with — some models want a `query:` prefix on queries and a `passage:` prefix on documents; getting this backwards silently costs a chunk of recall). And an embedding is only comparable to vectors from the same model, so upgrading models means re-embedding the entire corpus.
 
 ### Cosine, dot, Euclidean
 
-Three scores, and the relationship between them is one line of algebra. For vectors $a, b$:
+Three scores are in common use, and one line of algebra relates all three. Take two embedding vectors $a$ and $b$ of the same dimension, and write $\lVert \cdot \rVert$ for ordinary Euclidean length:
 
 $$
 \lVert a - b \rVert^2 = \lVert a \rVert^2 + \lVert b \rVert^2 - 2\, a \cdot b
@@ -49,7 +49,7 @@ $$
 
 If both are **normalized** to unit length ($\lVert a \rVert = \lVert b \rVert = 1$) then $\lVert a-b \rVert^2 = 2 - 2\,(a \cdot b)$, and $\cos(a,b) = a \cdot b$. So squared distance is a strictly decreasing function of the dot product: **ranking by cosine, by dot product, or by Euclidean distance gives the identical ordering.** The choice is a performance detail, and dot product wins because it is one fused multiply-add loop with no square root.
 
-It matters only when vectors are *not* normalized, because the dot product rewards magnitude. Query $q = (1,0)$, documents $a = (3,4)$ and $c = (0.6,0.8)$ — same direction, $a$ is five times longer. Dot gives $q \cdot a = 3$ versus $q \cdot c = 0.6$, so $a$ wins 5x. Cosine gives $3/5 = 0.6$ and $0.6/1 = 0.6$, an exact tie, which is right. Document $a$'s whole advantage was length. With some encoders the norm correlates with document length, so an unnormalized dot product quietly becomes a "longer documents win" ranker. Normalize at write time and use dot product. Do not volunteer more than this in an interview; the derivation is junior-screen material and dwelling on it reads as avoiding the harder questions.
+The choice matters only when the vectors are *not* normalized, because the dot product rewards magnitude. Take a query $q = (1,0)$ and two documents, reusing $a$ and adding $c$ for their vectors: $a = (3,4)$ and $c = (0.6,0.8)$ — same direction, $a$ is five times longer. Dot gives $q \cdot a = 3$ versus $q \cdot c = 0.6$, so $a$ wins 5x. Cosine gives $3/5 = 0.6$ and $0.6/1 = 0.6$, an exact tie, which is right. Document $a$'s whole advantage was length. With some encoders the norm correlates with document length, so an unnormalized dot product quietly becomes a "longer documents win" ranker. Normalize at write time and use dot product.
 
 ### Where embeddings fail
 
@@ -64,7 +64,7 @@ Four failure classes, all traceable to "trained for topical similarity":
 
 You chunk because you must: the encoder has an input limit, embedding a 40-page document into one vector averages away everything specific, and you only want to spend context on the relevant paragraphs.
 
-The tension is direct. **Small chunks** give precise embeddings (one idea per vector) and cheap context, but they fragment arguments and lose the surrounding referent. **Large chunks** preserve context but produce a vector that is a blurry average of several topics, so it ranks mediocrely for every query and strongly for none. A defensible starting point is **400–600 tokens with 10–20% overlap** — say it as a starting point you tune against an eval set, never as a law.
+The tension is direct. **Small chunks** give precise embeddings (one idea per vector) and cheap context, but they fragment arguments and lose the surrounding referent. **Large chunks** preserve context but produce a vector that is a blurry average of several topics, so it ranks mediocrely for every query and strongly for none. A defensible starting point is **400–600 tokens with 10–20% overlap**, tuned afterwards against an eval set rather than treated as a law.
 
 Overlap exists because a fixed-size splitter has no idea where ideas end and will happily cut a sentence in half. Overlap gives the answer a second chance to appear intact in some chunk. It costs storage and embedding compute: a 100,000-token document at 500-token chunks with 75-token overlap has a stride of 425 tokens, so $100000/425 \approx 236$ chunks instead of 200. That is 18% more vectors, more index memory, and more near-duplicate results competing for your top-k slots.
 
@@ -80,39 +80,39 @@ Better than fixed-size, in rough order of effort:
 
 A financial report says on page 1 "all amounts in thousands." Page 40 is chunked alone, retrieved alone, and the model reports \$4,200 for a \$4.2M figure. The chunk is locally complete and globally wrong. Same shape: a contract whose page 1 defines "the Company," a manual whose chapter opening says "for the 240V variant only."
 
-Fixes, cheapest first: prepend the document title and heading path to each chunk's embedded text; carry a document-level summary or a units/definitions header in metadata and prepend it at assembly time; use parent-child so the reader sees the enclosing section. This scenario is asked verbatim, so have the answer ready.
+Fixes, cheapest first: prepend the document title and heading path to each chunk's embedded text; carry a document-level summary or a units/definitions header in metadata and prepend it at assembly time; use parent-child so the reader sees the enclosing section.
 
-**And the follow-up is always "how would you know your chunking is good?"** Answer it before you're asked: build 30–50 questions from real traffic, label which chunks contain the answer, and measure **recall@k** — the fraction of questions whose gold chunk appears in the top $k$. Then chunking becomes a knob you turn against a number instead of a taste debate. Never recite the chunking taxonomy without pairing it with this.
+**The question that settles a chunking choice is "how would you know it is any good?"** Build 30–50 questions from real traffic, label which chunks contain the answer, and measure **recall@k** — for a chosen cutoff $k$, the fraction of questions whose gold chunk appears among the top $k$ retrieved chunks. Then chunking becomes a knob you turn against a number instead of a taste debate. A chunking taxonomy recited without this measurement is a preference, not a decision.
 
 ## Part 4 — Vector indexes
 
-Given a query vector, find the nearest $k$ of $N$ document vectors.
+The problem: given a query vector, find the $k$ nearest of the $N$ document vectors in the index, where $k$ is the number of results you want back and $N$ is the corpus size in vectors.
 
-**Flat** (exact brute force) compares against all $N$. It is perfect recall and embarrassingly simple, and for under a million vectors it is often the right answer. Consider the cost at scale: 10M vectors at 1536 dimensions in fp32 is $10^7 \times 1536 \times 4 = 61.4$ GB, and one query must stream all of it. Even at a very optimistic 20 GB/s of effective memory bandwidth that is roughly 3 seconds per query, single-threaded-ish. At 1,000 QPS it is hopeless. That gap is the entire reason approximate nearest neighbour (**ANN**) search exists: give up a few percent of recall to avoid touching most of the data.
+**Flat** (exact brute force) compares against all $N$. It is perfect recall and embarrassingly simple, and for under a million vectors it is often the right answer. Scale is what kills it: 10M vectors at 1536 dimensions in fp32, four bytes per number, is $10^7 \times 1536 \times 4 = 61.4$ GB, and one query must stream all of it. Even at a very optimistic 20 GB/s of effective memory bandwidth that is roughly 3 seconds per query on a single stream. At 1,000 QPS it is hopeless. That gap is the entire reason approximate nearest neighbour (**ANN**) search exists: give up a few percent of recall to avoid touching most of the data.
 
-**IVF** (inverted file) clusters the vectors into, say, a few thousand centroids at build time. A query is compared against the centroids, then scanned exhaustively inside only the closest few clusters. Probing more clusters raises recall and latency together — that is the knob. The failure mode is the boundary case: a true neighbour sitting just across a cluster border is never examined.
+The cheapest way to stop scanning everything is to scan a fraction of it. Group the vectors by proximity once, at build time, and a query then only has to look inside the groups it lands near. That is **IVF** (inverted file): the vectors are clustered into, say, a few thousand centroids at build time. A query is compared against the centroids, then scanned exhaustively inside only the closest few clusters. Probing more clusters raises recall and latency together — that is the knob. The failure mode is the boundary case: a true neighbour sitting just across a cluster border is never examined.
 
-**HNSW** (hierarchical navigable small world) builds a multi-layer proximity graph. The top layer is a sparse graph over a few nodes with long-range edges; each layer down is denser and shorter-range; the bottom layer holds everything. Search enters at the top, greedily walks to the neighbour closest to the query, drops a layer, repeats. Long edges up top cover distance in a few hops; short edges at the bottom refine. Search time grows roughly logarithmically in $N$, recall is high, and the price is memory (you store the graph edges on top of the vectors) and slow, awkward index building and deletion. It is the default in most vector stores for good reason.
+The other route is to link the vectors to each other and walk. Connect each vector to its near neighbours, start anywhere, and repeatedly step to whichever neighbour is closer to the query; the walk homes in on the target without ever touching most of the data. Stack coarser graphs on top of that one and the walk becomes a few long strides followed by a few short ones. That structure is **HNSW** (hierarchical navigable small world), a multi-layer proximity graph. The top layer is a sparse graph over a few nodes with long-range edges; each layer down is denser and shorter-range; the bottom layer holds everything. Search enters at the top, greedily walks to the neighbour closest to the query, drops a layer, repeats. Long edges up top cover distance in a few hops; short edges at the bottom refine. Search time grows roughly logarithmically in $N$, recall is high, and the price is memory (you store the graph edges on top of the vectors) and slow, awkward index building and deletion. It is the default in most vector stores.
 
-The single sentence to own: **recall, latency and memory are one three-way tradeoff, and every ANN knob just moves you along it.** Do not go deeper unless your resume claims you owned vector infrastructure — reciting graph-construction hyperparameters when the interviewer wants to talk about evaluation reads as deflection.
+The sentence that covers the whole family: **recall, latency and memory are one three-way tradeoff, and every ANN knob just moves you along it.**
 
-One more thing that actually gets asked: **metadata filtering**. Pre-filtering (restrict to the allowed set, then search) is correct but can wreck the graph's connectivity if the filter is selective; post-filtering (search, then drop disallowed hits) is fast but can return three results when you asked for ten. For access control the answer is always pre-filtering — returning zero results is a bug, returning another tenant's document is an incident.
+**Metadata filtering** interacts with the index choice, and the interaction is not free. Pre-filtering (restrict to the allowed set, then search) is correct but can wreck the graph's connectivity if the filter is selective; post-filtering (search, then drop disallowed hits) is fast but can return three results when you asked for ten. For access control the answer is always pre-filtering — returning zero results is a bug, returning another tenant's document is an incident.
 
 ## Part 5 — Sparse retrieval, BM25, and why hybrid wins
 
-Sparse retrieval represents a document as a vector over the vocabulary, almost all zeros. It is exact lexical matching with weights, served from an inverted index (term → list of documents containing it). **BM25** is the standard scoring function. Per query term $t$ in document $d$:
+Sparse retrieval represents a document as a vector over the vocabulary, almost all zeros. It is exact lexical matching with weights, served from an inverted index (term → list of documents containing it). **BM25** is the standard scoring function. It scores a single query term $t$ against a single document $d$, and a document's score for a multi-term query is the sum of these over the query's terms:
 
 $$
 \text{score}(t,d) = \text{IDF}(t) \cdot \frac{f(t,d)\,(k_1+1)}{f(t,d) + k_1\left(1 - b + b\,\frac{|d|}{\text{avgdl}}\right)}
 $$
 
-Three ideas, all of them intuitive. $f(t,d)$ is the term's frequency in the document, and the fraction **saturates**: the tenth occurrence of a word adds far less than the second, which is what $k_1$ (around 1.2–2.0) controls. The $|d|/\text{avgdl}$ term **penalizes long documents** for accumulating matches by sheer length, tuned by $b$ (around 0.75). And the inverse document frequency
+Three ideas are stacked in that expression. $f(t,d)$ is the number of times term $t$ occurs in document $d$, and the fraction **saturates** in it: the tenth occurrence of a word adds far less than the second, which is what the free parameter $k_1$ (around 1.2–2.0) controls. The ratio $|d|/\text{avgdl}$ — the length of document $d$ in tokens over the average document length across the corpus — **penalizes long documents** for accumulating matches by sheer length, with $b$ (around 0.75) setting how hard that penalty bites. And the inverse document frequency
 
 $$
 \text{IDF}(t) = \ln\!\left(\frac{N - \mathrm{df}(t) + 0.5}{\mathrm{df}(t) + 0.5} + 1\right)
 $$
 
-**rewards rarity**. Work it out on a million-document support corpus. The word "error" appears in 400,000 documents:
+**rewards rarity**: $\mathrm{df}(t)$ is the number of documents containing $t$, and $N$ is the number of documents in the corpus, so a term sitting in almost every document scores near zero while a term in three documents scores large. Work it out on a million-document support corpus. The word "error" appears in 400,000 documents:
 
 $$
 \ln\!\left(\frac{10^6 - 400000 + 0.5}{400000.5} + 1\right) = \ln(1.5 + 1) \approx 0.92
@@ -130,23 +130,23 @@ The reverse case is just as real. A user asks "my laptop won't boot after the up
 
 ### Fusing the two lists
 
-BM25 scores are unbounded and corpus-dependent; cosine scores live in $[-1,1]$. Adding them directly is meaningless. **Reciprocal rank fusion (RRF)** sidesteps the problem by throwing away the scores and using only ranks. For document $d$ appearing at rank $r_i(d)$ in each result list $i$:
+BM25 scores are unbounded and corpus-dependent; cosine scores live in $[-1,1]$. Adding them directly is meaningless. **Reciprocal rank fusion (RRF)** sidesteps the problem by throwing away the scores and using only ranks. Index the result lists being fused by $i$ — here one dense list and one BM25 list — and let $r_i(d)$ be the rank of document $d$ in list $i$, counting from 1. The sum runs over the lists in which $d$ actually appears:
 
 $$
 \text{RRF}(d) = \sum_i \frac{1}{k + r_i(d)}
 $$
 
-with $k$ a constant around 60. A document at rank 1 in both lists scores $2/61 \approx 0.0328$; one at rank 1 in dense only scores $1/61 \approx 0.0164$; one at rank 5 in both scores $2/65 \approx 0.0308$. So agreement across retrievers is rewarded, and one list cannot dominate through score inflation. The alternative is a weighted sum of normalized scores, $\alpha \cdot \text{dense} + (1-\alpha) \cdot \text{sparse}$, which gives you a tunable dial — and the only defensible way to set $\alpha$ is against a labelled eval set. Say that part out loud.
+with $k$ a constant around 60 — a different $k$ from the one in top-$k$ retrieval. A document at rank 1 in both lists scores $2/61 \approx 0.0328$; one at rank 1 in dense only scores $1/61 \approx 0.0164$; one at rank 5 in both scores $2/65 \approx 0.0308$. So agreement across retrievers is rewarded, and one list cannot dominate through score inflation. The alternative is a weighted sum of normalized scores, $\alpha \cdot \text{dense} + (1-\alpha) \cdot \text{sparse}$ with $\alpha$ between 0 and 1 weighting the dense list, which gives you a tunable dial. The only defensible way to set $\alpha$ is against a labelled eval set.
 
 ## Part 6 — Query transformation
 
-The query the user typed is often not the query you should search with. Three transforms are worth knowing; keep each to a sentence in a design answer, because interviewers care that you know they exist, not that you can recite paper names.
+The query the user typed is often not the query you should search with. Three transforms cover most of what is used in practice.
 
 **Query rewriting** is the one that earns its keep in production. In a multi-turn chat, "what about the enterprise plan?" is unsearchable on its own. Rewrite it against conversation history into "what is the price of the enterprise plan?" before embedding. Every conversational RAG system needs this, and the same step is where you decide to ask a clarifying question instead of retrieving on a hopelessly vague query.
 
-**Multi-query** generates a few paraphrases of the query, retrieves for each, and fuses the result lists (RRF again). It buys recall on queries whose phrasing happens to be unlucky, at the cost of $n$ times the retrieval work plus an LLM call.
+**Multi-query** generates $n$ paraphrases of the query, retrieves for each, and fuses the $n$ result lists (RRF again). It buys recall on queries whose phrasing happens to be unlucky, at the cost of $n$ times the retrieval work plus an LLM call.
 
-**HyDE** (hypothetical document embeddings) asks the model to *write a fake answer* to the query, then embeds that and searches with it. The reasoning: passages look like answers, not like questions, so a hypothetical answer sits closer to real passages in the embedding space than the question does. It genuinely helps on short, jargon-free queries. It adds an LLM call to your latency budget, and it fails badly when the model's hypothetical answer hallucinates in a direction that pulls retrieval off-topic.
+A question and the passage answering it do not look alike: passages are declarative statements, questions are not, and an embedding space trained on topical similarity puts answers near answers. So ask the model to *write a fake answer* to the query, embed that, and search with it. That is **HyDE** (hypothetical document embeddings), and it works because the hypothetical answer sits closer to real passages in the embedding space than the question does. It genuinely helps on short, jargon-free queries. It adds an LLM call to your latency budget, and it fails badly when the model's hypothetical answer hallucinates in a direction that pulls retrieval off-topic.
 
 All three add latency and cost before the first byte of retrieval. Add them when your eval set shows a recall problem that they fix — not by default.
 

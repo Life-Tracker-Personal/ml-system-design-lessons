@@ -9,9 +9,9 @@ estimatedMinutes: 55
 
 ## TL;DR
 
-Across a corpus of 519 reported quant interview questions from Jane Street, Citadel, Two Sigma, Optiver and SIG, 67% touch probability and 21% ask for an expected value. The striking thing is how few distinct techniques you need. Four tools do most of the work: **first-step analysis** (write one equation per state, solve the linear system), **linearity of expectation via indicator variables** (sum a pile of yes/no counters, ignore their dependence), **Bayes with a base rate** (posterior odds equal prior odds times a likelihood ratio), and **difference equations** for absorption probability and hitting time (gambler's ruin, and everything that is secretly gambler's ruin).
+Across a corpus of 519 reported quant interview questions from Jane Street, Citadel, Two Sigma, Optiver and SIG, 67% touch probability and 21% ask for an expected value. The number of distinct techniques behind them is small. Four tools do most of the work: **first-step analysis** (write one equation per state, solve the linear system), **linearity of expectation via indicator variables** (sum a pile of yes/no counters, ignore their dependence), **Bayes with a base rate** (posterior odds equal prior odds times a likelihood ratio), and **difference equations** for absorption probability and hitting time (gambler's ruin, and everything that is secretly gambler's ruin).
 
-Almost every famous problem you have heard of is one of these four wearing a costume. Expected flips to see HHT is first-step analysis. Coupon collector is indicators. The 99%-accurate test for a rare disease is a base rate. The ant on a cube is gambler's ruin with the state space collapsed by symmetry. This lesson derives each tool and then drills it on the actual reported questions, with the arithmetic done out loud.
+Almost every famous problem you have heard of is one of these four wearing a costume. Expected flips to see HHT is first-step analysis. Coupon collector is indicators. The 99%-accurate test for a rare disease is a base rate. The ant on a cube is gambler's ruin with the state space collapsed by symmetry. Each tool below is derived from the problem it solves, then drilled on the reported questions with the arithmetic done out loud.
 
 ## What you'll be able to do after this lesson
 
@@ -24,17 +24,19 @@ Almost every famous problem you have heard of is one of these four wearing a cos
 
 ## Part 1 — First-step analysis: conditional-expectation state equations
 
-The tool rests on one identity, the law of total expectation. For any partition of the first move into outcomes $A_i$,
+Take one step, see where it lands you, and average over the possibilities. That is the whole idea. Let $X$ be the quantity you want the average of, usually the number of steps until something happens, and let $A_1, A_2, \dots$ be the possible results of the first step, chosen so that exactly one of them must occur. Averaging the conditional averages, weighted by how often each first step happens, gives back the overall average:
 
 $$
 E[X] = \sum_i P(A_i)\, E[X \mid A_i]
 $$
 
-The trick is to choose states so that after one step you are always back in a state you already named. Then you get a small linear system and you solve it.
+That identity is called the law of total expectation, and $E[X \mid A_i]$ reads as the average of $X$ over the cases where $A_i$ occurred.
+
+The work is in choosing states so that after one step you are always back in a state you already named. Then you get a small linear system and you solve it.
 
 ### Expected flips until HHT
 
-This one is Glassdoor-tagged to Jane Street more or less verbatim. Flip a fair coin until the sequence HHT appears. How many flips on average?
+Glassdoor reports this one from Jane Street almost word for word. Flip a fair coin until the sequence HHT appears. How many flips on average?
 
 Name the states by **how much of the target pattern the current suffix has matched**. State $0$ is no progress, state $H$ means the last flip was H, state $HH$ means the last two were HH. Let $E_0$, $E_H$, $E_{HH}$ be the expected number of remaining flips from each.
 
@@ -72,35 +74,37 @@ $$
 
 The third gives $E_0 = 2 + E_H$. Substituting into the first, $E_{HT} = 2 + \tfrac12 E_H$. Putting that into the second, $\tfrac12 E_H = 1 + \tfrac12(2 + \tfrac12 E_H)$, so $E_H = 8$ and $E_0 = 10$.
 
-Both patterns have probability $1/8$ per window, so a naive answer says both take 8. The difference is **self-overlap**. HTH overlaps itself: a failed attempt ending in H is already a partial success, so successes cluster, and clustered successes mean longer average gaps. HHT has no such overlap. If you want the shortcut, Conway's leading-number rule says the expected wait is $\sum_k 2^k$ over every $k$ where the last $k$ characters equal the first $k$. HHT: only $k=3$, giving 8. HTH: $k=3$ and $k=1$, giving $8+2=10$. HHH: $k=1,2,3$, giving $2+4+8=14$.
+Both patterns have probability $1/8$ per window, so a naive answer says both take 8. The difference is **self-overlap**. HTH overlaps itself: a failed attempt ending in H is already a partial success, so successes cluster, and clustered successes mean longer average gaps. HHT has no such overlap.
 
-Generalizing the last one, waiting for $n$ heads in a row gives $E_n = 2^{n+1}-2$ from the chain $E_k = 1 + \tfrac12 E_{k+1} + \tfrac12 E_0$.
+There is a shortcut that reads the overlap straight off the pattern. Compare the pattern against itself: for each length $k$ from 1 up to the pattern length, check whether the last $k$ characters match the first $k$, and add $2^k$ for every $k$ that matches. The total is the expected wait. That counting rule is Conway's leading-number rule, $\sum_k 2^k$ over the matching $k$. HHT: only $k=3$, giving 8. HTH: $k=3$ and $k=1$, giving $8+2=10$. HHH: $k=1,2,3$, giving $2+4+8=14$.
+
+Waiting for a run of $n$ heads generalizes the HHH case. Write $E_k$ for the expected remaining flips when the current run stands at exactly $k$ heads, for $k = 0, 1, \dots, n-1$; a head lengthens the run, a tail wipes it out, and a completed run of $n$ needs no further flips. So $E_k = 1 + \tfrac12 E_{k+1} + \tfrac12 E_0$, and solving the chain from the top down gives a wait from a cold start of $E_n = 2^{n+1}-2$ flips, now writing $E_n$ for the answer as a function of the run length $n$. That is 2 flips for one head, 6 for two, and 14 for three, matching the Conway count above.
 
 ## Part 2 — Linearity of expectation via indicators
 
 An **indicator variable** $I_A$ is 1 when event $A$ happens and 0 otherwise, so $E[I_A] = P(A)$. The technique: write the quantity you want as a sum of indicators, then add up probabilities.
 
-Linearity holds with no independence assumption at all. The proof is one line and worth internalizing, because the interviewer will push on it:
+Linearity holds with no independence assumption at all, and the proof is one line. Take any two random variables $X$ and $Y$ defined on the same experiment, and let $\omega$ range over the individual outcomes of that experiment, so $P(\omega)$ is the probability of outcome $\omega$ and $X(\omega)$ is the value $X$ takes there:
 
 $$
 E[X+Y] = \sum_\omega P(\omega)\big(X(\omega)+Y(\omega)\big) = \sum_\omega P(\omega)X(\omega) + \sum_\omega P(\omega)Y(\omega) = E[X]+E[Y]
 $$
 
-Nothing about the joint distribution was used. Dependence changes $\text{Var}(X+Y)$, which picks up a covariance term, and it changes $E[XY]$. It never touches $E[X+Y]$. That single fact is what makes "expected number of X" problems easy even when the X's are tangled together.
+The only step was splitting one sum into two. Nothing about the joint distribution was used. Dependence changes $\text{Var}(X+Y)$, which picks up a covariance term, and it changes $E[XY]$. It never touches $E[X+Y]$. That single fact is what makes "expected number of X" problems easy even when the pieces being counted are tangled together.
 
 ### Coupon collector
 
-Roll a fair die until you have seen all six faces. Expected rolls? Split the wait into stages. While you hold $k$ distinct faces, each roll is new with probability $(6-k)/6$, so the wait for the next new face is geometric with mean $6/(6-k)$.
+Roll a fair die until you have seen all six faces. Expected rolls? Split the wait into stages, one stage per new face, and add the stage lengths; linearity lets you add those averages even though the stage lengths are random. While you already hold $k$ distinct faces, for $k$ running from 0 to 5, a roll is new with probability $(6-k)/6$, and a repeated trial with success probability $s$ takes $1/s$ tries on average, so this stage lasts $6/(6-k)$ rolls on average. Writing $E$ for the expected total number of rolls,
 
 $$
 E = \sum_{k=0}^{5} \frac{6}{6-k} = 6\left(1+\tfrac12+\tfrac13+\tfrac14+\tfrac15+\tfrac16\right) = 6 \cdot \frac{49}{20} = 14.7
 $$
 
-In general $n H_n \approx n(\ln n + 0.577)$. For $n = 6$ that estimate gives $6(1.792+0.577) = 14.2$, close enough to say out loud under time pressure.
+With $n$ faces instead of six the same sum is $n H_n$, where $H_n = 1 + \tfrac12 + \dots + \tfrac1n$ is the $n$-th harmonic number. That sum grows like a logarithm, $n H_n \approx n(\ln n + 0.577)$, with $0.577$ the Euler-Mascheroni constant. For $n = 6$ the estimate gives $6(1.792+0.577) = 14.2$, close enough to say out loud.
 
 ### The version where dependence would have killed you
 
-Roll a die 10 times. Expected number of **distinct** faces seen? Let $I_j$ indicate that face $j$ appeared at least once. These indicators are strongly dependent, since seeing lots of 3s makes the other faces less likely to appear. Linearity does not care.
+Roll a die 10 times. Expected number of **distinct** faces seen? Let $I_j$ indicate that face $j$ appeared at least once, for $j = 1, \dots, 6$, so the number of distinct faces is $I_1 + \dots + I_6$. These indicators are strongly dependent, since seeing lots of 3s makes the other faces less likely to appear. Linearity does not care. Face $j$ is missed only if all 10 rolls avoid it, which happens with probability $(5/6)^{10}$, and $E$ below is the expected number of distinct faces:
 
 $$
 E = \sum_{j=1}^{6} P(\text{face } j \text{ appears}) = 6\left(1 - (5/6)^{10}\right) = 6(1 - 0.1615) = 5.03
@@ -110,17 +114,19 @@ Same move for the number of fixed points in a random shuffle of $n$ cards: $I_j$
 
 ## Part 3 — Bayes with base rates
 
-Write Bayes in **odds form**, because it removes the arithmetic that people fumble:
+Instead of tracking the probability that a hypothesis is true, track the ratio of "true" to "false". Evidence then acts by multiplication: whatever the ratio was before, you multiply it by how much better the evidence is explained by the hypothesis than by its negation. No denominators to rebuild, no normalizing. Written out, with $H$ the hypothesis, $\bar H$ the statement that $H$ is false, and $E$ the evidence you actually observed (an event here, not an expectation):
 
 $$
 \underbrace{\frac{P(H \mid E)}{P(\bar H \mid E)}}_{\text{posterior odds}} = \underbrace{\frac{P(H)}{P(\bar H)}}_{\text{prior odds}} \times \underbrace{\frac{P(E \mid H)}{P(E \mid \bar H)}}_{\text{likelihood ratio}}
 $$
 
+That is Bayes in **odds form**, and it removes the arithmetic that people fumble.
+
 ### The rare disease
 
 Prevalence 1 in 10,000. The test is 99% accurate in both directions. You test positive. Probability you are sick?
 
-Use natural frequencies on a population of 1,000,000. Sick: 100 people, of whom 99 test positive. Healthy: 999,900 people, of whom 1% or 9,999 test positive. So
+Count people instead of multiplying probabilities. Imagine a population of 1,000,000. Sick: 100 people, of whom 99 test positive. Healthy: 999,900 people, of whom 1% or 9,999 test positive. Counting in whole people like this is what psychologists call working in natural frequencies, and it is why the answer stops being surprising. So
 
 $$
 P(\text{sick} \mid +) = \frac{99}{99 + 9999} = \frac{99}{10098} \approx 0.0098
@@ -130,27 +136,27 @@ About 1%. The false positives from the enormous healthy group swamp the true pos
 
 ### The biased coin from a jar
 
-Reported at Millennium and, in variants, nearly everywhere. A jar holds 1000 coins: 999 fair and 1 double-headed. You pick one at random and flip it 10 times, getting 10 heads. What is the probability you hold the double-headed coin?
+Millennium has asked this one, and variants of it circulate widely. A jar holds 1000 coins: 999 fair and 1 double-headed. You pick one at random and flip it 10 times, getting 10 heads. What is the probability you hold the double-headed coin?
 
-Prior odds are $1:999$. The likelihood ratio is $1 \big/ (1/2)^{10} = 1024$. Posterior odds are $1024 : 999$, so
+Prior odds are $1:999$, one double-headed coin against 999 fair ones. The double-headed coin produces 10 heads with certainty; a fair coin produces them with probability $(1/2)^{10}$. The ratio of those two, the likelihood ratio, is $1 \big/ (1/2)^{10} = 1024$. Posterior odds are $1024 : 999$, so
 
 $$
 P(\text{double-headed} \mid 10\text{H}) = \frac{1024}{1024+999} = \frac{1024}{2023} \approx 0.506
 $$
 
-Just over half. The general form after $n$ heads is $2^n/(2^n+999)$, which crosses 50% at $n=10$, exactly where $2^n$ passes 999.
+Just over half. After $n$ heads in a row the same computation gives $2^n/(2^n+999)$, which crosses 50% at $n=10$, exactly where $2^n$ passes 999.
 
-The follow-up that catches people: **what is the probability the next flip is heads?** Average over the posterior, do not commit to one hypothesis.
+The follow-up that catches people: **what is the probability the next flip is heads?** Average over the posterior, do not commit to one hypothesis. With probability 0.506 you hold the double-headed coin and the next flip is heads for certain; with the remaining probability $1-0.506 = 0.494$ you hold a fair coin and it is heads half the time.
 
 $$
 P(\text{next} = H) = 0.506 \cdot 1 + 0.494 \cdot \tfrac12 = 0.753
 $$
 
-One more variant to be ready for. If the reported evidence is "9 heads in 10 flips" rather than 10 in a row, the double-headed coin is **impossible**, since it cannot produce a tail. The likelihood ratio is $0$ and the posterior is 0. Interviewers use that to check whether you are reciting a pattern or actually computing a likelihood.
+One more variant. If the reported evidence is "9 heads in 10 flips" rather than 10 in a row, the double-headed coin is **impossible**, since it cannot produce a tail. The likelihood ratio is $0$ and the posterior is 0. A single tail settles the question no matter how many heads accompany it, which is the difference between computing a likelihood and pattern-matching on "lots of heads means a biased coin".
 
 ## Part 4 — Difference equations for gambler's ruin
 
-You have $i$ dollars, your opponent has $N-i$. Each round you win a dollar with probability $p$ and lose one with probability $q=1-p$. Play until someone is broke.
+You and your opponent hold $N$ dollars between you, of which you hold $i$ and your opponent holds $N-i$. Each round you win a dollar with probability $p$ and lose one with probability $q=1-p$. Play until someone is broke, which happens when your pile reaches $0$ or $N$.
 
 ### Absorption probability
 
@@ -160,15 +166,15 @@ $$
 P_i = p\,P_{i+1} + q\,P_{i-1}, \qquad P_0 = 0,\; P_N = 1
 $$
 
-Rewrite it in terms of the gaps $d_i = P_i - P_{i-1}$. Since $p+q=1$, the recurrence becomes $p(P_{i+1}-P_i) = q(P_i - P_{i-1})$, that is $d_{i+1} = (q/p)\,d_i$. The gaps are geometric.
+Solving a three-term recurrence head-on is unpleasant, so look at how much each extra dollar buys you rather than at $P_i$ itself. Define the gap $d_i = P_i - P_{i-1}$ for $i = 1, \dots, N$, the increase in your win probability from holding one more dollar. Since $p+q=1$, write $P_i$ as $pP_i + qP_i$ and the recurrence becomes $p(P_{i+1}-P_i) = q(P_i - P_{i-1})$, that is $d_{i+1} = (q/p)\,d_i$. Each gap is a fixed multiple of the one before it, so the gaps form a geometric sequence with ratio $q/p$.
 
-For a **fair** game, $q/p = 1$, so all gaps are equal and $P_i$ is linear:
+For a **fair** game, $q/p = 1$, so all gaps are equal. Equal gaps mean $P_i$ climbs in a straight line from $P_0 = 0$ to $P_N = 1$:
 
 $$
 P_i = \frac{i}{N}
 $$
 
-For a **biased** game, summing the geometric gaps and normalizing so $P_N=1$:
+For a **biased** game the gaps shrink or grow geometrically, and $P_i$ is the running total of the first $i$ of them: $P_i = d_1\big(1 + r + \dots + r^{i-1}\big) = d_1 (1-r^i)/(1-r)$, writing $r = q/p$. The requirement $P_N = 1$ pins down the unknown $d_1$, and dividing the two expressions makes it cancel:
 
 $$
 P_i = \frac{1-(q/p)^i}{1-(q/p)^N}
@@ -190,39 +196,39 @@ $$
 T_i = 1 + p\,T_{i+1} + q\,T_{i-1}
 $$
 
-Take $p=q=1/2$ and rearrange: $\tfrac12(T_{i+1} - 2T_i + T_{i-1}) = -1$, so the second difference of $T$ is $-2$. A sequence with constant second difference $-2$ is $-i^2$ plus any linear term, so $T_i = -i^2 + a + bi$. The boundary $T_0=0$ kills $a$, and $T_N=0$ forces $bN = N^2$, so $b=N$:
+Take $p=q=1/2$ and rearrange: $\tfrac12(T_{i+1} - 2T_i + T_{i-1}) = -1$, so the second difference of $T$, meaning the change in the change as $i$ moves up by one, is the constant $-2$. The only sequences with second difference $-2$ are $-i^2$ plus a straight line, so $T_i = -i^2 + a + bi$ for some constants $a$ and $b$ fixed by the boundaries. Setting $i=0$ in $T_0=0$ kills $a$, and $T_N=0$ forces $bN = N^2$, so $b=N$:
 
 $$
 T_i = i(N-i)
 $$
 
-With 20 dollars against 80 that is $20 \times 80 = 1600$ rounds on average. Note how large that is relative to the stakes, and note that the same 20% win probability is compatible with an enormous expected playing time.
+With 20 dollars against 80 that is $20 \times 80 = 1600$ rounds on average. That is enormous relative to the stakes, and it sits alongside the 20% win probability without contradiction: a walk that almost always ends in ruin can still wander for a very long time first.
 
 ### The martingale shortcut
 
-A **martingale** is a process whose expected next value equals its current value. In a fair game your fortune $S_n$ is one. The optional stopping theorem says that under mild conditions $E[S_\tau] = S_0$ at the stopping time $\tau$. Since the walk stops at 0 or $N$,
+A process whose expected next value equals its current value, no matter what has happened so far, is called a **martingale**. Your fortune $S_n$ after $n$ rounds of a fair game is one: win or lose a dollar with equal chance and the average is unchanged. The content of the optional stopping theorem is that you cannot beat this by choosing a clever moment to quit. Provided the process stays bounded, or the stopping rule cannot run away, the average value at the moment you stop is still where you started: $E[S_\tau] = S_0$, where $\tau$ is the round on which play ends. Here $S$ never leaves $[0, N]$, so the theorem applies, and the walk can only stop at 0 or $N$:
 
 $$
 i = E[S_\tau] = N \cdot P_i + 0 \cdot (1-P_i) \;\Rightarrow\; P_i = \frac{i}{N}
 $$
 
-For the duration, use the second martingale $S_n^2 - n$, whose expectation is also constant. At $\tau$:
+The duration needs a process that ticks up by one per round while still averaging out to a constant. Squaring the fortune does it: a step of $\pm 1$ changes $S_n^2$ by $\pm 2S_n + 1$, and the $\pm 2S_n$ part averages to zero, leaving a gain of exactly 1 per round. Subtracting the round count cancels that drift, so $S_n^2 - n$ is a martingale too. Applying optional stopping to it, and using $E[S_\tau^2] = N^2 \cdot (i/N)$ because $S_\tau$ is $N$ with probability $i/N$ and $0$ otherwise:
 
 $$
 E[S_\tau^2] - E[\tau] = i^2 \;\Rightarrow\; E[\tau] = N^2 \cdot \frac{i}{N} - i^2 = i(N-i)
 $$
 
-Two lines instead of two derivations. Say the difference-equation version first so the interviewer sees you can do it from scratch, then offer the martingale as the fast check.
+Two lines instead of two derivations.
 
 ### Ant on a cube is the same problem
 
-An ant starts at one vertex of a cube and walks to a uniformly random neighbor each step. Expected steps to reach the opposite vertex? Eight vertices looks like eight states, but by symmetry only the graph distance $d \in \lbrace 0,1,2,3 \rbrace$ from the start matters. From distance 1 you go back to 0 with probability $1/3$ and out to 2 with probability $2/3$; from distance 2 you go back to 1 with probability $2/3$ and finish with probability $1/3$.
+An ant starts at one vertex of a cube and walks to a uniformly random neighbor each step. Expected steps to reach the opposite vertex? Eight vertices looks like eight states, but the three vertices next to the start are interchangeable, and so are the three next to the target, so the only thing that matters is the graph distance $d \in \lbrace 0,1,2,3 \rbrace$ from the start, counted in edges. Write $T_d$ for the expected number of steps still to come from distance $d$, reusing the $T$ of the previous section for a walk on distances rather than dollars. From distance 1 you go back to 0 with probability $1/3$ and out to 2 with probability $2/3$; from distance 2 you go back to 1 with probability $2/3$ and finish with probability $1/3$.
 
 $$
 T_0 = 1 + T_1, \qquad T_1 = 1 + \tfrac13 T_0 + \tfrac23 T_2, \qquad T_2 = 1 + \tfrac23 T_1
 $$
 
-Substituting, $T_1 = 1 + \tfrac13(1+T_1) + \tfrac23(1 + \tfrac23 T_1) = 2 + \tfrac79 T_1$, so $\tfrac29 T_1 = 2$, giving $T_1 = 9$ and $T_0 = 10$. It is a biased gambler's ruin on a 4-state line. Collapsing by symmetry before writing equations is what makes these tractable in 90 seconds.
+Substituting, $T_1 = 1 + \tfrac13(1+T_1) + \tfrac23(1 + \tfrac23 T_1) = 2 + \tfrac79 T_1$, so $\tfrac29 T_1 = 2$, giving $T_1 = 9$ and $T_0 = 10$. It is a biased gambler's ruin on a 4-state line. Collapsing by symmetry before writing any equations is what keeps the system down to three lines of algebra, which is what makes a problem like this tractable inside the 90 seconds a market-making screen allows per question.
 
 ## Tradeoff matrix
 
@@ -236,11 +242,11 @@ Substituting, $T_1 = 1 + \tfrac13(1+T_1) + \tfrac23(1 + \tfrac23 T_1) = 2 + \tfr
 
 ## Production failure modes
 
-1. **Wrong state definition.** People index HHT states by "number of heads so far" instead of "length of matched suffix". That state is not Markov, the equations are inconsistent, and you get a wrong number with a confident derivation attached.
+1. **Wrong state definition.** People index HHT states by "number of heads so far" instead of "length of matched suffix". Knowing the head count does not pin down what happens next, so the state is not Markov, the equations are inconsistent, and you get a wrong number with a confident derivation attached.
 2. **Forgetting the partial-match fallback.** After a failure you rarely return to state 0. Getting the HTH fallback wrong is the single most common source of the answer 8 instead of 10.
-3. **Assuming independence to justify linearity.** Candidates who believe linearity needs independence refuse to use indicators exactly when indicators are most valuable, then attempt an inclusion-exclusion sum and run out of time.
+3. **Assuming independence to justify linearity.** Believing that linearity needs independence rules out indicators exactly when indicators are most valuable, and the fallback is an inclusion-exclusion sum that costs many times the work for the same answer.
 4. **Inverting the conditional.** Reporting $P(+ \mid \text{sick}) = 0.99$ as though it were $P(\text{sick} \mid +)$. This is the prosecutor's fallacy, and it shows up in real ML systems as fraud or abuse alerts that are 99% accurate and 99% wrong.
-5. **Ignoring the base rate in a deployed classifier.** A model validated on a balanced set and shipped into a 1-in-10,000 population has a precision collapse that no threshold tuning was asked to anticipate.
+5. **Ignoring the base rate in a deployed classifier.** A model validated on a balanced set and shipped into a 1-in-10,000 population loses almost all of its precision, and nothing in the validation report predicted the drop, so no threshold was ever tuned against it.
 6. **Confusing absorption probability with expected duration.** Two different equations with two different boundary conditions. $P$ has no $+1$ term; $T$ does, and $T$ is 0 at both ends while $P$ is 0 at one and 1 at the other.
 7. **Applying optional stopping without checking conditions.** In an unfair game with an infinite bankroll the naive martingale argument produces nonsense, which is exactly the doubling-strategy trap.
 

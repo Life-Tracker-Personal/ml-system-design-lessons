@@ -15,9 +15,9 @@ These eight questions test whether you can run the arithmetic cold and then defe
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** You compute $\widehat{SR} = \hat\mu/\hat\sigma$ and both pieces are random. Under iid normality $\hat\mu$ and $\hat\sigma$ are independent, $\mathrm{Var}(\hat\mu) = \sigma^2/n$ and $\mathrm{Var}(\hat\sigma^2) = 2\sigma^4/n$.
+**(a)** You compute $\widehat{SR} = \hat\mu/\hat\sigma$ over $n$ periods, where the hats mark sample quantities and $\mu, \sigma$ are the true per-period mean and standard deviation, and both pieces are random. Under independent and identically distributed normal returns $\hat\mu$ and $\hat\sigma$ are independent, $\mathrm{Var}(\hat\mu) = \sigma^2/n$ and $\mathrm{Var}(\hat\sigma^2) = 2\sigma^4/n$.
 
-First delta step, on $\hat\sigma = \sqrt{\hat\sigma^2}$, with derivative $1/(2\sigma)$:
+The Sharpe divides by $\hat\sigma$, not $\hat\sigma^2$, so you need to push a variance through a nonlinear function. Linearise: a smooth $f$ moves by roughly $f'$ times however far its argument moved, so $\mathrm{Var}(f(\hat\theta)) \approx f'(\theta)^2\mathrm{Var}(\hat\theta)$. That is the delta method. First delta step, on $\hat\sigma = \sqrt{\hat\sigma^2}$, with derivative $1/(2\sigma)$:
 
 $$\mathrm{Var}(\hat\sigma) \approx \frac{1}{4\sigma^2}\cdot\frac{2\sigma^4}{n} = \frac{\sigma^2}{2n}$$
 
@@ -25,15 +25,15 @@ Second delta step, on $g(\mu,\sigma) = \mu/\sigma$, with partials $1/\sigma$ and
 
 $$\mathrm{Var}(\widehat{SR}) \approx \frac{1}{\sigma^2}\cdot\frac{\sigma^2}{n} + \frac{\mu^2}{\sigma^4}\cdot\frac{\sigma^2}{2n} = \frac{1}{n}\left(1 + \frac{SR^2}{2}\right)$$
 
-so $\mathrm{SE}(\widehat{SR}) \approx \sqrt{(1 + SR^2/2)/n}$. At daily frequency the correction is nothing: a daily Sharpe of $0.063$ makes the bracket $1.002$, a 0.1 percent effect. In daily units the standard error is $1/\sqrt{n}$.
+so $\mathrm{SE}(\widehat{SR}) \approx \sqrt{(1 + SR^2/2)/n}$, with $SR = \mu/\sigma$ the true per-period Sharpe. At daily frequency the correction is nothing: an annualized Sharpe of 1 is a daily Sharpe of $1/\sqrt{252} = 0.063$, which makes the bracket $1.002$, a 0.1 percent effect. In daily units the standard error is $1/\sqrt{n}$.
 
-**(b)** With $\widehat{SR}_{\text{day}} = SR_{\text{ann}}/\sqrt{252}$ and $n = 252\,T$,
+**(b)** With $\widehat{SR}_{\text{day}} = SR_{\text{ann}}/\sqrt{252}$ the daily Sharpe, $SR_{\text{ann}}$ the annualized Sharpe, and $n = 252\,T$ observations in $T$ years,
 
 $$t \approx \widehat{SR}_{\text{day}}\sqrt{n} = \frac{SR_{\text{ann}}}{\sqrt{252}}\sqrt{252\,T} = SR_{\text{ann}}\sqrt{T}$$
 
 The sampling frequency cancels exactly. Only calendar time enters.
 
-**(c)** Nominal significance needs $t \ge 1.96$, so $\sqrt{T} \ge 1.96$ and $T \ge 3.84$ years. That is only the coin-flip threshold, because at $T = 3.84$ the *expected* t sits on the critical value, so you detect it half the time. For 80 percent power the expected t must clear the critical value by $z_{0.20} = 0.84$, so $t \ge 2.80$ and $T \ge 7.84$ years. Since $T$ scales as $1/SR^2$, a Sharpe of $0.5$ needs $(2.80/0.5)^2 = 31$ years and a Sharpe of 2 needs 2.0 years.
+**(c)** Nominal significance needs $t \ge 1.96$, so $\sqrt{T} \ge 1.96$ and $T \ge 3.84$ years. That is only the coin-flip threshold, because at $T = 3.84$ the *expected* t sits on the critical value, so you detect it half the time. For 80 percent power the expected t must clear the critical value by the standard normal point leaving 20 percent in the upper tail, $z_{0.20} = 0.84$, so $t \ge 2.80$ and $T \ge 7.84$ years. Since $T$ scales as $1/SR^2$, a Sharpe of $0.5$ needs $(2.80/0.5)^2 = 31$ years and a Sharpe of 2 needs 2.0 years.
 
 **(d)** It does not work. The frequency cancelled in part (b), so hourly sampling multiplies $n$ by roughly 7 and divides the per-period Sharpe by $\sqrt{7}$, leaving $t$ unchanged. You cannot buy significance with a finer clock, only with more calendar time. The genuine exception is estimating *variance*, not mean: realized variance from intraday bars converges far faster than the mean does, because quadratic variation is filled in by the sampling itself. So higher frequency helps volatility estimation and risk modelling, and does nothing for the significance of a mean return.
 
@@ -56,13 +56,13 @@ The sampling frequency cancels exactly. Only calendar time enters.
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** Convert to daily. $SR_{\text{day}} = 8/\sqrt{252} = 8/15.875 = 0.504$. Cumulative return over $n$ days has mean $n\mu$ and standard deviation $\sigma\sqrt{n}$, so under the claim
+**(a)** Convert to daily. $SR_{\text{day}} = 8/\sqrt{252} = 8/15.875 = 0.504$. Write $S_n = r_1 + \dots + r_n$ for the cumulative return over $n$ days; with per-day mean $\mu$ and per-day standard deviation $\sigma$ it has mean $n\mu$ and standard deviation $\sigma\sqrt{n}$, so under the claim
 
 $$P(S_n \le 0) = \Phi\!\left(-\frac{n\mu}{\sigma\sqrt{n}}\right) = \Phi(-SR_{\text{day}}\sqrt{n}) = \Phi(-0.504\sqrt{n})$$
 
 Reject one-sided at 5 percent when $0.504\sqrt{n} \ge 1.645$, so $\sqrt{n} \ge 3.265$ and $n \ge 10.7$. **Eleven trading days.** Check: at $n = 11$, $0.504 \times 3.317 = 1.672$, $p = 0.047$.
 
-**(b)** Sharpe 1 gives $SR_{\text{day}} = 1/15.875 = 0.063$, so $0.063\sqrt{n} \ge 1.645$ and $n \ge 682$ days, about 2.7 years of losing money. In general
+**(b)** Sharpe 1 gives $SR_{\text{day}} = 1/15.875 = 0.063$, so $0.063\sqrt{n} \ge 1.645$ and $n \ge 682$ days, about 2.7 years of losing money. In general, writing $n^\star$ for the smallest $n$ at which the claim falls,
 
 $$n^\star = \left(\frac{1.645\sqrt{252}}{SR_{\text{ann}}}\right)^2 = \frac{682}{SR_{\text{ann}}^2}\ \text{trading days}$$
 
@@ -91,7 +91,7 @@ Sharpe 8 gives 11 days, Sharpe 2 gives 170 days, Sharpe 1 gives 682 days.
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** The $q$-period return is $\sum_{t=1}^q r_t$. Its mean is $q\mu$. Its variance counts every pair:
+**(a)** The $q$-period return is $\sum_{t=1}^q r_t$, with $q$ the number of sampling periods in a year and $\mu, \sigma$ the per-period mean and standard deviation. Its mean is $q\mu$. Its variance counts every pair:
 
 $$\mathrm{Var}\left(\sum_{t=1}^{q} r_t\right) = q\sigma^2 + 2\sigma^2\sum_{k=1}^{q-1}(q-k)\rho_k$$
 
@@ -107,7 +107,7 @@ With positive autocorrelation the sum under the root exceeds $q$, so $\eta(q)$ i
 
 $$11(0.5) + 10(0.25) + 9(0.125) + 8(0.0625) + 7(0.03125) + \dots = 5.5 + 2.5 + 1.125 + 0.5 + 0.219 + 0.094 + \dots \approx 10.0$$
 
-So the denominator is $\sqrt{12 + 20} = \sqrt{32} = 5.657$ and $\eta = 12/5.657 = 2.12$, against a naive $\sqrt{12} = 3.464$. The naive figure is $3.464/2.12 = 1.63$ times too large, a 63 percent overstatement. A milder $\rho = 0.2$ gives a weighted sum near $2.69$, denominator $\sqrt{17.375} = 4.17$, $\eta = 2.88$, a 20 percent overstatement.
+The sum enters the variance doubled, adding 20 to the 12 already there. So the denominator is $\sqrt{12 + 20} = \sqrt{32} = 5.657$ and $\eta = 12/5.657 = 2.12$, against a naive $\sqrt{12} = 3.464$. The naive figure is $3.464/2.12 = 1.63$ times too large, a 63 percent overstatement. A milder $\rho = 0.2$ gives a weighted sum near $2.69$, hence $12 + 5.375$ under the root, denominator $\sqrt{17.375} = 4.17$, $\eta = 2.88$, a 20 percent overstatement.
 
 **(d)** First belief: the reported 2 is materially inflated by the annualization alone, before anyone argues about alpha, because $\rho_1 = 0.4$ on monthly data is large. Second belief, and the more important one: positive autocorrelation in a monthly return stream is usually a *symptom*. It says the marks are smoothed, which means illiquid positions, stale prices, model marks or a valuation committee, not a return-generating feature. What you ask for next is the marking policy and the pricing sources, the fraction of the book in level-3 or thinly traded assets, gross and net exposure through the worst month, and a redemption history. You also recompute the Sharpe with $\eta(12)$ rather than $\sqrt{12}$ and quote the corrected number. Checking $\hat\rho_1$ on any handed-over track record is a thirty-second test that most people never run.
 
@@ -130,11 +130,11 @@ So the denominator is $\sqrt{12 + 20} = \sqrt{32} = 5.657$ and $\eta = 12/5.657 
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** Nothing. Under the global null that every signal is worthless, the count of false positives is Binomial$(100, 0.05)$ with mean exactly $5$ and standard deviation $\sqrt{100(0.05)(0.95)} = 2.18$. Five is the modal outcome, and $P(X \ge 5) \approx 0.56$. You have observed precisely what pure noise looks like. The right next sentence is not "so they are all fake" but "this data cannot separate the two hypotheses, here is what would."
+**(a)** Nothing. Under the global null that every signal is worthless, the count of false positives $X$ is Binomial$(100, 0.05)$ with mean exactly $5$ and standard deviation $\sqrt{100(0.05)(0.95)} = 2.18$. Five is the modal outcome, and $P(X \ge 5) \approx 0.56$. You have observed precisely what pure noise looks like. The right next sentence is not "so they are all fake" but "this data cannot separate the two hypotheses, here is what would."
 
-**(b)** **Bonferroni** controls the family-wise error rate, the probability of at least one false positive anywhere in the family, by testing each hypothesis at $\alpha/m$. With $m = 100$, $\alpha = 0.05$, the per-test threshold is $0.0005$. It is valid under arbitrary dependence, which is why it survives correlated tests, and it is very conservative.
+**(b)** Write $m$ for the number of tests and $\alpha$ for the false-positive rate you will tolerate. Run each test at level $\alpha/m$ and the chance that any one of them fires under the global null is at most $m \times (\alpha/m) = \alpha$, because a union is never more likely than the sum of its parts. That is **Bonferroni**: it controls the family-wise error rate, the probability of at least one false positive anywhere in the family. With $m = 100$, $\alpha = 0.05$, the per-test threshold is $0.0005$. The union bound assumed nothing about how the tests relate, so Bonferroni is valid under arbitrary dependence, which is why it survives correlated tests and why it is very conservative.
 
-**Benjamini-Hochberg** controls the false discovery rate, $E[V/R]$, the expected fraction of your *rejections* that are false. Sort p-values ascending, find the largest $k$ with $p_{(k)} \le k\alpha/m$, and reject the first $k$.
+**Benjamini-Hochberg** controls the false discovery rate. Let $R$ be the number of hypotheses you reject and $V$ the number of those rejections that are false; FDR is $E[V/R]$, the expected fraction of your *rejections* that are wrong. Under the global null the $k$-th smallest of $m$ p-values sits near $k/m$, so BH rejects while the observed p-values run below that line: sort p-values ascending, write $p_{(k)}$ for the $k$-th smallest, find the largest $k$ with $p_{(k)} \le k\alpha/m$, and reject the first $k$.
 
 **(c)** Thresholds $k\alpha/m$ for $k = 1,2,3,4$ are $0.001, 0.002, 0.003, 0.004$. Then $0.0001 \le 0.001$ passes, $0.0008 \le 0.002$ passes, $0.004 > 0.003$ fails, $0.03 > 0.004$ fails. The largest passing $k$ is $2$, so reject the top two. Bonferroni at $0.0005$ keeps only the first. BH is a step-up procedure, so a later $k$ passing would reinstate everything below it even if an intermediate one failed.
 
@@ -165,25 +165,25 @@ The choice: for a research pipeline whose output is a *batch* of candidates goin
 
 **(a)** $t = SR\sqrt{T} = 1.5 \times \sqrt{3} = 1.5 \times 1.732 = 2.60$, one-sided $p \approx 0.005$. On its own that looks strong.
 
-**(b)** Bonferroni over 200 trials needs $p \le 0.05/200 = 0.00025$, so $z \ge 3.48$. Then $SR\sqrt{3} \ge 3.48$ gives $SR \ge 2.01$. The observed 1.5 does not clear it, and the gap is not marginal.
+**(b)** Bonferroni over 200 trials needs $p \le 0.05/200 = 0.00025$, which on a standard normal is a cutoff of $z \ge 3.48$. Then $SR\sqrt{3} \ge 3.48$ gives $SR \ge 2.01$. The observed 1.5 does not clear it, and the gap is not marginal.
 
-**(c)** The **Probabilistic Sharpe Ratio** is the probability that the true Sharpe exceeds a benchmark $SR^\star$ given the observed Sharpe, the track-record length, and the higher moments:
+**(c)** The **Probabilistic Sharpe Ratio** is the probability that the true Sharpe exceeds a chosen benchmark $SR^\star$ given the observed Sharpe $\widehat{SR}$, the number of periods $n$ in the track record, and the shape of the return distribution:
 
 $$\mathrm{PSR}(SR^\star) = \Phi\!\left(\frac{(\widehat{SR} - SR^\star)\sqrt{n-1}}{\sqrt{1 - \gamma_3\widehat{SR} + \frac{\gamma_4 - 1}{4}\widehat{SR}^2}}\right)$$
 
-with $\gamma_3$ skewness and $\gamma_4$ kurtosis (not excess). Negative skew makes $-\gamma_3\widehat{SR}$ positive and inflates the standard error, and fat tails do the same through $\gamma_4$. Setting $\gamma_3 = 0$, $\gamma_4 = 3$ recovers $\sqrt{1 + \widehat{SR}^2/2}$, the iid-normal case. So PSR corrects for **length, skew and kurtosis**.
+with $\gamma_3$ skewness, $\gamma_4$ kurtosis (not excess), and $\Phi$ the standard normal cumulative distribution function. Negative skew makes $-\gamma_3\widehat{SR}$ positive and inflates the standard error, and fat tails do the same through $\gamma_4$. Setting $\gamma_3 = 0$, $\gamma_4 = 3$ recovers $\sqrt{1 + \widehat{SR}^2/2}$, the iid-normal case. So PSR corrects for **length, skew and kurtosis**.
 
-The **Deflated Sharpe Ratio** is the PSR evaluated against a benchmark that is not zero but the *expected maximum* Sharpe over $N$ trials. So DSR corrects for **the search**, on top of everything PSR does. DSR equals PSR plus a multiple-testing benchmark, which is why you cannot explain one without the other, and why "DSR corrects for trials plus skew and kurtosis" is imprecise: the skew and kurtosis live in PSR.
+The **Deflated Sharpe Ratio** is the PSR evaluated against a benchmark that is not zero but the *expected maximum* Sharpe over $N$ trials, $N$ being the number of configurations searched. So DSR corrects for **the search**, on top of everything PSR does. DSR equals PSR plus a multiple-testing benchmark, which is why you cannot explain one without the other, and why "DSR corrects for trials plus skew and kurtosis" is imprecise: the skew and kurtosis live in PSR.
 
-**(d)** The extreme-value approximation:
+**(d)** The largest of $N$ normal draws sits near the quantile cutting off the top $1/N$, and the Gumbel limit for maxima refines that by blending in a second, slightly higher quantile. Writing $\max_N \widehat{SR}$ for the largest Sharpe among the $N$ trials and $\sigma_{\widehat{SR}}$ for the standard deviation of the Sharpes across those trials, the extreme-value approximation is:
 
 $$E[\max_N \widehat{SR}] \approx \sigma_{\widehat{SR}}\left[(1-\gamma)\,\Phi^{-1}\!\left(1 - \tfrac{1}{N}\right) + \gamma\,\Phi^{-1}\!\left(1 - \tfrac{1}{Ne}\right)\right]$$
 
-with $\gamma = 0.5772$. For $N = 200$: $\Phi^{-1}(0.995) = 2.576$, and $Ne = 543.7$ so $\Phi^{-1}(1 - 1/543.7) = 2.905$. Then
+with $\gamma = 0.5772$ the Euler-Mascheroni constant from the Gumbel limit, which is unrelated to the moment symbols $\gamma_3$ and $\gamma_4$ above. For $N = 200$: $\Phi^{-1}(0.995) = 2.576$, and $Ne = 200 \times 2.718 = 543.7$ so $\Phi^{-1}(1 - 1/543.7) = 2.905$. Then
 
 $$E[\max] \approx 0.5\left[0.4228(2.576) + 0.5772(2.905)\right] = 1.38$$
 
-The expected best-of-200 Sharpe under the null is 1.38 annualized. Deflate against it: in daily units $\widehat{SR} = 1.5/15.875 = 0.0945$, $SR^\star = 1.38/15.875 = 0.0871$, $n = 756$. The numerator is $(0.0945 - 0.0871)\sqrt{755} = 0.203$ and the denominator is $1.002$ under normal moments, so
+The expected best-of-200 Sharpe under the null is 1.38 annualized. Deflate against it: in daily units $\widehat{SR} = 1.5/15.875 = 0.0945$, $SR^\star = 1.38/15.875 = 0.0871$, and $n = 756$ trading days in three years. The numerator is the gap $(0.0945 - 0.0871)$ times $\sqrt{755} = 27.48$, which is $0.203$, and the denominator is $1.002$ under normal moments, so
 
 $$\mathrm{DSR} = \Phi(0.203) = 0.58$$
 
@@ -243,19 +243,19 @@ What I give up is real. Early folds train on very little data, so the model I ev
 
 **(a)** A $500 \times 500$ covariance matrix has $500 \times 501/2 = 125\,250$ free parameters. You have $500 \times 60 = 30\,000$ observations. You are estimating roughly four times more parameters than you have numbers, and no estimator repairs that arithmetic.
 
-**(b)** With $\hat\Sigma = \frac{1}{T}\sum_t (r_t - \bar r)(r_t - \bar r)^\top$ a sum of $T$ rank-one matrices, minus one degree of freedom for the demeaning,
+**(b)** Write $N$ for the number of assets and $T$ for the number of time periods, so $N = 500$ and $T = 60$. With $\hat\Sigma = \frac{1}{T}\sum_t (r_t - \bar r)(r_t - \bar r)^\top$, where $r_t$ is the vector of $N$ returns at time $t$ and $\bar r$ their sample mean, a sum of $T$ rank-one matrices, minus one degree of freedom for the demeaning,
 
 $$\mathrm{rank}(\hat\Sigma) \le \min(N, T-1) = 59$$
 
 So at least $500 - 59 = 441$ eigenvalues are exactly zero. The matrix is singular, $\hat\Sigma^{-1}$ does not exist, and mean-variance optimization has no solution. The null space is worse than the missing inverse: every $w$ in it satisfies $w^\top \hat\Sigma w = 0$, a portfolio the data asserts has literally zero risk. An optimizer handed that will lever it without bound. This is Michaud's error maximizer in its purest form, because the optimizer does not find the best portfolio, it finds the largest estimation error.
 
-**(c)** For pure noise with true covariance $I$, sample eigenvalues fill $[(1-\sqrt q)^2, (1+\sqrt q)^2]$ with $q = N/T$. Here $q = 500/60 = 8.33$, $\sqrt q = 2.887$, upper edge $(3.887)^2 = 15.1$. Noise alone produces eigenvalues fifteen times the true value, so eigenvalue magnitude tells you nothing about signal at this aspect ratio. With five years of daily data, $T = 1260$, $q = 0.397$, $\sqrt q = 0.630$, edge $(1.630)^2 = 2.66$. Better, but everything below 2.66 is still indistinguishable from noise.
+**(c)** Take returns that are pure noise, so the true covariance is the identity $I$ and every true eigenvalue is 1. The sample eigenvalues do not sit at 1; the Marchenko-Pastur law says they spread into a band whose width is set by the aspect ratio $q = N/T$, assets over observations (not the annualization horizon $q$ of Q3). They fill $[(1-\sqrt q)^2, (1+\sqrt q)^2]$. Here $q = 500/60 = 8.33$, $\sqrt q = 2.887$, upper edge $(3.887)^2 = 15.1$. Noise alone produces eigenvalues fifteen times the true value, so eigenvalue magnitude tells you nothing about signal at this aspect ratio. With five years of daily data, $T = 1260$, $q = 0.397$, $\sqrt q = 0.630$, edge $(1.630)^2 = 2.66$. Better, but everything below 2.66 is still indistinguishable from noise.
 
 **(d)** It proves the matrix was **not** computed as a single sample covariance, because those are positive semi-definite by construction: $w^\top\hat\Sigma w = \frac{1}{T}\sum_t (w^\top(r_t - \bar r))^2 \ge 0$. So the question is what was done to it. Usual causes: pairwise-complete estimation where each pair uses a different window because of missing data or different listing histories; hand edits such as overriding a correlation, blending in a view, or flooring entries; mixing estimators, such as a shrunk correlation matrix combined with unshrunk volatilities.
 
 Diagnose by magnitude. An eigenvalue around $10^{-16}$ times the trace is floating-point noise on a truly zero eigenvalue and is a numerical matter. An eigenvalue at $-0.02$ times the trace is structural and means the construction is wrong.
 
-Fixes, and you are expected to produce at least one name. Nearest positive semi-definite projection: clip negative eigenvalues to zero and reconstruct (Higham 1988). Random matrix theory clipping: replace everything below the Marchenko-Pastur edge with its average, preserving the trace. Or shrinkage, $\hat\Sigma_{\text{shrunk}} = \delta F + (1-\delta)\hat\Sigma$ with $F$ a structured target such as constant correlation, a scaled identity, or a factor model. **Ledoit-Wolf** picks $\delta$ analytically by minimizing expected Frobenius loss, and shrinkage guarantees invertibility because the target is positive definite. Nobody asks you to derive it; everybody expects the name. And the honest first move is still to fix the estimator that produced the broken matrix rather than to patch the output.
+Fixes, and you are expected to produce at least one name. Nearest positive semi-definite projection: clip negative eigenvalues to zero and reconstruct (Higham 1988). Random matrix theory clipping: replace everything below the Marchenko-Pastur edge with its average, preserving the trace. Or shrinkage, pulling the matrix partway toward something you trust more: $\hat\Sigma_{\text{shrunk}} = \delta F + (1-\delta)\hat\Sigma$ with $F$ a structured target such as constant correlation, a scaled identity, or a factor model, and $\delta \in [0,1]$ setting how far you move. **Ledoit-Wolf** picks $\delta$ analytically, choosing the value that minimizes the expected squared elementwise distance to the true covariance, the Frobenius loss. Shrinkage guarantees invertibility because the target is positive definite. Nobody asks you to derive it; everybody expects the name. And the honest first move is still to fix the estimator that produced the broken matrix rather than to patch the output.
 
 **Rubric:**
 - 125,250 parameters against 30,000 observations

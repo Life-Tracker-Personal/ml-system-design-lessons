@@ -21,9 +21,9 @@ The law of large numbers gives $\frac{1}{T}\sum_t x_t^2 \to Q$, a finite positiv
 
 The central limit theorem gives $\frac{1}{\sqrt{T}}\sum_t x_t \epsilon_t \Rightarrow N(0, \sigma^2 Q)$. That is what makes the estimation error shrink at rate $1/\sqrt{T}$ and be asymptotically normal, which is the only reason comparing a t-statistic to 1.96 means anything.
 
-Note the division of labor: the LLN gives you consistency, the CLT gives you inference. They can fail separately, and in Part 3 of the lesson both fail at once.
+The division of labor is worth keeping straight: the LLN gives you consistency, the CLT gives you inference. They can fail separately, and in Part 3 of the lesson both fail at once.
 
-**(b)** *Strict stationarity*: for every $k$, every set of times $t_1,\dots,t_k$ and every shift $h$, the joint law of $(X_{t_1},\dots,X_{t_k})$ equals the joint law of $(X_{t_1+h},\dots,X_{t_k+h})$. The whole probabilistic structure is shift-invariant.
+**(b)** *Strict stationarity*: for every number of time points $k \ge 1$, every set of times $t_1,\dots,t_k$ and every integer shift $h$, the joint law of $(X_{t_1},\dots,X_{t_k})$ equals the joint law of $(X_{t_1+h},\dots,X_{t_k+h})$. The whole probabilistic structure is shift-invariant.
 
 *Weak (covariance) stationarity*: only the first two moments are shift-invariant.
 
@@ -70,7 +70,7 @@ $$
 
 For a stationary regressor with variance $\sigma^2$ the same sum is $T\sigma^2 = O(T)$. One extra factor of $T$, and that single fact drives everything else.
 
-**(b)** Because the sum is $O(T^2)$, the normalization that converges is $T^{-2}\sum x_t^2$, not $T^{-1}\sum x_t^2$. Under that normalization a functional central limit theorem applies and
+**(b)** Because the sum is $O(T^2)$, the normalization that converges is $T^{-2}\sum x_t^2$, not $T^{-1}\sum x_t^2$. Rescaled in both time and height, the walk's path does not flatten onto a number; it settles onto a random continuous path, so sums along the walk become integrals along that path. The theorem licensing that rescaling is the functional central limit theorem. Write $W_1$ and $W_2$ for two independent standard Brownian motions on the unit interval and $r \in [0,1]$ for rescaled time. Then
 
 $$
 T^{-2}\sum_t x_t^2 \;\Rightarrow\; \sigma_x^2 \int_0^1 W_1(r)^2\,dr
@@ -92,7 +92,7 @@ $$
 s^2 = \frac{1}{T-2}\sum_t \hat u_t^2 = O_p(T)
 $$
 
-Feed that in:
+Feed that in, writing $\tilde x_t = x_t - \bar x$ for the regressor in deviations from its sample mean $\bar x$:
 
 $$
 \operatorname{se}(\hat\beta)^2 = \frac{s^2}{\sum_t \tilde x_t^2} = \frac{O_p(T)}{O_p(T^2)} = O_p(T^{-1}) \implies \operatorname{se}(\hat\beta) = O_p(T^{-1/2})
@@ -186,7 +186,7 @@ The statistic is $\hat\gamma/\operatorname{se}(\hat\gamma)$ but it does **not** 
 
 **(c)** "The ADF test failed to reject the null of a unit root at conventional levels ($p = 0.31$). Given $T = 500$, the test has low power against the near-unit-root alternatives relevant here, so this is not evidence that the spread is non-stationary."
 
-The trap, and it is the single most common ding on this topic, is writing "the spread has a unit root" or "the spread is non-stationary." You never accept a null. Failing to reject is what happens both when the null is true and when you have no power, and those two are indistinguishable from the p-value alone.
+The trap, and it is the most common error on this topic, is writing "the spread has a unit root" or "the spread is non-stationary." You never accept a null. Failing to reject is what happens both when the null is true and when you have no power, and those two are indistinguishable from the p-value alone.
 
 **(d)** Power depends on the **local-to-unity parameter** $T(1-\phi)$, not on $(1-\phi)$ alone. Take a genuinely mean-reverting spread with $\phi = 0.98$, which is exactly the regime a pairs trade lives in. Its half-life is
 
@@ -235,7 +235,7 @@ which is $0$ at $\omega = 0$ and maximal at the Nyquist frequency $\omega = \pi$
 
 That matters because of where the two things you care about live. Predictive information in prices tends to sit at low frequencies: valuation levels, slow mean reversion, multi-week trends. Microstructure noise, bid-ask bounce and quantization sit at high frequencies. Differencing removes exactly the band with signal and boosts exactly the band with noise. You passed the stationarity test by deleting the reason you ran the regression.
 
-**(b)** Over-differencing. If the series was already I(0), then $\Delta$ of it produces an error process that is MA(1) with $\theta = -1$, which is **non-invertible**: the moving-average polynomial $1 - L$ has a root on the unit circle, so there is no convergent autoregressive representation. Practically, maximum-likelihood ARMA fits pile up at the boundary, standard errors go strange, and forecasts get worse than the undifferenced model. There is also a variance cost: $\operatorname{Var}(\Delta x_t) = 2\gamma(0)(1 - \rho_1)$, which for a weakly autocorrelated stationary series is close to $2\gamma(0)$, so you nearly doubled the noise for nothing.
+**(b)** Over-differencing. If the series was already I(0), then $\Delta$ of it produces an error process that is MA(1) with $\theta = -1$, which is **non-invertible**: the moving-average polynomial $1 - L$ has a root on the unit circle, so there is no convergent autoregressive representation. Practically, maximum-likelihood ARMA fits pile up at the boundary, standard errors go strange, and forecasts get worse than the undifferenced model. There is also a variance cost. Writing $\gamma(0)$ for the variance of the undifferenced series and $\rho_1$ for its lag-1 autocorrelation, $\operatorname{Var}(\Delta x_t) = 2\gamma(0)(1 - \rho_1)$, which for a weakly autocorrelated stationary series is close to $2\gamma(0)$, so you nearly doubled the noise for nothing.
 
 **(c)** Fractional differencing (Hosking 1981, brought to finance by Lopez de Prado 2018) applies $(1-L)^d$ with real $d \in (0,1)$ via the binomial expansion:
 
@@ -268,7 +268,7 @@ The procedure is a one-dimensional search: sweep $d$ upward from $0$ and take th
 <details>
 <summary>Model answer + rubric</summary>
 
-**(a)** Suppose both series are driven by one **common stochastic trend** $W_t$, itself a random walk, plus their own stationary idiosyncratic parts:
+**(a)** Suppose both series are driven by one **common stochastic trend** $W_t$, itself a random walk, plus their own stationary idiosyncratic parts, with $\gamma_y$ and $\gamma_x$ the loadings of each series on that shared trend:
 
 $$
 y_t = \gamma_y W_t + \tilde y_t, \qquad x_t = \gamma_x W_t + \tilde x_t
@@ -280,7 +280,7 @@ $$
 y_t - \beta x_t = \gamma_y W_t - \frac{\gamma_y}{\gamma_x}\gamma_x W_t + \tilde y_t - \beta\tilde x_t = \tilde y_t - \beta\,\tilde x_t
 $$
 
-The $W_t$ terms cancel exactly, and what remains is a linear combination of two I(0) series, hence I(0). That is a cointegrating vector, and this construction shows it exists precisely when the two series share their non-stationary driver. Two random walks with independent drivers have no such $\beta$, because there is nothing to cancel: any $\beta$ leaves $\gamma_y W_t^{(1)} - \beta\gamma_x W_t^{(2)}$, still I(1).
+The $W_t$ terms cancel exactly, and what remains is a linear combination of two I(0) series, hence I(0). That is a cointegrating vector, and this construction shows it exists precisely when the two series share their non-stationary driver. Two random walks with independent drivers have no such $\beta$, because there is nothing to cancel: writing $W_t^{(1)}$ and $W_t^{(2)}$ for the two separate driving walks, any $\beta$ leaves $\gamma_y W_t^{(1)} - \beta\gamma_x W_t^{(2)}$, still I(1).
 
 The right one-line version out loud: cointegration means the number of independent stochastic trends is smaller than the number of series.
 
@@ -323,7 +323,7 @@ The cointegration-specific mitigations are to restrict the search space by econo
 
 <Quiz id="7">
 
-**Q7. Choose an estimator, then size the trade.** (a) Compare Engle-Granger and Johansen: what each estimates, what each assumes, and what each costs you. Then pick one for two liquid ETFs with an obvious hedge direction and defend it out loud. (b) Why is the second step of Engle-Granger not an ordinary ADF test? (c) A pair has $\beta = 1.2$, residual spread standard deviation \$0.80, and an AR(1) fit on the spread gives $\phi = 0.97$. Size a trade against 5bps-per-side costs. (d) Now the half-life is 200 days instead. What changed and what did not?
+**Q7. Choose an estimator, then size the trade.** (a) Compare Engle-Granger and Johansen: what each estimates, what each assumes, and what each costs you. Then pick one for two liquid ETFs with an obvious hedge direction and defend it out loud. (b) Why is the second step of Engle-Granger not an ordinary ADF test? (c) A pair has $\beta = 1.2$, residual spread standard deviation USD 0.80, and an AR(1) fit on the spread gives $\phi = 0.97$. Size a trade against 5bps-per-side costs. (d) Now the half-life is 200 days instead. What changed and what did not?
 
 <details>
 <summary>Model answer + rubric</summary>
@@ -344,13 +344,13 @@ $$
 h = \frac{-\ln 2}{\ln 0.97} = \frac{0.6931}{0.030459} = 22.8 \text{ days}
 $$
 
-Enter at $z = 2$, which is two spread standard deviations, or \$1.60, away from the mean. Over one half-life expect to capture about half of that deviation, so roughly \$0.80 of gross edge per unit.
+Enter at $z = 2$, which is two spread standard deviations, or USD 1.60, away from the mean. Over one half-life expect to capture about half of that deviation, so roughly USD 0.80 of gross edge per unit.
 
-Cost it. On \$100 of the long leg the short leg is $1.2 \times 100 = 120$ dollars, so gross notional is \$220. Round-trip at 5bps per side is $2 \times 0.0005 \times 220 = 0.22$ dollars.
+Cost it. On USD 100 of the long leg the short leg is $1.2 \times 100 = 120$ dollars, so gross notional is USD 220. Round-trip at 5bps per side is $2 \times 0.0005 \times 220 = 0.22$ dollars.
 
 Edge-to-cost is about $0.80/0.22 \approx 3.6$ to 1, and one round trip takes roughly a month, so you get on the order of eight to twelve turns a year per pair. That is a live trade, though the whole book's Sharpe then depends on how many independent pairs you can run, not on this one.
 
-**(d)** The statistics are unchanged. The cointegration is just as real, the ADF p-value is the same order, the entry z-score and the per-trade edge of \$0.80 are identical. What changed is the *rate*: at a 200-day half-life you get roughly one round trip a year instead of eight to twelve. Annualized return per unit of capital drops by that factor, the capital is tied up for the whole year while the position runs against you as often as not, and the strategy's Sharpe collapses even though nothing statistical moved.
+**(d)** The statistics are unchanged. The cointegration is just as real, the ADF p-value is the same order, the entry z-score and the per-trade edge of USD 0.80 are identical. What changed is the *rate*: at a 200-day half-life you get roughly one round trip a year instead of eight to twelve. Annualized return per unit of capital drops by that factor, the capital is tied up for the whole year while the position runs against you as often as not, and the strategy's Sharpe collapses even though nothing statistical moved.
 
 That is the point worth saying out loud: **half-life is what converts a statistical relationship into a capital-efficiency question.** A candidate who reports "ADF p-value 0.03, the pair is cointegrated" and stops has answered a different question from the one that was asked.
 
@@ -359,7 +359,7 @@ That is the point worth saying out loud: **half-life is what converts a statisti
 - Superconsistency stated with the rate $T$ and connected to the $O(T^2)$ second moment
 - A defense of the choice that cites specific properties, and says what would flip the decision
 - Phillips-Ouliaris explained by the estimated-$\beta$ pretesting problem, not asserted
-- $h = 22.8$ days, gross notional \$220, cost \$0.22, edge-to-cost near 4:1
+- $h = 22.8$ days, gross notional USD 220, cost USD 0.22, edge-to-cost near 4:1
 - On the 200-day case, separates what is unchanged (the statistics, the per-trade edge) from what died (turns per year, Sharpe)
 
 </details>
@@ -377,7 +377,7 @@ That is the point worth saying out loud: **half-life is what converts a statisti
 
 The fix is therefore to the inference, not to the estimator: HAC (heteroskedasticity-and-autocorrelation-consistent) standard errors, Newey-West being the standard implementation, with a lag truncation on the order of $4(T/100)^{2/9}$ or the label horizon, whichever is longer. You can also fit the error structure explicitly with GLS if you are confident in it, which buys efficiency, but that is an optional improvement rather than a required correction.
 
-Many candidates reflexively say "the estimates are biased." That is the answer being tested for.
+Many candidates reflexively say "the estimates are biased." That is the error this question exists to catch.
 
 **(b)** Two conditions flip it, and both are common in finance.
 

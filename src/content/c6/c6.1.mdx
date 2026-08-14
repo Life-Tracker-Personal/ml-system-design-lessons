@@ -9,9 +9,9 @@ estimatedMinutes: 55
 
 ## TL;DR
 
-Classification evaluation works because each input has one correct label, so a prediction is right or wrong and you can count. Generation breaks that: there are many acceptable outputs, no enumerable label set, and the same model produces different text on the same input. Every generative metric is an attempt to recover a countable quantity from that mess. Reference-based metrics do it by comparing against a written-down answer, which works when the answer space is genuinely narrow (extraction, SQL, code) and degrades to noise when it is not. n-gram overlap scores like BLEU and ROUGE are the weakest form of this and leading with them in 2026 dates you. What replaced them is task-grounded checks plus **LLM-as-judge**: a second model reading the output against an explicit criterion.
+Classification evaluation works because each input has one correct label, so a prediction is right or wrong and you can count. Generation breaks that: there are many acceptable outputs, no enumerable label set, and the same model produces different text on the same input. Every generative metric is an attempt to recover a countable quantity from that mess. Reference-based metrics do it by comparing against a written-down answer, which works when the answer space is genuinely narrow (extraction, SQL, code) and degrades to noise when it is not. n-gram overlap scores like BLEU and ROUGE are the weakest form of this, and by 2026 they are no longer the state of the practice. What replaced them is task-grounded checks plus **LLM-as-judge**: a second model reading the output against an explicit criterion.
 
-The move that separates a senior answer from a junior one is this: **the evaluator is itself a system that must be evaluated.** An LLM judge is a classifier with a TPR and a TNR, and you measure it against held-out human labels and report those two numbers separately, because raw agreement lies under class imbalance. A human panel is also a measurement instrument, and Cohen's kappa exists for exactly the same reason — raw agreement between two annotators is inflated by prevalence. This lesson derives both corrections with arithmetic, covers the three judge biases with real magnitudes, and ends with the observation that the metrics you actually ship are almost always task-specific and binary.
+One idea does most of the work here: **the evaluator is itself a system that must be evaluated.** An LLM judge is a classifier with a true positive rate (TPR) and a true negative rate (TNR), and you measure it against held-out human labels and report those two numbers separately, because raw agreement lies under class imbalance. A human panel is also a measurement instrument, and Cohen's kappa exists for exactly the same reason — raw agreement between two annotators is inflated by prevalence. Both corrections are derived below with arithmetic, the three judge biases are quoted with their measured magnitudes, and the metrics that actually ship are almost always task-specific and binary.
 
 ## What you'll be able to do after this lesson
 
@@ -27,11 +27,11 @@ The move that separates a senior answer from a junior one is this: **the evaluat
 
 A spam classifier has a finite label set and one correct label per email. Two properties follow, and every classification metric leans on both. First, **the correct answer is unique and enumerable**, so equality is a valid comparison. Second, **the system is deterministic** at a fixed threshold, so one run is one measurement.
 
-Generation has neither. "Summarize this ticket" has an unbounded set of good answers, and equality against any one of them is meaningless. Sampling at temperature above zero means the same input yields different output on Tuesday than Monday, so a single run is a draw from a distribution and one number is an estimate with variance. These two properties, not the model architecture, are what force every design choice in the rest of the chapter: you need a comparison operator that is not equality, and you need repeated sampling with an uncertainty interval instead of a point score.
+Generation has neither. "Summarize this ticket" has an unbounded set of good answers, and equality against any one of them is meaningless. Sampling at temperature above zero means the same input yields different output on Tuesday than Monday, so a single run is a draw from a distribution and one number is an estimate with variance. These two properties, not the model architecture, force every design choice that follows: you need a comparison operator that is not equality, and you need repeated sampling with an uncertainty interval instead of a point score.
 
-There is a third property that is easy to miss. In classification the label is cheap and objective — a human looks at the email and says spam. In generation the label is often a *judgment* — is this summary faithful, is this tone right — which means the labeling process itself has error, and that error has to be measured. That is why half this lesson is about grading the graders.
+There is a third property that is easy to miss. In classification the label is cheap and objective — a human looks at the email and says spam. In generation the label is often a *judgment* — is this summary faithful, is this tone right — which means the labeling process itself has error, and that error has to be measured. Grading the graders is therefore half the work of evaluating a generative system.
 
-The consequence people resist: **an aggregate "quality score" is not a metric.** A number is only a metric if it supports a specific decision — ship or don't, gate this PR or don't, roll back or don't. A 1–5 quality score supports nothing, because nobody can say what separates a 3 from a 4, and two annotators will not agree on it. Hold onto that; it comes back in Part 3.
+The consequence people resist: **an aggregate "quality score" is not a metric.** A number is only a metric if it supports a specific decision — ship or don't, gate this PR or don't, roll back or don't. A 1–5 quality score supports nothing, because nobody can say what separates a 3 from a 4, and two annotators will not agree on it. Part 3 turns this into a concrete choice of judge format.
 
 ## Part 2 — Reference-based metrics, and where they run out
 
@@ -39,7 +39,7 @@ A reference-based metric compares output to a written answer. They form a ladder
 
 **Exact match** is string equality after normalization (lowercase, strip punctuation and articles). It is the right metric more often than people admit — for structured extraction, classification-shaped generation, SQL results, tool-call arguments. If the answer space is narrow and you can normalize it, exact match is unambiguous, free, deterministic, and nobody argues with it in a review.
 
-**Token F1** relaxes to bag-of-tokens overlap. Gold answer `the refund window is 30 days`, prediction `you have thirty days to request a refund`. Normalized tokens overlap on `refund` and `days` only. Precision is $2/7 \approx 0.29$ (7 prediction tokens after dropping articles), recall is $2/5 = 0.40$, so
+**Token F1** relaxes to bag-of-tokens overlap. Gold answer `the refund window is 30 days`, prediction `you have thirty days to request a refund`. Normalized tokens overlap on `refund` and `days` only. Precision is the overlap over the prediction's own token count, $2/7 \approx 0.29$ (7 prediction tokens after dropping articles); recall is the overlap over the gold answer's token count, $2/5 = 0.40$ (5 gold tokens after dropping articles). Their harmonic mean is
 
 $$
 F_1 = \frac{2 \cdot 0.29 \cdot 0.40}{0.29 + 0.40} \approx 0.34
@@ -47,9 +47,9 @@ $$
 
 The prediction is completely correct and scores 0.34. That is the whole indictment of surface overlap in one number.
 
-**BLEU and ROUGE** are the n-gram versions of the same idea — BLEU is precision-weighted over n-grams with a brevity penalty, ROUGE is recall-weighted — and they inherit the same failure amplified, because at $n = 4$ the example above scores exactly zero. The one sentence worth keeping: *n-gram overlap measures surface form, so for open-ended output it penalizes correct paraphrase and rewards fluent copying of the reference.* Know that sentence and move on. Leading with BLEU as your answer to "how do you evaluate generation" is the single clearest dating signal in this domain.
+**BLEU and ROUGE** are the n-gram versions of the same idea — BLEU is precision-weighted over n-grams with a brevity penalty, ROUGE is recall-weighted — and they inherit the same failure amplified, because at $n = 4$ the example above scores exactly zero. The one sentence worth keeping: *n-gram overlap measures surface form, so for open-ended output it penalizes correct paraphrase and rewards fluent copying of the reference.* That sentence is the whole of what these metrics are good for; leading with BLEU as the answer to "how do you evaluate generation" is the clearest signal that a practitioner stopped reading the field a decade ago.
 
-**BERTScore** replaces token equality with embedding similarity: embed every token of the candidate and the reference with a contextual encoder, greedily match each candidate token to its most similar reference token, average the cosine similarities, and combine precision and recall into an F1. It genuinely fixes paraphrase — `thirty days` and `30 days` land close. It does not fix the deeper problem. It still needs one reference to be *the* answer, and it inherits the blindness of the embedding space it is built on, most sharply on negation: "the drug is safe" and "the drug is not safe" are topically near-identical and score high against each other. If you read c5.1, that is the same failure mode as retrieval, from the same cause.
+**BERTScore** replaces token equality with embedding similarity: embed every token of the candidate and the reference with a contextual encoder, greedily match each candidate token to its most similar reference token, average the cosine similarities, and combine precision and recall into an F1. It genuinely fixes paraphrase — `thirty days` and `30 days` land close. It does not fix the deeper problem. It still needs one reference to be *the* answer, and it inherits the blindness of the embedding space it is built on, most sharply on negation: "the drug is safe" and "the drug is not safe" are topically near-identical and score high against each other. That is the same failure mode embedding retrieval hits in c5.1, from the same cause.
 
 So the ladder ends where it started. Reference-based metrics work when the answer space is narrow. When it is wide, no amount of softening the comparison operator saves you, because the premise — that a single written reference defines correctness — is what is wrong.
 
@@ -65,13 +65,13 @@ Judges are biased in three specific ways, and the measured magnitudes are worth 
 
 **Self-preference.** A judge favors output from its own model family — GPT-4 self-favoring by around 10 points of win rate, Claude-v1 by around 25. The control is to grade with a judge from a different family than the candidate, and when you are comparing two families to each other, grade with both judges and check the verdicts agree.
 
-**Pointwise vs pairwise.** Pointwise means grading one output against a criterion; pairwise means picking a winner between two. Pairwise is easier for both models and humans, because relative judgment is more reliable than absolute, and it is the right shape for "did this prompt change help overall". But it gives you no absolute level, it cannot tell you *which* failure mode moved, it has no fixed reference point across time, and it is where position and verbosity bias live. Pointwise binary per failure mode gives a rate you can put a CI on, gate CI on, and track across releases. Use pointwise binary for regression gates, pairwise for exploratory "is B better than A".
+**Pointwise vs pairwise.** Pointwise means grading one output against a criterion; pairwise means picking a winner between two. Pairwise is easier for both models and humans, because relative judgment is more reliable than absolute, and it is the right shape for "did this prompt change help overall". But it gives you no absolute level, it cannot tell you *which* failure mode moved, it has no fixed reference point across time, and it is where position and verbosity bias live. Pointwise binary per failure mode gives a rate you can put a confidence interval on, gate a build on, and track across releases. Use pointwise binary for regression gates, pairwise for exploratory "is B better than A".
 
 ## Part 4 — Validating the judge like a classifier
 
-Here is the differentiator. A judge that flags hallucinations is a binary classifier. Hold out a set of examples labeled by a domain expert and measure it the way you would measure any classifier — and report **TPR and TNR separately**, never raw agreement.
+A judge that flags hallucinations is a binary classifier: it says failure or clean, and each verdict is right or wrong against a human label. So hold out a set of examples labeled by a domain expert and measure the judge the way you would measure any classifier — and report **the two error rates separately**, never raw agreement. The two are the **true positive rate** (TPR), the fraction of genuine failures the judge flags, and the **true negative rate** (TNR), the fraction of clean traces it correctly leaves alone.
 
-Take 200 held-out human-labeled traces where the true failure rate is 10%, so 20 real failures and 180 clean. Suppose the judge has $\text{TPR} = 0.50$ and $\text{TNR} = 0.95$. Then it catches 10 of 20 failures, misses 10, and false-flags $0.05 \times 180 = 9$ clean traces. Raw agreement is
+Take 200 held-out human-labeled traces where the true failure rate is 10%, so 20 real failures and 180 clean. Suppose the judge has $\text{TPR} = 0.50$ and $\text{TNR} = 0.95$. Then it catches 10 of 20 failures, misses 10, and false-flags $0.05 \times 180 = 9$ clean traces, leaving 171 clean traces it correctly passes. Agreement counts the 10 caught failures and those 171, so raw agreement is
 
 $$
 \frac{10 + 171}{200} = 0.905
@@ -79,13 +79,13 @@ $$
 
 90.5% agreement, and the judge misses half of all hallucinations. Its precision is $10/19 \approx 0.53$, so a coin flip on flagged items. Anyone reporting "our judge agrees with humans 90% of the time" has reported nothing. This is the same prevalence trap that c1.10 covers for accuracy under imbalance; it is more dangerous here because the number sounds like a validation.
 
-Once you *have* TPR and TNR, you can do something useful with them. On unlabeled production traffic you observe a flag rate $q$. The judge flags a trace either by correctly catching a true failure or by false-flagging a clean one, so with true prevalence $p$:
+Once you *have* TPR and TNR, you can do something useful with them. On unlabeled production traffic you observe a flag rate $q$, the fraction of traces the judge marks as failures. That is not the number you want; the number you want is the true prevalence $p$, the fraction of traces that really are failures. The two are connected because a flag arises in exactly two ways: the judge correctly catches a true failure, or it false-flags a clean one. Adding those two routes:
 
 $$
 q = \text{TPR} \cdot p + (1 - \text{TNR})(1 - p)
 $$
 
-Solve for the quantity you actually care about:
+Everything in that relation except $p$ is measured, so it is one linear equation in one unknown. Rearranging for $p$:
 
 $$
 p = \frac{q - (1 - \text{TNR})}{\text{TPR} - (1 - \text{TNR})}
@@ -97,7 +97,7 @@ The practical target reported by practitioners is above 90% agreement with a dom
 
 ## Part 5 — Human evaluation and agreement
 
-Humans are the ground truth that everything above is anchored to, which means the human process needs the same scrutiny.
+Every number so far is anchored to a human label, so the human labeling process needs the same scrutiny as the judge it calibrates.
 
 A **rubric** is the criterion written so two people apply it identically. That means binary where possible, one dimension at a time, the decision procedure spelled out ("mark unsupported if any factual claim does not appear in the provided context, ignoring style"), and worked examples on both sides of the boundary. If two trained annotators disagree, the rubric is broken, not the annotators.
 
@@ -115,11 +115,13 @@ $$
 p_o = \frac{80 + 5}{100} = 0.85
 $$
 
-Rater A passes 90 times, B passes 85 times, so
+Rater A passes 90 of the 100 items and B passes 85, so if each rater had thrown labels independently at those rates, they would have landed on the same label whenever both said pass or both said fail:
 
 $$
 p_e = (0.90)(0.85) + (0.10)(0.15) = 0.765 + 0.015 = 0.78
 $$
+
+Chance alone accounts for 0.78 of the 0.85 they actually agreed on. Kappa reports what is left, as a fraction of what was available:
 
 $$
 \kappa = \frac{0.85 - 0.78}{1 - 0.78} = \frac{0.07}{0.22} \approx 0.32
@@ -127,11 +129,11 @@ $$
 
 85% agreement, kappa 0.32 — fair at best. The panel is agreeing mostly because almost everything passes. This is the prevalence effect, and it is why kappa collapses on rare failure modes: when 95% of items are clean, chance agreement is already high and there is little room above it. The practical response is to **oversample suspected failures into the annotation set** so the labeled set is closer to balanced, then correct back when estimating the production rate.
 
-For more than two raters the same idea generalizes to Fleiss' kappa, and Krippendorff's alpha extends it to mixed data types and missing labels. Know what each corrects for and stop there; the derivations are not asked.
+For more than two raters the same idea generalizes to Fleiss' kappa, and Krippendorff's alpha extends it to mixed data types and missing labels. Knowing what each one corrects for is the part that carries; the derivations are not asked.
 
 ## Part 6 — Benchmarks and task-specific metrics
 
-Public benchmarks measure the capability of a base model, and they answer "which model should I start from", not "does my system work". They also degrade over time: test items leak into pretraining corpora (**contamination**), and a benchmark whose answers a model has memorized reports capability it does not have. That is the entire useful content of the topic for an engineering interview. Be aware that prep repos are saturated with benchmark suites, judge frameworks and contamination detection — that material is genuinely interesting and almost never asked. Do not spend your prep budget there.
+Public benchmarks measure the capability of a base model, and they answer "which model should I start from", not "does my system work". They also degrade over time: test items leak into pretraining corpora (**contamination**), and a benchmark whose answers a model has memorized reports capability it does not have. That is the entire useful content of the topic for an engineering interview. Prep repositories are saturated with benchmark suites, judge frameworks and contamination detection; that material is genuinely interesting and almost never asked. Do not spend your prep budget there.
 
 What you actually ship is task-specific and mostly binary:
 
