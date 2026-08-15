@@ -20,6 +20,7 @@ Four consequences follow. A very large claimed Sharpe is refuted in days rather 
 - Answer the Sharpe-8 question cold: how many losing days it takes to reject the claim, and why the answer is days rather than years.
 - Apply the Lo (2002) autocorrelation correction and say which direction the naive $\sqrt{q}$ scaling errs, for $q$ sampling periods per year.
 - Decompose in-sample-to-live Sharpe decay into overfitting, multiple testing, alpha decay, regime change and costs, with the cost arithmetic done explicitly.
+- Show why a universe rebuilt from today's index membership biases mean, volatility and drawdown all in the same direction, and say what to ask about a backtest you did not run.
 - Run Bonferroni and Benjamini-Hochberg on a real p-value list, and explain what the Deflated Sharpe Ratio adds on top of the Probabilistic Sharpe Ratio.
 - Explain exactly which observations leak under k-fold CV on a forward-return label, and size the purge and the embargo.
 - Diagnose a singular or negative-eigenvalue covariance matrix and name the fixes.
@@ -120,6 +121,104 @@ Three numbers make the triage concrete: backtest 1.8, paper 1.2, live 0.4, with 
 
 HRT publishes a three-word rubric for defending a modelling choice: **simplicity** (prefer the linear model when it ties), **reproducibility** (stable across seeds, hyperparameters, implementations), **generality** (works across problems, not one benchmark). Jump's named rejection reason is failure to articulate methodology choices, which puts the weight on stating the choice and the alternative you rejected rather than on adding another technique.
 
+### The bias that is already in the sample
+
+The five mechanisms above act on the search or on the world. You tried too many things, the edge got competed away, the environment moved, the fills were fantasy. There is a separate class of error that acts on the data itself, before any search runs, and it is worth separating because every correction in this lesson assumes it away.
+
+State it in general form first. You care about some population of units and an outcome $y$ measured on them. Your table is not the population. Some rule decided which units got a row. Write $Z = 1$ for a unit that appears in your sample and $Z = 0$ for one that does not. If $Z$ carries no information about $y$, then the sample mean of $y$ estimates the population mean $E[y]$ and everything downstream is honest. If $Z$ and $y$ are dependent, the sample mean estimates the conditional mean $E[y \mid Z = 1]$ instead, and the difference
+
+$$\text{bias} = E[y \mid Z = 1] - E[y]$$
+
+does not shrink with $n$. More rows make the estimate more precisely wrong. This is the whole idea: **if the rule that decides which rows exist correlates with the outcome, every statistic computed on that sample is biased.** Purging, embargoes, walk-forward splits, Bonferroni, the Deflated Sharpe Ratio — all of them partition, reweight or discount rows that are already in front of you. None of them can restore a row that was never written down. The damage happened upstream of the split.
+
+#### The concrete case: a universe built from today's index
+
+You want to backtest a US equity strategy over 2010 to 2025. The obvious move is to pull the current members of a large-cap index, download 15 years of daily prices for each name, and run the strategy on that panel. Every name in that panel is a company that still exists, is still listed, and is still large enough to be in the index on the day you pulled the file.
+
+Absent from it: firms that went bankrupt, firms delisted for failing a listing standard, firms acquired at a distressed price, and firms that shrank out of the index. The membership rule that put a row in your table is "was in the index on the day I ran the query", and whether a firm satisfies that rule is a function of the returns you are trying to measure. Three consequences, all pointing the same way:
+
+- Measured mean return is too high, because the worst realizations were deleted.
+- Measured volatility is too low, because the deleted realizations are the large-magnitude ones.
+- Measured drawdown is too shallow, because delistings cluster in exactly the periods a drawdown is measuring.
+
+The name for this is **survivorship bias**.
+
+#### Working the numbers
+
+These figures are assumptions chosen to make the arithmetic legible, not measured quantities. The mechanism is what transfers; the magnitude depends entirely on the universe and the period.
+
+1. The benchmark universe holds 500 names. In an average year a fraction $d_B$ of them leaves for a bad reason. Assume $E[d_B] = 0.03$ and, because delistings cluster in bad years rather than arriving at a steady rate, a standard deviation of $0.02$ around that.
+2. The strategy holds 50 names selected on cheapness. Cheapness and distress travel together, so assume the strategy's exit rate is twice the base rate, $d_S = 2 d_B$.
+3. A name that leaves realizes $-60$ percent over its final year before the position goes to zero.
+4. Names that survive the year return 10 percent in the benchmark and 13 percent in the strategy. These are the only numbers a survivor-only panel can report, because those are the only names in it.
+5. Among surviving names, the strategy's excess return over the benchmark has an annualized standard deviation of 3 percent, independent of the delisting channel.
+6. The backtest covers 15 years.
+
+**What the survivor-only panel reports.** Strategy 13 percent, benchmark 10 percent, edge 3.00 percentage points per year, with 3 percent tracking error. The information ratio — the same quantity as a Sharpe ratio, computed on excess return over a benchmark rather than over cash — is $3.00/3.00 = 1.00$. Its t-statistic is $1.00 \times \sqrt{15} = 1.00 \times 3.873 = 3.87$. That is a strong-looking result on the face of it.
+
+**What the full panel reports.** Restore the departed names. The strategy's realized return is a weighted average over the names that survived and the names that did not:
+
+$$(1 - 0.06)(13) + (0.06)(-60) = 12.22 - 3.60 = 8.62 \text{ percent}$$
+
+and the benchmark's is
+
+$$(1 - 0.03)(10) + (0.03)(-60) = 9.70 - 1.80 = 7.90 \text{ percent}$$
+
+The true edge is $8.62 - 7.90 = 0.72$ percentage points, against the 3.00 the survivor panel reported. Of the apparent edge, $(3.00 - 0.72)/3.00 = 0.76$, so 76 percent of it was the deletion rule and not the strategy.
+
+Now the volatility, which is the half people forget. Write the strategy's annual return as a function of the exit rate: with 13 percent on survivors and $-60$ on leavers, it is $13(1 - d_S) - 60\,d_S = 13 - 73\,d_S$, and substituting $d_S = 2 d_B$ gives $13 - 146\,d_B$. The benchmark is $10(1 - d_B) - 60\,d_B = 10 - 70\,d_B$. Subtract:
+
+$$\text{excess return} = 3 - 76\,d_B$$
+
+Check it at the average exit rate: $3 - 76(0.03) = 3 - 2.28 = 0.72$, matching the figure above. The point of writing it this way is the coefficient. Every one-point move in $d_B$ swings the excess return by 76 basis points, so the standard deviation of $d_B$ feeds straight through: $76 \times 0.02 = 1.52$ percentage points of annual volatility that the survivor panel records as zero. Adding it to the 3 percent from surviving names, and treating the two channels as independent,
+
+$$\text{true tracking error} = \sqrt{3^2 + 1.52^2} = \sqrt{9 + 2.31} = \sqrt{11.31} = 3.36 \text{ percent}$$
+
+So the true information ratio is $0.72/3.36 = 0.214$, and its t-statistic over the same 15 years is $0.214 \times \sqrt{15} = 0.214 \times 3.873 = 0.83$. **The t-statistic fell from 3.87 to 0.83, and the only thing that changed was which rows existed.**
+
+The drawdown moves too. Take a year in which the exit rate reaches $d_B = 0.09$, three standard deviations above its mean, which is what a credit crisis looks like in this model. Excess return that year is $3 - 76(0.09) = 3 - 6.84 = -3.84$ percentage points. The survivor panel records $+3.00$ for that year, as it does for every year, because the names that produced the loss are not in it. A backtest built this way does not merely overstate the mean. It deletes the worst year from the sample and then reports a smooth equity curve as evidence of robustness.
+
+One more thing is worth saying plainly, because it separates this from everything else in the lesson. Nothing above involved a search. A single strategy, specified in advance, tested exactly once, with perfectly purged cross-validation and an honest trial count of $N = 1$, still reports 3.00 on this panel. Overfitting corrections price the search. They have nothing to say about the sample.
+
+#### Rebuilding the universe
+
+The fix is to define the universe as of each date rather than once. On each rebalance date $t$, the candidate set must be the securities a person standing at $t$ could actually have traded and would actually have seen in the index. That needs an index membership history with an effective-from and an effective-to date for each security, so the query can ask which rows were live at $t$.
+
+The trap is the vendor field named "current constituents", or a members table with no date column at all. It joins cleanly, it returns 500 tidy rows, and it is correct on exactly one date. A table with no date column cannot fail noisily. It fails silently and always in the same direction, which is the worst combination a data source can have.
+
+This is the same discipline a feature store enforces under the name **point-in-time correctness**, covered in [c1.1](/c/c1/c1.1): when you join a feature to a label at time $t$, you take the value the feature had at $t$, not its current value. What differs is the object it applies to. Point-in-time on columns asks what a number was on a given date. Point-in-time on rows asks which entities existed on that date. A pipeline can get the first perfectly right and the second completely wrong, because the row set is usually fixed once at the top of the query and never revisited, while the feature joins get all the review attention.
+
+Two details decide whether a rebuild is real rather than cosmetic:
+
+- **The delisting return.** Restoring a name to the panel and then ending its price series on its last trading day, with no return booked, deletes the loss a second time. The final period needs a number: liquidation proceeds, the acquisition price, or a documented delisting return for that exchange and reason. A universe rebuilt correctly with missing terminal returns keeps most of the bias.
+- **The identifier.** Tickers are recycled. Joining prices to membership on ticker splices two unrelated companies into one series, and the splice tends to land exactly where the first company died. Join on a permanent security identifier.
+
+#### Two relatives worth naming
+
+**Backfill bias**, also called instant history bias. A database adds a fund or a security, and on the day it is added the vendor imports its entire prior history. Which records get imported is not random. A manager submits to a database when the numbers are worth showing, so the pre-inclusion portion of every series is a track record that exists in the data *because* it was good. The conditioning rule is the decision to submit, and that decision saw the returns. The defence is mechanical: drop every observation dated before the record's entry date into the database, which requires the vendor to store that date and requires you to use it.
+
+**Self-selection in reported returns.** Reporting is voluntary and continues at the reporter's discretion. A fund having a bad year can stop reporting and keep trading, so the cross-section of reported returns in a bad year is missing the worst of that year. This is the same conditioning applied to which *periods* of a surviving unit appear, rather than to which units appear, and it defeats the naive repair for survivorship: adding back funds that later closed does not help when their final quarters were never filed in the first place.
+
+#### The same bias outside finance
+
+Generalise the row rule one step and it stops being about markets. Labels often exist only for units that some earlier system chose to act on. A credit model trained on repayment outcomes sees repayment only for applicants the previous policy approved. A fraud model trained on chargebacks sees chargebacks only for transactions that were let through. A ranking model trained on clicks sees clicks only for items that were shown, and shown near the top.
+
+The labelled sample is the output of a policy, not a draw from the world. The old system's rule is now baked into the training distribution: you fit $E[y \mid \text{acted on}]$ and then deploy the model to answer a question about $E[y]$. It is the same $Z$ with the approval decision playing the role of index membership. The general name is **selection bias**; the logged-data version appears in [c6.2](/c/c6/c6.2) as position bias, and the winner's-curse version appears in [c1.1](/c/c1/c1.1) as the optimism of a selected minimum. The reason to notice they are one family is that the diagnostic is identical across all of them. Ask what rule decided which rows exist, then ask whether that rule could have known the outcome.
+
+#### Interrogating someone else's backtest
+
+The practical situation is not defining the term. It is being handed a results deck, no code, and a claimed Sharpe, and needing to find out in ten minutes whether the universe was rebuilt point-in-time. Ask for artefacts that are cheap for an honest pipeline to produce and awkward for a survivor panel to fake.
+
+1. **How many names are in the universe on each date, and can I see that count as a time series?** A membership count that is flat across 15 years is a snapshot replayed backwards. A real index history breathes as names enter and leave. This costs one query and catches most cases.
+2. **What is the list of securities that entered and exited, with dates and exit reasons?** Ask for the reason field by name: merger, acquisition, bankruptcy, listing-standard failure, index reconstitution. A pipeline that never stored a reason never handled the delisting return either.
+3. **What return was booked in the final period for exiting names, and where did that number come from?** "The series just ends" is a failing answer, because it reintroduces the bias inside an otherwise correct rebuild.
+4. **What is the as-of date of the membership table, and does the query filter on it?** If the answer describes a table with no effective-date columns, the rest of the diligence is moot.
+5. **What identifier joins prices to membership?** A permanent security identifier is right. Ticker is not.
+6. **What fraction of total PnL came from names that no longer exist today?** A 15-year backtest that never once held a company that later died is a reconstructed universe. This number also sizes the exposure directly, since it is the share of the result that lives on names a survivor panel would have deleted.
+7. **Rerun it on a panel with delisted names restored, and show both equity curves.** The gap between them is the answer, and every other question is a proxy for it.
+
+The same interrogation applied to fundamental data asks a different question with the same shape: are the accounting values as-reported or as-restated, and does the join use the announcement date or the fiscal period end. Restated financials in a backtest are point-in-time failure on the columns rather than on the rows, and a pipeline that got the row set right can still have that one wrong.
+
 ## Part 5 — Multiple testing is the main problem
 
 You test 100 signals and 5 come back at $p < 0.05$. What do you conclude?
@@ -213,6 +312,7 @@ Three fixes, all named. Project to the nearest positive semi-definite matrix by 
 | Benjamini-Hochberg | false discovery rate | independence or positive dependence | some false positives by design | when even one false positive is fatal |
 | PSR | length, skew, kurtosis | known higher moments | needs $\ge 100$ obs for stable moments | tiny samples |
 | Deflated Sharpe | number of trials on top of PSR | you can count and characterise trials | requires honest $N$ and trial dispersion | when $N$ is unknowable |
+| Point-in-time universe | survivorship in the row set | dated membership plus delisting returns exist | vendor data cost, slower joins, more plumbing | a single instrument whose row set cannot change |
 | Purged CV + embargo | label overlap and feature memory | you know the label horizon | 10 percent or more of the sample | when ordering itself is the problem |
 | Walk-forward | ordering and regime realism | future is like the recent past | few test points, noisy estimate | very short histories |
 | Shrinkage / eigenvalue clipping | singular or ill-conditioned $\hat\Sigma$ | target is roughly right | bias toward the target | when $T \gg N$ and $\hat\Sigma$ is fine |
@@ -250,6 +350,7 @@ Three fixes, all named. Project to the nearest positive semi-definite matrix by 
 - **"Why can't you use k-fold CV here?"** Two reasons, and give both: shuffling trains on the future, and forward-return labels overlap across the fold boundary. Then size it: purge equal to the label horizon on each side, plus a separate embargo for serially correlated features.
 - **"Sample covariance of 500 stocks from 60 months. What's the problem?"** Rank at most 59, so it is singular and has 441 zero eigenvalues, meaning portfolios the data claims are riskless. Add the Marchenko-Pastur edge at $(1+\sqrt{8.33})^2 = 15.1$ to show noise eigenvalues dwarf real ones.
 - **"You get a negative eigenvalue. What do you do?"** First say it proves the matrix was not computed as a single sample covariance, because those are PSD by construction. Then check the magnitude for floating-point noise, then name the fixes: nearest-PSD projection, eigenvalue clipping at the MP edge, or Ledoit-Wolf shrinkage.
+- **"How would you check whether a backtest's universe was survivorship-free?"** Lead with the cheapest test: plot the universe count by date and see whether it is flat. Then ask for the entry and exit log with exit reasons, and for the return booked in the final period of exiting names, since a rebuilt universe with missing terminal returns keeps most of the bias. Say explicitly that no amount of purged cross-validation repairs this, because the rows were deleted before any split ran.
 - **"The model worked 2010 to 2019 and broke in 2020. Regime change or overfit?"** You cannot tell from one break, and saying so is the correct answer. Then describe what would distinguish them: rolling-window parameter stability, a Chow test at the break, CUSUM, and whether the degradation was gradual or discontinuous.
 
 ## Take the quiz
