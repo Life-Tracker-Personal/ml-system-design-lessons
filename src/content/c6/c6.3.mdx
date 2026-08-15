@@ -22,6 +22,7 @@ There are several ways out of that hole. **Paired comparison** — run both mode
 - Split eval variance into item variance and run-to-run variance, and spend budget on the term that dominates.
 - Control false discoveries across many slices and metrics with Bonferroni or Benjamini-Hochberg, and say which you chose and why.
 - Compute A/B sample size from a stated MDE and power, apply CUPED, and defend a fixed-horizon or alpha-spending stopping rule.
+- Explain why a significance test is the wrong trigger for a production drift alarm, gate on PSI or Wasserstein distance instead, and set a retraining cadence from what staleness and retraining each cost.
 
 ## Part 1 — The width of the interval is the whole question
 
@@ -167,6 +168,102 @@ The coefficient $\theta$ is the least-squares slope of $Y$ on $X$, the amount of
 
 One check comes before any of this analysis: **sample ratio mismatch**. You expected 50/50 and observed 100,000 versus 98,800. Each arm is 600 away from the 99,400 expected, and summing squared deviation over expected across the two arms gives $2 \times 600^2/99{,}400 = 7.25$, a chi-square statistic on one degree of freedom with $p \approx 0.007$. Alarm at $p < 0.001$ and investigate rather than analyze — an SRM means the assignment or logging is broken, and every downstream number is suspect.
 
+### Monitoring a live model: drift alarms and the retraining trigger
+
+**Goal — decide when a shipped model needs attention, without a nightly page that everyone learns to mute.**
+
+The standard build is a job that runs every night, compares today's feature distribution against a frozen baseline, applies a two-sample test, and files a ticket when the p-value falls below 0.05. On a system with real traffic that job fires every night. Within a month somebody loosens the threshold, and a month after that the channel is muted. The tooling is not the problem. The problem is asking a significance test a question about magnitude.
+
+#### Why significance is the wrong trigger
+
+A two-sample test answers exactly one question: is there *any* difference between these two distributions. The size of the difference and the amount of data you fed the test both push on the answer, and they push in ways that are easy to confuse.
+
+Take one numeric feature. Write $\mu_0$ for its baseline mean, $\mu_1$ for its mean today, $\sigma$ for its standard deviation (taken as the same on both sides), and $\bar x_0$ and $\bar x_1$ for the two sample means, each over $n$ rows. Define the **standardized mean difference** $d = (\mu_1 - \mu_0)/\sigma$, the shift measured in units of the feature's own spread, so $d$ is the same number whether the feature is milliseconds or dollars. The two-sample z statistic is the observed gap divided by its standard error:
+
+$$
+z \;=\; \frac{\bar x_1 - \bar x_0}{\sigma\sqrt{\tfrac{1}{n} + \tfrac{1}{n}}} \;=\; d\,\sqrt{\frac{n}{2}}
+$$
+
+The effect size $d$ sits outside the square root and the sample size sits inside it. Fix $d$ and grow $n$ and the statistic grows without bound. Put numbers on it with $d = 0.02$, a mean that has moved two hundredths of a standard deviation, which is invisible on a histogram and irrelevant to any downstream decision.
+
+At $n = 1{,}000$ rows per side, $\sqrt{n/2} = \sqrt{500} = 22.36$, so $z = 0.02 \times 22.36 = 0.447$. Two-sided p-value $\approx 0.65$. Nothing to see.
+
+At $n = 1{,}000{,}000$ rows per side, $\sqrt{n/2} = \sqrt{500{,}000} = 707.1$, so $z = 0.02 \times 707.1 = 14.14$. Since $z^2/2 = 100$, the two-sided p-value is about $2\varphi(z)/z$, where $\varphi(z) = e^{-z^2/2}/\sqrt{2\pi}$ is the standard normal density: $2 \times 0.3989\,e^{-100}/14.14 \approx 2 \times 10^{-45}$.
+
+Same trivial shift, and the verdict moves from "no evidence" to a p-value on the order of $10^{-45}$. Turn the sample-size formula around to see what the gate is really tuned to: at 80% power and two-sided $\alpha = 0.05$, $n = 2(z_{\alpha/2}+z_\beta)^2/d^2 = 2 \times 7.85/d^2$, so a million rows a side detects $d = \sqrt{2 \times 7.85 / 10^6} = 0.004$. **The nightly gate is powered to catch a shift of four thousandths of a standard deviation.**
+
+The Kolmogorov-Smirnov statistic behaves the same way. It is the largest vertical gap between the two empirical cumulative distribution functions, $D = \sup_x |F_1(x) - F_0(x)|$, a genuine effect size on a 0-to-1 scale. Testing it is what breaks: the 5% critical value for two samples of size $n$ each is approximately $1.36\sqrt{2/n}$. At $n = 1{,}000$ that is $1.36 \times 0.0447 = 0.061$, so the CDFs must separate by six percentage points somewhere before the test objects. At $n = 1{,}000{,}000$ it is $1.36 \times 0.001414 = 0.0019$. **A gap of two tenths of one percentage point trips the gate.** No two days of production traffic are identical to within two tenths of a point, so the gate is guaranteed to fire.
+
+Part 5's slice-hunting arithmetic finishes the job, with nights in place of slices. A nightly job runs 365 tests a year, so $0.95^{365} = e^{365 \ln 0.95} = e^{-18.7} = 7.4 \times 10^{-9}$: where 20 slices gave a 64% chance of a false alarm, a year of nights gives $1 - 7.4 \times 10^{-9}$, which is certainty on a system with nothing wrong with it.
+
+State the conclusion plainly. The test answers "is there any difference at all", and nobody wanted that question. What the on-call engineer wanted to know is whether the difference is big enough to hurt.
+
+#### Gate on a magnitude instead
+
+An effect-size measure estimates a fixed property of the two distributions. Its sampling noise shrinks as $n$ grows, so more data makes the number *more* trustworthy rather than more alarming, and a threshold you set once keeps meaning the same thing as traffic grows. That is the entire difference from a p-value.
+
+**Population stability index (PSI).** Bin the feature, usually into 10 bins fixed at the baseline's deciles so the baseline proportions are 0.1 each. Write $b_i$ for the baseline proportion in bin $i$ and $a_i$ for today's, over $k$ bins. Then
+
+$$
+\mathrm{PSI} = \sum_{i=1}^{k} (a_i - b_i)\,\ln\!\frac{a_i}{b_i}
+$$
+
+Each term multiplies how much the mass in that bin changed by the log of the ratio, so a bin that doubles from a large base contributes more than one that doubles from nothing. Expanding the product shows what it is: $\sum a_i \ln(a_i/b_i) + \sum b_i \ln(b_i/a_i)$, the Kullback-Leibler divergence in each direction added together, which is the symmetric quantity known as Jeffreys divergence. Jensen-Shannon divergence is a bounded alternative with the same symmetry, and it is better behaved when a bin empties out, since PSI diverges to infinity if any $a_i$ is zero and needs a floor such as $10^{-4}$ on empty bins.
+
+The conventional thresholds are: below 0.1, no meaningful shift; 0.1 to 0.25, moderate shift, investigate; above 0.25, significant shift, act. **These are convention, not theory.** They come from credit-scorecard practice, where a scorecard is a handful of binned features on tens of thousands of accounts, and nothing derives them from a loss. Treat them as a starting point to be recalibrated against your own history, and hold the binning fixed, because PSI is not invariant to how you bin: the same shift measured on 5 bins and on 20 bins gives different numbers.
+
+**Wasserstein distance.** For a one-dimensional feature the first Wasserstein distance is the area between the two cumulative distribution functions,
+
+$$
+W_1(P_0, P_1) = \int_{-\infty}^{\infty} \bigl| F_1(x) - F_0(x) \bigr|\,dx
+$$
+
+Read it as the average distance probability mass has to travel to turn one distribution into the other, which is why it is also called earth mover's distance. Its unit is the feature's unit. That is the property that makes it usable in a review: "the latency distribution moved by 12 ms on average" is a sentence a human can set a threshold on, where "the maximum CDF gap is 0.04" is not. To compare across features, divide by the baseline standard deviation or interquartile range to get a unitless magnitude.
+
+A worked case with all three numbers. A latency feature takes value 10 ms half the time and 20 ms half the time at baseline. Today it is 10 ms 40% of the time and 20 ms 60% of the time, on a million rows a side.
+
+- KS: the CDFs are 0.5 and 0.4 at 10 ms and both reach 1 at 20 ms, so $D = 0.1$. The scaled statistic is $\lambda = \sqrt{n/2}\,D = 707.1 \times 0.1 = 70.7$, and the asymptotic p-value $2e^{-2\lambda^2} = 2e^{-10{,}000}$ is zero for every practical purpose.
+- PSI: $(0.4-0.5)\ln(0.4/0.5) + (0.6-0.5)\ln(0.6/0.5) = (-0.1)(-0.2231) + (0.1)(0.1823) = 0.0223 + 0.0182 = 0.0406$. Below 0.1. No action.
+- Wasserstein: the CDFs differ by 0.1 across the 10 ms interval between the two support points, so $W_1 = 0.1 \times 10 = 1.0$ ms. The baseline mean is 15 ms with variance $25$, so $\sigma = 5$ ms and the normalized distance is $1.0/5 = 0.20$.
+
+The test says the difference is certain. The two effect sizes say it is one millisecond, a fifth of a standard deviation. Both are correct, and only the second pair answers the question that was asked.
+
+One caveat in the other direction. Effect-size estimates carry sampling noise of their own, of order $k/n$ for PSI on $k$ bins, so at 10 bins and a million rows the noise floor is around $10^{-5}$, far below any threshold you would set. On a batch of 300 rows that same floor is around 0.03, which is a third of the "stable" threshold, so a magnitude gate on small batches needs its own error bar, and a bootstrap over the batch supplies it.
+
+#### The alarm is a proxy, and the proxy can fail in both directions
+
+The point worth saying out loud in a design review: **nobody cares about the input distribution.** What the business cares about is whether the model still performs. The joint distribution factors as $P(x, y) = P(x)\,P(y \mid x)$, where $x$ is the feature vector and $y$ the label. An input monitor sees $P(x)$ and only $P(x)$. Performance depends on both factors, so the monitor is watching one of the two terms and inferring the product.
+
+**Input drift with no damage.** $P(x)$ moves, $P(y \mid x)$ holds. A marketing push shifts the traffic mix between two segments. The model scores 93% on segment A and 92% on segment B, and it keeps doing exactly that, because the relationship between features and label has not changed. The mix goes from 60/40 to 20/80. Aggregate accuracy moves from $0.6(0.93) + 0.4(0.92) = 0.558 + 0.368 = 0.926$ to $0.2(0.93) + 0.8(0.92) = 0.186 + 0.736 = 0.922$. Four tenths of a point. Meanwhile PSI on the segment feature is $(0.2-0.6)\ln(0.2/0.6) + (0.8-0.4)\ln(0.8/0.4) = (-0.4)(-1.0986) + (0.4)(0.6931) = 0.4394 + 0.2773 = 0.717$, nearly three times the "act now" threshold. A screaming red drift alarm bought you a 0.4-point move that no retraining fixes, because the model was never wrong.
+
+**Damage with no input drift.** $P(x)$ is untouched, $P(y \mid x)$ changes. This is concept drift, and it is the case that costs money. A fraud ring keeps its feature footprint statistically identical and changes what those features imply: same device profiles, same amounts, same hours, different intent. Say the affected population is 5% of traffic and model accuracy there falls from 90% to 40%. Aggregate accuracy drops by $0.05 \times (0.90 - 0.40) = 0.025$, two and a half points, six times the damage of the screaming alarm above. Every input monitor is green, and it is green *correctly*, because $P(x)$ really did not move. No amount of tuning the PSI threshold finds this. It is not in the data the monitor looks at.
+
+So the order of preference is forced. **If labels arrive at all, monitor the metric directly**, and apply the same discipline as any other estimate: a day of labels is a small sample, its interval is wide, and a single bad day is not a signal. Roll a window, put a bootstrap interval on it, and use a magnitude threshold rather than a daily p-value, for the same reason as above.
+
+Input drift earns its place as a **leading indicator**. Labels are late. If a chargeback settles in 30 days, the direct monitor is 30 days behind the damage, and the input monitor is the only thing that can tell you today. That warning time is the whole value proposition, and it is worth stating in money: if a point of the headline metric is worth USD 40,000 a month, a 0.4-point loss running blind for 30 days costs about USD 16,000, which pays for the monitor several times over. What the input monitor should not be is the thing that decides. It raises a hypothesis; the label-based metric, or a shadow evaluation on a freshly labeled sample, settles it.
+
+#### The retraining trigger is a decision, not an alarm
+
+An alarm asks "is something different." A decision asks "is acting better than not acting." Those need different arithmetic, so write down the two costs.
+
+Let $C$ be the all-in cost of one retrain: compute, the engineer-days, the validation work, and the risk that the new model is worse in a way your eval cannot resolve. Let $v$ be the value of one point of the headline metric per month. Let $\delta$ be the decay rate, points of metric lost per month since the last retrain, which you measure by backtesting old model versions forward on data they never saw.
+
+Retrain on a fixed cadence of every $T$ months. The deficit relative to a freshly trained model starts at zero and grows to $\delta T$, so its average over the cycle is $\delta T / 2$. Cost per month is the staleness cost plus the amortized retrain cost:
+
+$$
+f(T) = \frac{v\,\delta\,T}{2} + \frac{C}{T}
+$$
+
+Set $f'(T) = v\delta/2 - C/T^2 = 0$ and the optimum is $T^{*} = \sqrt{2C/(v\delta)}$. Numbers: $C = 15{,}000$ USD, $v = 40{,}000$ USD per point per month, $\delta = 0.3$ points per month. Then $v\delta = 12{,}000$ and $T^{*} = \sqrt{30{,}000/12{,}000} = \sqrt{2.5} = 1.58$ months, about every seven weeks.
+
+The next number matters more than the optimum. The total at the optimum is $f(T^{*}) = \sqrt{2Cv\delta} = \sqrt{2 \times 15{,}000 \times 12{,}000} = 18{,}974$ USD per month. At $T = 1$ month it is $6{,}000 + 15{,}000 = 21{,}000$, which is 11% worse. At $T = 3$ months it is $18{,}000 + 5{,}000 = 23{,}000$, which is 21% worse. In general $f(kT^{*})/f(T^{*}) = (k + 1/k)/2$, so **being off by a factor of two in either direction costs 25%** and a factor of three costs 67%. This is not a quantity to agonize over, and a monthly or quarterly cadence chosen for operational convenience is defensible.
+
+The same two costs also set the exception threshold, and they set it in units of the metric rather than units of evidence. An unscheduled retrain is worth it when the loss it recovers exceeds what it costs, which happens at $C/v = 15{,}000/40{,}000 = 0.375$ points of the headline metric per month. That is the alarm threshold: **page when the estimated performance loss exceeds about 0.4 points, not when a p-value crosses a line.** A drift measure enters only as a calibrated predictor of that loss, which means the honest way to pick a PSI threshold is to go back through past incidents, record what PSI read and what the metric actually did, and set the threshold where the two line up. Not at 0.25 because a scorecard textbook said so.
+
+That combination is why a schedule plus a magnitude-gated exception beats a pure alarm. The schedule handles the ordinary case, gradual decay, where nothing is wrong and the only question is amortization. The exception handles the regime break, where $\delta$ is no longer the number you measured and waiting for the next slot is expensive. A pure alarm has neither property: it has no notion of cost, so it cannot tell a 0.4-point mix shift from a 2.5-point concept break, and it fires on a schedule set by your traffic volume rather than by your economics.
+
+Two guardrails on the automation. A retrained model is a new model and needs the same evidence as any other candidate, which the sample-size arithmetic prices: if the retrain is expected to recover half a point, detecting half a point offline needs roughly $7.85 \times 2 \times 0.25/0.005^2 \approx 157{,}000$ items unpaired, so verification usually means a paired offline comparison plus a shadow or holdout arm online, not an offline gate alone. And an automatic retrain on drifted data will happily learn the drift, including whatever upstream bug caused it, so schema and quality checks come before the training job, not after.
+
 ## Tradeoff matrix
 
 | Technique | Buys you | Costs | Use when |
@@ -180,6 +277,8 @@ One check comes before any of this analysis: **sample ratio mismatch**. You expe
 | CUPED | Up to 2x effective sample | Needs clean pre-period data | Metric correlates with its own history |
 | Fixed horizon | Exact $\alpha$, simple | Cannot stop early for wins | Short tests, clear power calculation |
 | Alpha spending | Legal early stops | Stricter boundaries, more complexity | Long or expensive tests |
+| Effect-size drift gate | A threshold that means the same thing as traffic grows | Thresholds are convention until you calibrate them | Any monitor running on large batches |
+| Direct performance monitor | Measures the thing you care about | Needs labels, and they arrive late | Labels exist at all, even delayed |
 
 ## Production failure modes
 
@@ -190,7 +289,9 @@ One check comes before any of this analysis: **sample ratio mismatch**. You expe
 5. **Peeking until green.** The dashboard is checked daily and the test is stopped the day it crosses. Actual false positive rate is triple the nominal one.
 6. **A judge whose noise is unmeasured.** The LLM grader disagrees with itself across reruns, adding a variance component nobody put in the error bar. Rerun the judge on a fixed sample and measure it.
 7. **SRM ignored.** A 50.3/49.7 split gets waved off as rounding; it is actually a bot-filtering rule that fires on one arm, and the whole readout is biased.
-8. **Metric with a fat tail.** Revenue per user, tokens per session. A handful of whales dominate the variance, the central limit theorem's normal approximation is poor at your $n$, and the interval lies. Winsorize, or bootstrap, or both.
+8. **The drift gate that pages nightly.** A two-sample test on a million rows against a frozen baseline rejects on a shift of four thousandths of a standard deviation, so it fires every night, and the team mutes it inside a month. Gate on an effect size with a threshold that does not move as traffic grows.
+9. **Input drift treated as the thing that matters.** The alarm watches $P(x)$ while the money depends on $P(y \mid x)$ too. A harmless mix shift pages loudly; a concept break in 5% of traffic costs six times as much and never registers.
+10. **Metric with a fat tail.** Revenue per user, tokens per session. A handful of whales dominate the variance, the central limit theorem's normal approximation is poor at your $n$, and the interval lies. Winsorize, or bootstrap, or both.
 
 ## Interview gotchas
 
@@ -202,6 +303,8 @@ One check comes before any of this analysis: **sample ratio mismatch**. You expe
 - **"State your stopping rule."** Fixed horizon at the pre-computed $n$, analyzed once, or a group-sequential design with O'Brien-Fleming alpha spending at named interim points. Guardrails and safety metrics are monitored continuously and can stop the test at any time.
 - **"Compute the sample size for a 1.5% relative lift, 90% power, baseline 3.2, SD 2.1."** $n = 2(1.96+1.2816)^2\sigma^2/\Delta^2$ with $\Delta = 0.048$, giving about 40,200 user-days per arm. Then state the randomization unit and whether the analysis unit matches it.
 - **"How would you cut the sample size you just quoted?"** CUPED on a pre-period covariate — variance falls by $1-\rho^2$, so $\rho = 0.7$ roughly halves it. Also stratified assignment, a lower-variance version of the metric, and triggered analysis restricted to the eligible population.
+- **"Our drift monitor pages every night. What is wrong with it?"** It is testing significance, not magnitude. The z statistic is $d\sqrt{n/2}$, so at a million rows a night it detects $d = 0.004$, and the KS critical value is $1.36\sqrt{2/n} = 0.0019$ of CDF separation. No two days of traffic agree to that tolerance. Gate on PSI or a normalized Wasserstein distance with a threshold calibrated against past incidents, and remember the alarm is a proxy for performance, not the thing itself.
+- **"How do you decide when to retrain?"** As a cost decision. With $C$ the all-in retrain cost, $v$ the monthly value of a metric point and $\delta$ the decay in points per month, the cadence that minimizes $v\delta T/2 + C/T$ is $T^{*}=\sqrt{2C/(v\delta)}$, and the unscheduled-retrain threshold is $C/v$ points of lost metric. A schedule handles gradual decay; the magnitude gate handles regime breaks. The cost curve is flat — $f(kT^{*})/f(T^{*}) = (k+1/k)/2$ — so being off by a factor of two on the cadence costs 25%.
 - **"The LLM output is stochastic. How many runs per item?"** Decompose the variance: repeats only shrink the $\sigma^2_{\text{run}}/(nr)$ term. Usually 1–3 runs and spend the rest of the budget on more items, unless run-to-run reliability is itself the thing being claimed.
 
 ## Take the quiz

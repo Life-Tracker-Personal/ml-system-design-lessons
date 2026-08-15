@@ -290,7 +290,7 @@ Second-order lesson: alert on prefix cache hit rate directly. It is the metric t
 
 ## Rapid-fire: inference, serving and cost
 
-These 16 stand alone and are picked for how often they actually get asked in inference and serving rounds, not for how interesting they are. Two to five minutes each, out loud. Several want a number — if your answer to one of those has no arithmetic in it, it is not finished. This is the section where seniority shows, because almost everyone can name the techniques and almost nobody can size them.
+These 18 stand alone and are picked for how often they actually get asked in inference and serving rounds, not for how interesting they are. Two to five minutes each, out loud. Several want a number — if your answer to one of those has no arithmetic in it, it is not finished. This is the section where seniority shows, because almost everyone can name the techniques and almost nobody can size them.
 
 1. **What is the KV cache** Give a systems-level answer: which tensors are cached, their exact shapes, why it accelerates autoregressive decoding, and how prefill differs from decode. Then name two production optimizations built on top of it.
 2. **Compute the cache** An interviewer gives you a model spec — layers, query heads, KV heads, head dimension, dtype — and a context length. Write the KV cache size in bytes and compare it to the weight memory. Do it per token first.
@@ -308,3 +308,5 @@ These 16 stand alone and are picked for how often they actually get asked in inf
 14. **Context 8K to 128K** Product wants to raise the context window 16×. Explain what happens to your serving economics, separating the cost that grows linearly from the cost that grows quadratically, and say roughly where the quadratic term starts to matter.
 15. **Prefix caching** When does it help, how much, and what silently defeats it? Describe the prompt ordering rule you would enforce and the metric you would alert on.
 16. **Tokens per second and dollars** From a model spec and a GPU's memory bandwidth, estimate the ceiling on tokens/second at batch 1 and at batch 32, then turn it into a cost per million output tokens. Show your arithmetic out loud.
+17. **Top-p versus top-k** Both truncate the distribution before sampling. Say exactly what each one keeps, then explain why top-p adapts to the model's confidence while a fixed k is wrong both when the model is certain and when it is not. Work a confident distribution and an unsure one through both. Finish with top-p's own weakness and what production stacks pair it with.
+18. **Sampling settings per task** You own one endpoint emitting JSON tool calls and another drafting open-ended prose. Give temperature, truncation and penalties for each, with the reason rather than the number. Then say what a non-zero temperature does to your eval numbers, and whether temperature 0 makes a served model deterministic.

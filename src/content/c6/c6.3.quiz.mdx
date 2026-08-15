@@ -196,7 +196,7 @@ What I would actually do: **pre-register one primary metric** and one primary sl
 
 ## Rapid-fire: statistical rigor in evals
 
-These 15 questions stand alone. Each should take 2 to 5 minutes to answer out loud. They are chosen for how often they come up when someone has to defend an eval result.
+These 17 questions stand alone. Each should take 2 to 5 minutes to answer out loud. They are chosen for how often they come up when someone has to defend an eval result.
 
 1. **Two points on a hundred items.** Model B scores 72% against A's 70% on 100 shared eval items and your teammate wants to ship. Compute the interval on that gap and say what you actually know. What is the smallest difference a 100-item set can resolve?
 2. **How many examples.** Derive the sample size needed for a $\pm w$ confidence interval on a pass rate, and give the pocket version when you have no prior on $p$. Roughly how many items for 1% precision, and for 3%?
@@ -213,3 +213,5 @@ These 15 questions stand alone. Each should take 2 to 5 minutes to answer out lo
 13. **The average hid the cohort.** Your headline metric is flat but you suspect a segment regressed. How do you look without turning it into a fishing expedition, and what would you pre-commit to before running the analysis?
 14. **The judge is noisy too.** Your eval uses an LLM judge with about 85% agreement against human labels. How does judge noise enter your confidence interval, and does it bias the *comparison* between two models or just add variance? Does the answer change if both models are judged by the same judge?
 15. **Defend the gate.** You have to pick the eval-set size for a CI gate that blocks deploys. Walk through how you would choose $n$, what regression you are willing to miss, and how you would explain to a skeptical engineer why their 200-item set is not enough.
+16. **The drift job that pages nightly.** A nightly job runs a Kolmogorov-Smirnov test on a million rows against a frozen baseline and files a ticket whenever $p < 0.05$. Explain mechanically why it fires on a healthy system, compute the size of CDF gap it is actually rejecting at that $n$, and say what you would gate on instead and how you would pick the threshold.
+17. **Input drift or performance drift.** In one month PSI on your top feature is 0.7 and accuracy has barely moved; the next month PSI is 0.02 and precision has fallen six points. Explain both cases in terms of $P(x)$ and $P(y \mid x)$, say what an input monitor can and cannot see, and justify why you would still keep the input monitor.

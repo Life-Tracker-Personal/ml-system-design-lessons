@@ -310,7 +310,7 @@ What would distinguish them: rolling-window parameter stability, since an overfi
 
 ## Rapid-fire: track records, backtests and multiple testing
 
-These 16 questions stand alone and do not depend on anything above. Each should take 2 to 5 minutes out loud. They are chosen for how often they get asked, not for how interesting they are, and several of them are asked in almost exactly this wording. Answer them speaking, with arithmetic said aloud.
+These 18 questions stand alone and do not depend on anything above. Each should take 2 to 5 minutes out loud. They are chosen for how often they get asked, not for how interesting they are, and several of them are asked in almost exactly this wording. Answer them speaking, with arithmetic said aloud.
 
 1. **Sharpe to t-stat cold** Your backtest has Sharpe 1.5 over 3 years of daily data. Is it statistically significant? Give the formula, the number, and the assumption the formula rests on.
 2. **The best-of-200 follow-up** Same backtest, and now you are told it was the best of 200 configurations you tried. Redo the significance question. What Sharpe would it have needed, and what do you ask the researcher for before believing any number?
@@ -328,3 +328,5 @@ These 16 questions stand alone and do not depend on anything above. Each should 
 14. **Net of costs** Gross backtest Sharpe is 3, you turn over the whole book daily, round-trip cost is 5 basis points. What is the net Sharpe? Explain why you cannot answer without one more number, then answer it at 10 percent and at 5 percent annualized volatility.
 15. **Five hundred stocks, sixty months** You estimate the sample covariance of 500 stocks from 60 months of data. What is the problem? Give the rank, say what the null space means to an optimizer, and then answer the follow-up: a risk system reports a negative eigenvalue, what do you do?
 16. **It broke in 2020** A model worked from 2010 through 2019 and broke in 2020. Regime change or overfitting? Commit to an answer, then say what evidence would actually distinguish the two.
+17. **A universe pulled from today's index** You backtest 15 years on the current members of a large-cap index. Say which direction the measured mean, volatility and drawdown are each wrong and why all three point the same way. Then say why more data, purged cross-validation and a Deflated Sharpe Ratio all fail to repair it, and what the correct universe construction requires.
+18. **Auditing someone else's backtest** You are handed a 15-year equity backtest and no code. What do you ask to find out whether the universe was rebuilt point-in-time? Give the cheapest single check first, and say what a missing delisting return does to a universe that was otherwise rebuilt correctly.
