@@ -333,7 +333,7 @@ $$w_j^\star = \frac{\sum_{i\in I_j} r_i}{n_j + \lambda} = \frac{n_j\,\bar r_j}{n
 
 ## Rapid-fire: Trees & ensembles
 
-These 16 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
+These 17 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
 
 1. **Bagging vs boosting** In under a minute: does bagging attack bias or variance, and does boosting attack bias or variance? Say which one trains its trees independently and which trains them sequentially, and explain why that structural difference forces the answer.
 2. **Why forests beat plain bagging** Averaging $B$ trees only helps so much, because the trees are correlated with each other. Given that, what does a random forest do that plain bagging does not, and what does it buy you? What goes wrong if you push `max_features` all the way down to 1?
@@ -351,3 +351,4 @@ These 16 questions do not depend on the numbered questions above, so you can stu
 14. **Is that actually a forest** A teammate calls `RandomForestRegressor()` with all defaults in current scikit-learn. Is the resulting model really a random forest? Say what `max_features` defaults to for the regressor, what that does to how similar the trees are, and what you would set instead.
 15. **XGBoost over plain GBM** Name three things XGBoost adds over a vanilla gradient boosting machine, and say which of them matters most on wide, sparse data. Separate what actually changes the fitted model from what only changes wall-clock time.
 16. **One split, by hand** A node holds 8 positives and 2 negatives. A candidate split sends 6 positives and 0 negatives left, and 2 positives and 2 negatives right. Compute the Gini impurity decrease. Why must the child impurities be weighted by child size?
+17. **Why was this one declined** Your permutation importance chart says income is the model's top feature. An analyst holding one declined application asks why that application was declined, and the chart cannot answer. Say what a per-row attribution computes instead, what the baseline is that it measures the row against, and the one property that lets a reviewer audit the reason list by addition. Then say why the exact computation is infeasible in general and what makes it cheap for a gradient-boosted model.
