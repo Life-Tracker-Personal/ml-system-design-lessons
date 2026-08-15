@@ -4,7 +4,7 @@ chapter: 3
 title: Inference, serving and cost
 subtitle: KV cache arithmetic, prefill vs decode, continuous batching, speculative decoding, quantization — and how to budget a serving fleet out loud
 refs: []
-estimatedMinutes: 80
+estimatedMinutes: 95
 ---
 
 ## TL;DR
@@ -22,6 +22,8 @@ The second half of the story is the **KV cache**: the per-request tensor of past
 - State why speculative decoding is mathematically exact, and compute its expected speedup from an acceptance rate.
 - Compare INT8, INT4, GPTQ and AWQ, and say what degrades and which phase each helps.
 - Turn any of the above into a concurrency limit, a GPU count and a dollar figure.
+- Derive what temperature does to a distribution, and compute the probabilities at $T = 0.5$, $1$ and $2$ from a set of logits.
+- Explain why top-p adapts to the model's confidence while a fixed top-k does not, and choose decoding settings for a given task.
 
 > **Vocabulary primer.** Each term below keeps exactly this meaning throughout.
 >
@@ -31,6 +33,7 @@ The second half of the story is the **KV cache**: the per-request tensor of past
 > - **HBM** — high-bandwidth memory, the GPU's main memory (80 GB on an H100, ~3.35 TB/s). **SRAM** — the tiny on-chip scratchpad (~20 MB, ~100× faster). "Memory bandwidth" almost always means HBM bandwidth.
 > - **Arithmetic intensity** — FLOPs performed per byte read from HBM. Compare it to the GPU's **ridge point** (peak FLOP/s ÷ peak bytes/s). Above the ridge point you are **compute-bound**; below it you are **memory-bandwidth-bound** and adding FLOPs buys nothing.
 > - **dtype byte widths** — FP32 = 4 bytes, FP16/BF16 = 2, FP8/INT8 = 1, INT4 = 0.5.
+> - **Logits** — the raw scores the model emits at the end of a forward pass, one per vocabulary token, before any normalization. **Decoding** — the rule that turns those scores into the single token actually emitted.
 > - **n_heads vs n_kv_heads** — the number of query heads versus the number of distinct key/value head groups. In classic multi-head attention they are equal. **GQA** (grouped-query attention) makes `n_kv_heads` smaller, so several query heads share one K/V pair. This distinction *is* GQA, and it is the most common point of confusion in this whole topic.
 
 ## Part 1 — What one decode step actually costs
@@ -65,9 +68,9 @@ Carry that single number as a unit; every figure below is a multiple of it.
 | 32K | 10.5 GB |
 | 100K | **32.8 GB** |
 
-The weights are $70 \times 10^9 \times 2 = 140$ GB. So **one** 100K-context conversation costs you 23% of the weight memory. Four of them cost more than the model.
+The weights are $70 \times 10^9 \times 2 = 140$ GB. So **one** 100K-context conversation costs you 23% of the weight memory. Five of them cost more than the model.
 
-Now redo it with MHA, where `n_kv_heads` = `n_heads` = 64: multiply by 8. Per token that is 2.6 MiB, and at 100K context it is **262 GB** — nearly twice the weights, for a single user. This is the quantitative answer to "why did Llama-2 70B adopt GQA": it cuts the cache 8× at a small quality cost, and the cache is what caps concurrency. MQA (`n_kv_heads` = 1) cuts it 64× but loses more quality, which is why GQA at 8 groups is the settled compromise.
+Now redo it with MHA, where `n_kv_heads` = `n_heads` = 64: multiply by 8. Per token that is 2.5 MiB, and at 100K context it is **262 GB** — nearly twice the weights, for a single user. This is the quantitative answer to "why did Llama-2 70B adopt GQA": it cuts the cache 8× at a small quality cost, and the cache is what caps concurrency. MQA (`n_kv_heads` = 1) cuts it 64× but loses more quality, which is why GQA at 8 groups is the settled compromise.
 
 The useful way to state the result is quantitative and ends in a capacity number: *GQA cuts the KV cache 8×, therefore at fixed HBM I can hold 8× the concurrent sessions at the same context length.* Not "GQA is more efficient."
 
@@ -80,6 +83,129 @@ kv_cache_bytes(80, 8, 128, 100_000, 1) / 1e9   # -> 32.77 GB
 # same model with full MHA
 kv_cache_bytes(80, 64, 128, 100_000, 1) / 1e9  # -> 262.1 GB
 ```
+
+### The step ends in logits, not in a token
+
+A decode step does not produce a token. The last matrix multiply projects the final hidden state onto the vocabulary and produces one score per vocabulary entry. Write $V$ for the vocabulary size, 128,256 for a Llama-3-class tokenizer, and $z_1, \dots, z_V$ for those scores. They are called **logits**. They are unnormalized and unbounded, and $z_i > z_j$ means only that the model ranks token $i$ above token $j$.
+
+Turning $z$ into one emitted token is a separate decision with its own rules, and it is where a large part of output quality is set. The standard map from scores to probabilities is the **softmax**:
+
+$$p_i = \frac{\exp(z_i)}{\sum_{j=1}^{V} \exp(z_j)}$$
+
+Exponentiating makes every entry positive; dividing by the sum makes them add to 1. One property drives everything below. Adding the same constant $c$ to every logit multiplies numerator and denominator by $e^c$ and leaves $p$ unchanged, so logits carry no absolute scale. Only differences matter, and a difference is a log-odds ratio: $p_i / p_j = \exp(z_i - z_j)$.
+
+Price the selection step before arguing about it. One sequence's logit vector is $128{,}256 \times 4 = 513{,}024$ bytes in FP32, about half a megabyte. The same decode step streamed 140 GB of weights, which is $140 \times 10^9 / 513{,}024 \approx 273{,}000$ times more traffic. Sorting and normalizing half a megabyte is free next to that, and the ratio only closes at batch sizes far past what KV-cache memory allows. Decoding strategy is a quality knob, not a throughput knob.
+
+### Greedy decoding, and the three ways it fails
+
+The simplest rule takes the highest-scoring token at every step: emit $\arg\max_i p_i$, append it, repeat. No parameters, deterministic given the logits. It fails in three distinct ways, and separating them matters because one is fixable by better search and two are not.
+
+**Failure one: locally optimal is not globally optimal.** Greedy maximizes one factor of a product at a time. Suppose the next token is A with probability 0.6 and B with 0.4. After A the model is unsure, and the best continuation it can offer has probability 0.4. After B it is confident, and its best continuation has probability 0.9. Greedy takes A and ends at $0.6 \times 0.4 = 0.24$. Taking B gives $0.4 \times 0.9 = 0.36$. The higher-probability two-token string was reachable only through the locally worse first token, and a one-step-lookahead rule cannot see it.
+
+**Beam search** is the standard repair. Keep the $b$ highest-scoring partial sequences instead of one, extend every one of them by every candidate token, keep the best $b$ extensions ranked by cumulative log-probability $\sum_t \log p(x_t \mid x_{1:t-1})$, and repeat. Per-step compute stays roughly flat because the $b$ beams batch together and the weights stream once, but the KV cache is now $b$ sequences wide, which is the real cost on a server. Log-probabilities are negative, so longer sequences always score worse and beam search prefers short output unless the score is divided by the length, or by the length raised to a tunable power.
+
+**Failure two: the most probable sequence is not a typical sequence.** Beam search does not fix this, because it is still maximization, and this failure is a property of maximization itself.
+
+Take 100 flips of a coin that lands heads with probability 0.7. The single most probable outcome is all heads, with probability $0.7^{100} = e^{100 \ln 0.7} = e^{-35.67} = 3.23 \times 10^{-16}$. A typical outcome has about 70 heads, and any one specific string with 70 heads and 30 tails has probability $0.7^{70} \times 0.3^{30} = e^{-24.97 - 36.12} = e^{-61.09} = 2.95 \times 10^{-27}$, eleven orders of magnitude below the mode. But there are $\binom{100}{70} \approx 2.94 \times 10^{25}$ such strings, so their combined probability is $2.94 \times 10^{25} \times 2.95 \times 10^{-27} \approx 0.087$. Flip the coin all day and you will see a 70-heads string about 9% of the time and never see all heads.
+
+The mode of a high-dimensional distribution is an outlier of that distribution. Maximum-likelihood decoding returns the text analogue of all-heads: fluent, generic, and statistically unlike anything a person would write, because human text keeps dipping into tokens the model rates as unlikely and maximized text never does. That comparison is the argument in the 2019 paper that introduced nucleus sampling, "The Curious Case of Neural Text Degeneration". It is the reason open-ended generation samples at all instead of searching harder.
+
+**Failure three: repetition loops.** Greedy output is a deterministic function of the context. Once the model emits a phrase whose presence in the context makes that same phrase the argmax again, the rule has no escape: there is no randomness to break the cycle and no second-best branch it is allowed to take. Language models push in the wrong direction here, because repeated text in a document genuinely does predict more repetition, so each repeat raises the probability of the next one. Greedy converges onto a fixed cycle and stays there. The same model sampled instead of maximized does not do this, which is the evidence that the loop belongs to the decision rule rather than to the weights.
+
+So: sample from $p$ instead of maximizing it. The rest of decoding is about reshaping $p$ before you draw from it.
+
+### Temperature: one exponent on every odds ratio
+
+Divide the logits by a positive number $T$, the **temperature**, before the softmax:
+
+$$p_i(T) = \frac{\exp(z_i / T)}{\sum_{j=1}^{V} \exp(z_j / T)}$$
+
+Since only differences matter, and dividing every logit by $T$ divides every difference by $T$, the effect is exactly one exponent applied to every pairwise odds ratio in the distribution:
+
+$$\frac{p_i(T)}{p_j(T)} = \exp\!\left(\frac{z_i - z_j}{T}\right) = \left(\frac{p_i(1)}{p_j(1)}\right)^{1/T}$$
+
+That single line is the whole mechanism. $T = 1$ leaves the model's distribution alone. $T$ below 1 raises every odds ratio to a power above 1, which amplifies gaps and sharpens the distribution onto the leaders. $T$ above 1 raises them to a power below 1, which compresses gaps and flattens toward uniform. As $T \to 0$ the leader's odds against everything else go to infinity and $p$ collapses onto a point mass at the argmax, so temperature zero *is* greedy decoding. Implementations special-case it rather than dividing by zero.
+
+**Worked example.** Four candidate next tokens with logits 4.0, 2.0, 1.0 and $-1.0$. Call them `mat`, `floor`, `roof` and `walnut`, where the last stands in for the enormous tail of tokens that do not belong here at all.
+
+At $T = 1$ the exponentials are $e^{4} = 54.598$, $e^{2} = 7.389$, $e^{1} = 2.718$ and $e^{-1} = 0.368$, summing to 65.073. Dividing through gives 0.8390, 0.1136, 0.0418 and 0.0057.
+
+At $T = 0.5$ the logits become 8, 4, 2 and $-2$. The exponentials are 2980.958, 54.598, 7.389 and 0.135, summing to 3043.081, and the probabilities are 0.9796, 0.0179, 0.0024 and 0.000044.
+
+At $T = 2$ the logits become 2, 1, 0.5 and $-0.5$. The exponentials are 7.389, 2.718, 1.649 and 0.607, summing to 12.363, and the probabilities are 0.5977, 0.2199, 0.1334 and 0.0491.
+
+| Token | logit | $p$ at $T=0.5$ | $p$ at $T=1$ | $p$ at $T=2$ |
+|---|---|---|---|---|
+| `mat` | 4.0 | 0.9796 | 0.8390 | 0.5977 |
+| `floor` | 2.0 | 0.0179 | 0.1136 | 0.2199 |
+| `roof` | 1.0 | 0.0024 | 0.0418 | 0.1334 |
+| `walnut` | −1.0 | 0.000044 | 0.0057 | 0.0491 |
+
+Check the mechanism against the table. `mat` and `floor` are two logits apart, so their odds ratio should be $e^{2/T}$: $e^{4} = 54.6$, $e^{2} = 7.39$, $e^{1} = 2.72$. From the table, $0.9796/0.0179 = 54.7$, $0.8390/0.1136 = 7.39$, and $0.5977/0.2199 = 2.72$. The distribution is not being reweighted by some heuristic; it is being raised to a power.
+
+Now read the bottom row, which is the part that decides whether temperature alone is enough. Going from $T = 1$ to $T = 2$ multiplies the junk token's probability by $0.0491 / 0.0057 = 8.7$. If every step of a 500-token completion looked like this column, the expected number of times `walnut` gets drawn is $500 \times 0.0491 = 24.5$. Even at $T = 1$ it is not rare: the probability of never drawing it in 500 steps is $(1 - 0.00565)^{500} = e^{500 \ln 0.99435} = e^{-2.83} = 0.059$, so it appears at least once about 94% of the time. Long generations sample the tail whether you want them to or not.
+
+### Truncation: delete the tail before you sample
+
+Temperature has one knob and it moves the whole distribution. It cannot separate "give me more variety among the plausible continuations" from "make the implausible ones reachable", because both are the same operation on the odds. And the tail in a real model is not one token like `walnut`. It is the other 128,252 entries, each individually negligible and collectively not, and flattening raises their combined mass along with everything else.
+
+The fix is to delete part of the distribution first, renormalize what survives, and sample from that.
+
+**Top-k.** Keep the $k$ highest-probability tokens, drop the rest, divide the survivors by their own sum. On the $T = 1$ column with $k = 3$: the kept mass is $0.8390 + 0.1136 + 0.0418 = 0.9943$, and the renormalized probabilities are $0.8390/0.9943 = 0.8438$, $0.1136/0.9943 = 0.1142$ and $0.0418/0.9943 = 0.0420$. `walnut` is now unreachable, not merely unlikely.
+
+**Top-p, also called nucleus sampling.** Sort descending, accumulate, and stop at the first token that brings the running total to at least a threshold $p_{\text{cut}}$. The kept set is called the nucleus. On the same column with $p_{\text{cut}} = 0.9$: 0.8390 is short of 0.9, adding `floor` gives 0.9526, which clears it, so the nucleus is two tokens, renormalized to $0.8390/0.9526 = 0.8808$ and $0.1136/0.9526 = 0.1192$.
+
+The two rules agree here. They stop agreeing as soon as the model's confidence changes, and that is the entire argument for preferring one of them. Take a second position where the model is genuinely unsure, with logits 1.0, 0.9, 0.7 and 0.4. The exponentials are 2.718, 2.460, 2.014 and 1.492, summing to 8.683, giving probabilities 0.3130, 0.2833, 0.2319 and 0.1718, and cumulative sums 0.3130, 0.5963, 0.8282 and 1.0.
+
+| Rule | Confident position (0.8390, 0.1136, 0.0418, 0.0057) | Unsure position (0.3130, 0.2833, 0.2319, 0.1718) |
+|---|---|---|
+| top-k, $k = 3$ | keeps 3, admitting a token the model gave 4.2% | keeps 3, deleting a token holding 17.2% |
+| top-p, $p_{\text{cut}} = 0.9$ | keeps 2 | keeps all 4 |
+
+A count is the wrong parameterization because the right count depends on the shape of the distribution, and the shape changes at every step. When the model is confident, most of the $k$ slots get filled with tokens it has already ruled out, and a large $k$ is how tail garbage stays reachable. When the model is unsure, $k$ amputates real candidates: top-k at $k = 3$ here throws away 17.2% of the mass and renormalizes the rest up to 0.3780, 0.3420 and 0.2800. A threshold on *mass* has no such problem. The nucleus is narrow exactly when the model is certain and wide exactly when it is not, because it is defined by how much probability the model concentrated, which is the thing you actually wanted to condition on.
+
+Top-p has its own weakness, and it is the mirror image: it puts no bound on the number of candidates, so a near-flat distribution produces a nucleus thousands of tokens wide. Production stacks usually apply both, with top-k as a hard cap and top-p as the adaptive cut.
+
+**How the two knobs compose.** Servers apply penalties, then temperature, then truncation. Raising temperature therefore widens the nucleus, because a flatter distribution needs more tokens to reach $p_{\text{cut}}$. On the $T = 2$ column the cumulative sums are 0.5977, 0.8176 and 0.9509, so top-p at 0.9 keeps three tokens rather than two, renormalized to 0.6285, 0.2312 and 0.1403. `walnut` still gets deleted. That is the combination doing its job: temperature bought variety among the real candidates, and truncation prevented the same flattening from making nonsense reachable.
+
+**Min-p** is a third cut, defined relative to the leader: keep every token with $p_i \ge m \cdot p_{\max}$, where $p_{\max}$ is the top token's probability and $m$ is typically around 0.05 to 0.1. On the confident column with $m = 0.1$ the threshold is $0.1 \times 0.8390 = 0.0839$, so `mat` and `floor` survive and `roof` at 0.0418 does not. On the unsure column the threshold is $0.1 \times 0.3130 = 0.0313$ and all four survive. It adapts like top-p, from a cheaper computation that needs one maximum and a comparison rather than a sort and a prefix sum, and its cut has a cleaner meaning: never sample a token more than $1/m$ times less likely than the best one. It does not solve the flat-distribution case either, since when everything is equally likely everything is within a factor of $m$ of the leader.
+
+### Repetition and presence penalties, and what they cost
+
+Truncation controls where mass is allowed to go. It does nothing about a model that keeps picking the same permitted token. Two families of penalty attack repetition directly, both by editing logits before the softmax.
+
+**Presence and frequency penalties are additive.** A presence penalty subtracts a constant $\alpha$ from the logit of every token that has already appeared, once, no matter how often it appeared. A frequency penalty subtracts $\alpha \cdot c_i$, where $c_i$ counts prior occurrences of token $i$. Because only logit differences matter, subtracting $\alpha$ multiplies that token's unnormalized weight by $e^{-\alpha}$. At $\alpha = 1$ that is a factor of 0.368, a 63% cut to its odds against every untouched token.
+
+**Repetition penalty is multiplicative**, in the form introduced with CTRL: divide the logit by $\theta > 1$ if it is positive, and multiply by $\theta$ if it is negative. The two cases exist because dividing a negative logit by $\theta$ moves it *up*, rewarding the token it was supposed to punish. That awkwardness is a symptom of a real defect. The operation depends on the absolute value of a logit, and logits are only defined up to an additive constant, so the same model with a uniformly shifted logit vector gets penalized differently. Additive penalties are immune to this.
+
+**What the penalty costs.** Apply a presence penalty of $\alpha = 1$ to `mat` in the confident example, taking its logit from 4.0 to 3.0. The exponentials become 20.086, 7.389, 2.718 and 0.368, summing to 30.561, and the probabilities become 0.6572, 0.2418, 0.0889 and 0.0120. `mat` falls from 0.8390 to 0.6572, which is what was asked for. The junk token more than doubled, from 0.0057 to 0.0120. Mass taken off the top does not flow to the runner-up alone; it is redistributed in proportion across everything still standing, tail included. The ratios among untouched tokens are unchanged, `floor` to `roof` being $e^{1} = 2.72$ before and after, which is precisely what "in proportion" means here.
+
+The production failure is specific and it is not subtle once you have seen it. Penalties act on token IDs, not on meanings, and they cannot tell a stylistic tic from a required repetition. A variable name that must appear forty times in a function gets pushed down forty times under a frequency penalty. A JSON key repeated in every element of an array gets pushed down once per element. A person's name in a summary gets pushed down every time you mention them. Each legitimate repeat raises the alternatives, and eventually an alternative wins: the model renames an identifier halfway through a function, or emits a near-synonym of the key your schema requires. So penalties belong to open-ended prose. For code and structured output the right settings are zero, and repetition is controlled by stop sequences, shorter outputs, or a constrained decoder that masks every token which would violate the grammar and renormalizes over the rest. That masking is truncation again, with a hard rule in place of a probability threshold.
+
+### Choosing settings, and what they do to your evals
+
+One question decides the regime: does this task have one right answer?
+
+**Tasks with one right answer.** Extraction, classification, tool-call arguments, schema-conforming JSON, code, arithmetic, and grounded question answering over retrieved text. Use $T = 0$, or the smallest value the server allows with truncation switched off. Variance here is pure loss. There is a correct output, the model's own distribution already puts most of its mass near it wherever the model knows the answer, and sampling spends that concentration for nothing in return.
+
+**Tasks with many acceptable answers.** Drafting, dialogue, brainstorming, and generating candidates for a downstream ranker. Use $T$ around 0.7 to 1.0 with nucleus truncation near 0.9 to 0.95, and add penalties only after observing an actual repetition problem.
+
+| Task | Temperature | Truncation | Penalties |
+|---|---|---|---|
+| Extraction, classification, tool arguments, code | 0 | none needed | none |
+| Summarization where faithfulness dominates | 0.2 to 0.4 | top-p 0.9 | none |
+| Open-ended prose, dialogue, brainstorming | 0.7 to 1.0 | top-p 0.9 to 0.95 | small, only if repetition is observed |
+| Sample many, then select with a verifier | 0.8 to 1.2 | top-p 0.95 | none |
+
+Those ranges are conventional starting points, not measured optima. The optimum is whatever your task eval says it is.
+
+Two settings are worth naming as mistakes. Setting both a low temperature and a small $p_{\text{cut}}$ truncates twice and can leave a single survivor, which is greedy decoding with extra parameters and extra confusion. Raising temperature to fix "boring" output without any truncation buys variety and incoherence in the same move.
+
+The last row of the table is the interesting exception: a task with exactly one right answer where high temperature is correct. Sample $n$ candidate solutions, then select among them with unit tests, a verifier, or a majority vote. Accuracy is recovered by the selection step, and the sampler's job is coverage. At $T = 0$ you would get the same wrong answer $n$ times, which is the one outcome that guarantees the method fails.
+
+**A non-zero temperature turns every eval into a sample.** Score 100 tasks at $T = 0.8$ and observe 90 passes. The estimate is 0.90 with standard error $\sqrt{0.9 \times 0.1 / 100} = \sqrt{0.0009} = 0.03$, so a 95% interval of roughly $0.90 \pm 1.96 \times 0.03$, which runs from 84.1% to 95.9%. A rerun that scores 87% has told you nothing, and a revert that "fixes" it has taught the team something false. Treating the 100 tasks as identically distributed slightly overstates the variance, since tasks the model always passes or always fails contribute nothing, so this interval is the conservative one. The practice that follows: repeat the eval, report a rate with an interval rather than a number, and pin the sampling parameters in the eval config the same way you pin the model version. An eval that does not state its temperature is not reproducible by anyone, including its author six months later.
+
+**And $T = 0$ still does not buy determinism on a server.** Greedy removes the sampler's randomness. It does not make the logits identical run to run. Under continuous batching a request is grouped with different neighbours on every run, the kernels then reduce over different tile shapes in a different order, and floating-point addition is not associative, so $(a + b) + c$ and $a + (b + c)$ can differ in the last bits. Logits therefore wobble at the bottom of the mantissa, and any near-tie between the top two tokens can flip. One flipped token changes everything generated after it. A fixed seed controls the sampler's random number generator and touches none of this. Prefix-cache hits and misses take different code paths with the same consequence, and a mixture-of-experts model with a per-expert capacity limit adds true cross-request coupling, because which tokens a full expert drops depends on who else is in the batch. The defensible claim is that temperature 0 buys you the mode, not bit-reproducibility. If you need byte-identical replays, record outputs rather than recomputing them.
 
 ## Part 2 — Prefill and decode are different machines
 
@@ -185,7 +311,10 @@ Decompose before acting: measure the split between TTFT and generation. If TTFT 
 4. **Batch size tuned for throughput on a latency-sensitive product.** Aggregate tokens/s looks great on the dashboard while p95 TTFT quietly triples. Set a max batch and a queue-time SLO, not just a throughput target.
 5. **Shipping INT4 after checking only perplexity.** The regression surfaces weeks later in tool-call JSON validity and long-context retrieval, somewhere your eval never looked.
 6. **Speculative decoding on a heavily batched throughput fleet.** There were no idle FLOPs to spend, so you paid a draft model's memory for roughly nothing.
-7. **Prefix caching silently defeated.** Someone injects a timestamp or user ID at the top of the system prompt, every prefix hash misses, and prefill cost jumps overnight with no code change to blame.
+7. **Sampling parameters left at the chat default on a structured-output endpoint.** A temperature of 0.7 with top-p 0.95 is a reasonable prose default and a bad JSON default. The symptom is a small, stubborn rate of schema violations and hallucinated tool arguments that no amount of prompt editing removes, because the cause is the sampler.
+8. **A repetition penalty enabled globally.** It was added to stop a chat model looping, then inherited by the code and tool-calling endpoints, where it renames identifiers mid-function and perturbs keys that are supposed to repeat in every array element.
+9. **An eval regression that was sampling noise.** Pass rate moves from 90% to 87% at temperature 0.8 over 100 tasks, a change gets reverted, the number moves back, and the team learns something untrue. At that sample size the 95% interval is about ±6 points.
+10. **Prefix caching silently defeated.** Someone injects a timestamp or user ID at the top of the system prompt, every prefix hash misses, and prefill cost jumps overnight with no code change to blame.
 
 ## Interview gotchas
 
@@ -198,6 +327,11 @@ Decompose before acting: measure the split between TTFT and generation. If TTFT 
 - **"Is FlashAttention an approximation?"** Also no, and it does not reduce FLOPs. It tiles the computation in SRAM so the $n \times n$ attention matrix, one score per pair of positions in a sequence of length $n$, is never written to HBM. It attacks memory traffic and the $O(n^2)$ *memory* cost.
 - **"INT8 vs INT4 vs GPTQ vs AWQ?"** INT8/INT4 are formats; GPTQ and AWQ are methods for choosing the quantized values. GPTQ uses per-layer Hessian-based error compensation; AWQ protects the channels activations say matter.
 - **"Your cache is too big during long generation."** In order: GQA if you control the model, paged cache, quantize the cache (keys carefully), sliding window or eviction if the task tolerates it, CPU offload as a last resort, cap context.
+- **"Top-k or top-p?"** Top-k keeps a fixed count, top-p keeps the smallest set whose probability sums to the threshold. A count is wrong in both regimes: when the model is confident the extra slots admit tokens it already ruled out, and when it is unsure the count amputates real candidates. Top-p conditions on mass, so the nucleus narrows and widens with the model's confidence. Give the two-column example. Then name top-p's weakness, that it bounds no count, and say production usually applies a top-k cap on top of it.
+- **"Why does high temperature produce nonsense rather than creativity?"** Temperature raises every odds ratio to the power $1/T$, which cannot distinguish the plausible continuations from the tail. Going from $T=1$ to $T=2$ on the worked example took the junk token from 0.57% to 4.9%, which is 24 expected draws over a 500-token completion. Temperature needs truncation next to it.
+- **"What sampling settings for a tool-calling agent?"** Temperature 0, no penalties, truncation off, and a constrained decoder or schema validator if the endpoint supports one. There is one right set of arguments, so sampling variance is pure loss. Penalties are actively harmful when the correct output repeats keys and identifiers.
+- **"Is temperature 0 deterministic?"** It removes the sampler's randomness and nothing else. Batch composition under continuous batching changes reduction order in the kernels, floating-point addition is not associative, so logits differ in the last bits and a near-tie can flip the argmax. Seeds control the RNG, not the numerics. Bit-identical replay comes from recording outputs, not from recomputing them.
+- **"Why not just use beam search?"** It fixes greedy's myopia and not greedy's real problem. It still returns the mode, and the mode of a high-dimensional distribution is an outlier of it. The coin argument settles this in one line: the all-heads string is the most probable single outcome of 100 flips at $p=0.7$ and you will never see it, while 70-heads strings carry about 8.7% of the mass between them. Beam search is right where the target distribution is genuinely peaked, as in translation or transcription.
 - **"Design a batching system so 100 requests take as long as 1."** They do *if and only if* you stay memory-bound. So: a continuous-batching scheduler, a paged KV allocator, an admission policy that stops adding requests when cache memory runs out or intensity crosses the ridge point, and separate SLOs for TTFT and ITL. Say the batch ceiling out loud and where it comes from.
 
 ## Take the quiz
