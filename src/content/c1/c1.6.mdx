@@ -145,6 +145,90 @@ One more thing before leaving forests, because it is where the model most often 
 
 **Feature importance — a trap (ties to c1.1 / c1.3).** Default **impurity (Gini/MDI) importance is biased toward high-cardinality and continuous features** (more candidate cut-points → more chances to look good by chance — Strobl et al. 2007) and is inflated by overfitting (it's computed on training data). Worse, **correlated features split their importance** (two collinear predictors each get ~half), so low importance ≠ irrelevant — the same redundancy that defeats drop-column leakage detection (c1.1) and inflates VIF (c1.3). Prefer **permutation importance on held-out data** — but note it too is distorted by collinearity (permuting one of two collinear features barely hurts), so cluster correlated features and permute jointly.
 
+### Explaining one row rather than the whole model
+
+Both importance measures above are global: each returns one number per feature for the entire fitted model, averaged over a whole population of rows. The strongest sentence either one licenses is "income mattered most across applicants."
+
+An analyst holding a single declined application needs a different sentence, one that names a feature, a direction, and a size, for that one row: income pushed *this* application down by some number of points relative to the average applicant. A permutation chart is silent on this. Shuffling income across 50,000 rows tells you nothing about the one row in front of you, and nothing about whether income helped or hurt that particular applicant.
+
+Set up the local question directly. Fix a fitted model $f$ and one row $x$. Let $\phi_0 = \mathbb{E}[f(X)]$ be the model's average output over the population, with $X$ a random row drawn from that population; $\phi_0$ is the score a featureless prediction would give. The thing to explain is the gap $f(x) - \phi_0$: how far this row's score sits from average, and which features are responsible for how much of that distance.
+
+To talk about a feature's effect on this row, you need to be able to ask what the model would say if a feature were not known. Write $F$ for the set of all $p$ features and $S$ for any subset of them. Define
+
+$$v(S) = \mathbb{E}\bigl[f(X) \mid X_S = x_S\bigr]$$
+
+read as: hold the features in $S$ at this row's actual values, let every other feature vary as it does in the population, and average the model's output. Two endpoints follow immediately. Knowing nothing gives $v(\emptyset) = \phi_0$. Knowing everything gives $v(F) = f(x)$. Every subset in between is a partial state of knowledge about this applicant, and the gap to explain is $v(F) - v(\emptyset)$.
+
+**A worked example.** Take a credit model whose output is a score in points, with population average $\phi_0 = 600$. One applicant scores 540, so the gap to explain is $540 - 600 = -60$ points. Three features are involved: low income $I$, a prior delinquency $D$, and high credit utilization $U$. Evaluating $v$ on all eight subsets gives:
+
+| Features known | Value of v(S) | Change from 600 |
+|---|---|---|
+| none | 600 | 0 |
+| I | 580 | −20 |
+| D | 572 | −28 |
+| U | 584 | −16 |
+| I, D | 556 | −44 |
+| I, U | 566 | −34 |
+| D, U | 554 | −46 |
+| I, D, U | 540 | −60 |
+
+**First attempt: what does each feature do on its own?** Read the three single-feature rows: $-20$, $-28$, $-16$. Add them: $-20 - 28 - 16 = -64$. The true gap is $-60$. The solo effects over-count by 4 points, and there is no honest way to hand an applicant a breakdown whose parts do not sum to the whole.
+
+The over-count has a cause. Low income and a prior delinquency are partly redundant, because both are the model's evidence of financial distress. Once the model already knows about the delinquency, learning that income is low adds $556 - 572 = -16$ points rather than the $-20$ it was worth alone. Counting both at their solo values charges the applicant twice for one underlying story.
+
+**Second attempt: what does each feature do last?** Drop one feature from the full set and see how much the score moves back. For income, $v(\lbrace I,D,U\rbrace) - v(\lbrace D,U\rbrace) = 540 - 554 = -14$. For delinquency, $540 - 566 = -26$. For utilization, $540 - 556 = -16$. Sum: $-14 - 26 - 16 = -56$. Now the parts under-count by 4 points. Same failure, opposite direction, same cause: with the other two features already in place, each feature's remaining marginal effect is smaller than its solo effect, so measuring every feature in that saturated state loses the overlap entirely.
+
+The truth is bracketed. Solo effects give $-64$, last-in effects give $-56$, and the real gap is $-60$, sitting between them. That is the diagnosis: **a feature's contribution is not a fixed number, it depends on which other features are already known**, because features interact and overlap. There is no single "correct" state of knowledge at which to measure a feature, so picking one is arbitrary.
+
+**The fix: stop picking, and average over every order of arrival.** Imagine the three features arriving one at a time, in some order, each one moving the score when it arrives. There are $3! = 6$ possible orders. In each order, every feature has a well-defined marginal contribution: the change in $v$ caused by its own arrival. Compute all of them from the table.
+
+| Order | Income moves | Delinquency moves | Utilization moves |
+|---|---|---|---|
+| I, D, U | 580−600 = −20 | 556−580 = −24 | 540−556 = −16 |
+| I, U, D | 580−600 = −20 | 540−566 = −26 | 566−580 = −14 |
+| D, I, U | 556−572 = −16 | 572−600 = −28 | 540−556 = −16 |
+| D, U, I | 540−554 = −14 | 572−600 = −28 | 554−572 = −18 |
+| U, I, D | 566−584 = −18 | 540−566 = −26 | 584−600 = −16 |
+| U, D, I | 540−554 = −14 | 554−584 = −30 | 584−600 = −16 |
+
+Every row sums to $-60$, because in any order the three arrivals walk the score from 600 to 540. Check the first row: $-20 - 24 - 16 = -60$.
+
+Now average each column over the six orders, writing $\phi_I$, $\phi_D$ and $\phi_U$ for the three averages.
+
+$$\phi_I = \tfrac{1}{6}(-20 - 20 - 16 - 14 - 18 - 14) = \tfrac{-102}{6} = -17$$
+
+$$\phi_D = \tfrac{1}{6}(-24 - 26 - 28 - 28 - 26 - 30) = \tfrac{-162}{6} = -27, \qquad \phi_U = \tfrac{1}{6}(-16 - 14 - 16 - 18 - 16 - 16) = \tfrac{-96}{6} = -16$$
+
+Because every individual order sums to $-60$, the average over orders does too: $-17 - 27 - 16 = -60$. Add the baseline back and the model's actual output reappears: $600 - 17 - 27 - 16 = 540$.
+
+This average of a player's marginal contribution over all orders of arrival is the **Shapley value** (Shapley 1953), imported from cooperative game theory, where the "players" are features and the "payout" is the model's prediction. Applied to machine-learning predictions it goes by **SHAP**, short for SHapley Additive exPlanations (Lundberg and Lee 2017). Written for general $p$, with $|S|$ the number of features in subset $S$:
+
+$$\phi_j = \sum_{S \subseteq F \setminus \lbrace j\rbrace} \frac{|S|!\,(p - |S| - 1)!}{p!}\,\bigl[v(S \cup \lbrace j\rbrace) - v(S)\bigr]$$
+
+The bracket is feature $j$'s marginal contribution when the features in $S$ are already known. The fraction in front is the fraction of the $p!$ orders in which exactly the features of $S$ arrive before $j$: there are $|S|!$ ways to order the ones before and $(p-|S|-1)!$ ways to order the ones after. For $p=3$ and $|S|=0$ that fraction is $0!\,2!/3! = 2/6 = 1/3$, matching the two orders out of six in which a feature arrives first.
+
+The property doing the work is the one just verified numerically: the attributions plus the baseline reconstruct the prediction exactly,
+
+$$f(x) = \phi_0 + \sum_{j=1}^{p} \phi_j$$
+
+which is called **efficiency** in the game-theory literature and **local accuracy** in the SHAP literature. This is what makes an explanation auditable. A reviewer can add up the reasons given to an applicant and land on the score the system actually produced, so a reason list cannot quietly omit a factor or invent one. Shapley's theorem is that averaging over orders is the *only* attribution rule satisfying efficiency together with symmetry (two features with identical marginal contributions everywhere get identical attributions), the null-player rule (a feature that never changes $v$ gets exactly zero), and linearity in the value function. Every alternative rule violates one of those.
+
+### What an attribution costs, and what it does not prove
+
+Four things go wrong in practice, and each one is a place where a confident-looking bar chart is doing less than it appears.
+
+**Exact computation is exponential.** The sum above runs over every subset of $F \setminus \lbrace j\rbrace$, so it touches all $2^p$ subsets of the feature set. Three features meant $2^3 = 8$ rows in the table above. Thirty features means $2^{30} = 1{,}073{,}741{,}824$ subsets, per row explained. Nobody computes that, so practice uses approximations. **KernelSHAP** samples coalitions and fits a weighted linear regression to their values, which is model-agnostic but noisy and slow. **TreeSHAP** (Lundberg et al. 2020) is exact rather than sampled, and it is exact only for trees: it exploits the fact that a tree already encodes which feature subsets reach which leaf, and pushes all subsets through the tree structure at once. Its cost is $O(TLD^2)$ for $T$ trees with at most $L$ leaves and depth $D$, against $O(TL2^p)$ for brute force. For a 500-tree model of depth 6, so $L = 2^6 = 64$, TreeSHAP costs on the order of $500 \times 64 \times 6^2 = 500 \times 64 \times 36 = 1{,}152{,}000$ operations. Brute force over 30 features costs about $500 \times 64 \times 1{,}073{,}741{,}824 \approx 3.4 \times 10^{13}$, roughly $3 \times 10^{7}$ times more. Exact per-row attribution is a routine thing to ship for a gradient-boosted model and an intractable thing to ship for an arbitrary model, and the tree structure is the entire reason for the gap.
+
+**Correlated features split credit, and the split can look arbitrary.** The symmetry rule is a guarantee under normal conditions and a nuisance under redundancy. If the credit model were handed income twice as two identical columns, the two copies would have identical marginal contributions in every coalition, so symmetry forces them to receive identical attributions. Income's single $-17$ points would be reported as $-8.5$ and $-8.5$. Neither column now ranks near the top of the applicant's reason list, and the underlying driver has been made to look half as important as it is by an ingestion decision. Real feature sets are full of near-duplicates, so the effect is common and partial. The same redundancy that splits impurity importance and defeats single-column permutation splits Shapley attributions too.
+
+**The meaning of "absent" is a modelling choice, and it changes the answer.** The definition of $v(S)$ above conditions on $X_S = x_S$, which respects how features actually co-vary. The other common choice replaces the unknown features with independent draws from their marginal distribution, ignoring their dependence on $x_S$. The **conditional** version keeps every evaluation on realistic data but leaks credit onto features the model never reads, because a feature correlated with a used one shifts the conditional expectation and picks up nonzero attribution. The **marginal**, or interventional, version guarantees that a feature the model ignores gets exactly zero, at the price of evaluating $f$ on combinations that never occur, such as this applicant's income paired with a utilization drawn from someone else. Those two answers genuinely differ, and neither is wrong (Chen et al. 2020). The tree explainer libraries switch between them depending on whether you hand them a background dataset, so the same model and the same row can produce two different reason lists depending on a function argument. Know which one you invoked before you defend the output.
+
+**An attribution is not a causal claim.** Every quantity above is defined in terms of $f$, the fitted model. It describes what the model does with an input, and it says nothing about what would happen in the world if the input changed. A fraud model that latched onto a proxy correlated with the true driver will produce a large, stable, perfectly faithful attribution to the proxy, because the model really does read that column and really does move when it changes. The explanation is correct about the model and false about the world. This distinction is what separates a debugging tool from a policy tool: SHAP is excellent for finding out that your model learned a proxy, and it is not evidence that changing the proxy would change the outcome.
+
+**LIME, the other common approach.** Instead of averaging over coalitions, **LIME** (Local Interpretable Model-agnostic Explanations; Ribeiro et al. 2016) samples perturbed points near $x$, weights them by how close they are to $x$ under a proximity kernel, and fits a sparse linear model to the original model's outputs on those points. The coefficients of that local surrogate are the explanation. What it buys is speed and total model-agnosticism: it needs only the ability to call $f$, and the output is a short list of readable rules. What it costs is stability. The neighbourhood width is a free parameter with no principled setting, the perturbation sample is random, so re-running LIME on the same row with the same model can change the coefficients and even reorder the top features. The surrogate also carries no efficiency guarantee, so its coefficients do not reconstruct the prediction and a reviewer cannot audit them by addition.
+
+**When this stops being optional.** In US consumer lending, a denied applicant must receive an adverse action notice stating the specific principal reasons for the denial, under the Equal Credit Opportunity Act as implemented by Regulation B. The Consumer Financial Protection Bureau restated in 2022 that using a complex or opaque model does not excuse a vague reason. In the EU, Article 22 of the GDPR restricts decisions based solely on automated processing that produce legal or similarly significant effects, and requires safeguards including the ability to obtain human intervention and contest the outcome. The same requirement shows up wherever a model's output lands on a person and that person can demand a reason: fraud holds on an account, content removals, medical triage. In those settings a global importance chart is not a partial answer to the question being asked. It is an answer to a different question.
+
 ## Part 3 — Boosting
 
 > **Goal — drive down *bias* by adding weak trees in sequence, each fitting what the ensemble so far gets wrong — which, made precise, is gradient descent in function space.**
@@ -286,4 +370,9 @@ External works (the real sources for the math):
 - Wolpert, D. 1992. "Stacked Generalization." *Neural Networks* 5(2).
 - Strobl, C. et al. 2007. "Bias in random forest variable importance measures." *BMC Bioinformatics* 8:25.
 - Grinsztajn, L. et al. 2022. "Why do tree-based models still outperform deep learning on typical tabular data?" *NeurIPS Datasets & Benchmarks.*
+- Shapley, L. 1953. "A Value for n-Person Games." In *Contributions to the Theory of Games II* — the average-over-orderings value and its uniqueness.
+- Lundberg, S., Lee, S.-I. 2017. "A Unified Approach to Interpreting Model Predictions." *NeurIPS.* — SHAP, local accuracy, KernelSHAP.
+- Lundberg, S. et al. 2020. "From local explanations to global understanding with explainable AI for trees." *Nature Machine Intelligence* 2(1) — TreeSHAP's polynomial-time algorithm.
+- Ribeiro, M., Singh, S., Guestrin, C. 2016. "'Why Should I Trust You?': Explaining the Predictions of Any Classifier." *KDD.* — LIME.
+- Chen, H., Janizek, J., Lundberg, S., Lee, S.-I. 2020. "True to the Model or True to the Data?" *arXiv:2006.16234* — marginal versus conditional value functions.
 - Hastie, Tibshirani, Friedman. *The Elements of Statistical Learning*, 2nd ed., Ch. 9, 10, 15.
