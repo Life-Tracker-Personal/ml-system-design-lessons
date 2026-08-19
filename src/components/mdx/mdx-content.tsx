@@ -5,6 +5,7 @@ import rehypeKatex from "rehype-katex";
 import rehypeSlug from "rehype-slug";
 import { DeepDive } from "./deep-dive";
 import { LossChart } from "./loss-chart";
+import { NoiseModelToLoss, QuantilePinball } from "./losses-figures";
 import { Quiz } from "./quiz";
 import {
   OLSFit,
@@ -87,6 +88,8 @@ export function MdxContent({ source }: { source: string }) {
       components={{
         DeepDive,
         LossChart,
+        NoiseModelToLoss,
+        QuantilePinball,
         OLSFit,
         Sigmoid,
         RegularizationBalls,
