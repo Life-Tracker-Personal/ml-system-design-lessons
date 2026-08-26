@@ -115,7 +115,7 @@ X^\top X\hat\beta=X^\top y
 \boxed{\hat\beta=(X^\top X)^{-1}X^\top y}
 $$
 
-This formula exists when $X$ has full column rank: no column is an exact combination of the others. The Hessian — the matrix of second derivatives, one entry per pair of coefficients — is $2X^\top X$, and it is positive semidefinite (written $\succeq0$: every quadratic form built from it is non-negative), so RSS is convex and this stationary point is a global minimum. There is exactly one bottom to the bowl, which is why linear regression has no local-minimum story to tell. In numerical software, do not literally form the inverse; QR or SVD solvers are more stable. The inverse is valuable because it exposes the statistics.
+This formula exists when $X$ has full column rank: no column is an exact combination of the others. The Hessian — the matrix of second derivatives, one entry per pair of coefficients — is $2X^\top X$, and it is positive semidefinite (written $\succeq0$: every quadratic form built from it is non-negative). RSS is therefore convex, and this stationary point is a global minimum. There is exactly one bottom to the bowl, which is why linear regression has no local-minimum story to tell. In numerical software, do not literally form the inverse; QR or SVD solvers are more stable. The inverse is valuable because it exposes the statistics.
 
 *Projection (the geometric intuition).* Here is the same result with no derivatives. The columns of $X$ span every prediction vector the model can produce. Think of them as a flat sheet living inside $n$-dimensional space: everything the model could possibly output lies on that sheet. Usually $y$ is not exactly in that space. OLS chooses the reachable vector $\hat y=X\hat\beta$ closest to $y$: its orthogonal projection. Drop a perpendicular from $y$ to the sheet. At the closest point, the leftover residual $e=y-\hat y$ is perpendicular to every column of $X$:
 
@@ -200,7 +200,7 @@ Under linear specification, full column rank, exogeneity $\mathbb E[\varepsilon\
 
 The word “best” is fenced in, and the fence is the whole point. Gauss–Markov does not say OLS has the lowest prediction error among all models. It does not compare OLS with biased estimators such as ridge. It does not establish causality. And it does **not require Normal errors**. Normality is needed for exact small-sample $t$ and $F$ distributions, not for BLUE. If you take one sentence from this section, take that one.
 
-The proof idea is intuitive: any other linear unbiased estimator equals OLS plus an extra linear piece $Dy$, where $D$ is whatever fixed matrix distinguishes the rival estimator from OLS, and that piece cannot add signal without introducing bias. Under spherical noise, that extra piece adds a positive-semidefinite amount of variance: $\sigma^2DD^\top\succeq0$. You can only add variance, never subtract it, so OLS wins inside the fence.
+The proof idea is intuitive: any other linear unbiased estimator equals OLS plus an extra linear piece $Dy$, where $D$ is whatever fixed matrix distinguishes the rival estimator from OLS. That piece cannot add signal without introducing bias. Under spherical noise, that extra piece adds a positive-semidefinite amount of variance: $\sigma^2DD^\top\succeq0$. You can only add variance, never subtract it, so OLS wins inside the fence.
 
 ### Standard error: how much the estimate would move
 
@@ -228,7 +228,7 @@ For simple regression, the slope SE is roughly
 
 $$\operatorname{SE}(\hat\beta_1)=\frac{\hat\sigma}{\sqrt{\sum_i(x_i-\bar x)^2}}$$
 
-Read the fraction. On top, how noisy the outcome is. On the bottom, how spread out your $x$ values are. This makes the levers visible: less outcome noise, more observations, and a wider spread of $x$ all produce a more precise slope. It is the arithmetic version of something you already believe, which is that a line is easier to pin down when you have points far out at both ends to pin it with.
+Read the fraction. On top, how noisy the outcome is. On the bottom, how spread out your $x$ values are. This makes the levers visible: less outcome noise, more observations, and a wider spread of $x$ all produce a more precise slope. It is the arithmetic version of something you already believe: a line is easier to pin down when you have points far out at both ends to pin it with.
 
 ### The $t$-statistic: signal measured in noise units
 
@@ -243,7 +243,7 @@ You cannot answer from $4.2$ alone. Run the same experiment in a parallel univer
 - If $\operatorname{SE}(\hat\beta_1) = 1.5$, re-runs would routinely land anywhere from about $1$ to $7$. A slope of $4.2$ is a meaningful distance from zero.
 - If $\operatorname{SE}(\hat\beta_1) = 6.0$, re-runs would scatter from $-8$ to $+16$. The same $4.2$ is now indistinguishable from a fluke.
 
-Notice you just did the reasoning without any vocabulary. The $t$-statistic only makes that comparison explicit. It measures the estimate in standard-error units, converting "4.2k USD per 1k USD" into "how many noise-widths from zero":
+You just did the reasoning without any vocabulary. The $t$-statistic only makes that comparison explicit. It measures the estimate in standard-error units, converting "4.2k USD per 1k USD" into "how many noise-widths from zero":
 
 $$t_j=\frac{\hat\beta_j-\beta_{j,0}}{\operatorname{SE}(\hat\beta_j)}$$
 
@@ -261,7 +261,7 @@ Under the classical model the standardised estimate follows
 
 $$t_j\sim t_{n-p}$$
 
-meaning: compare your $t$ against a Student's $t$ curve with $n-p$ degrees of freedom, not against a bell curve. The reason it is a $t$ rather than a standard Normal comes down to one thing, and it is worth following.
+meaning: compare your $t$ against a Student's $t$ curve with $n-p$ degrees of freedom, not against a bell curve. The reason it is a $t$ rather than a standard Normal comes down to one thing.
 
 If we somehow *knew* the true noise level $\sigma$, then $(\hat\beta_j-\beta_j)/\operatorname{SE}$ would be exactly standard Normal — a known constant in the denominator just rescales a Normal. But we do not know $\sigma$. We estimate it from the same small sample, as $\hat\sigma^2=\operatorname{RSS}/(n-p)$, and that estimate is itself noisy.
 
@@ -368,7 +368,7 @@ Work down the rows one at a time.
 
 $$\frac{\operatorname{SE}_{\text{doubled}}}{\operatorname{SE}_{\text{original}}}=\sqrt{\frac{n-p}{2n-p}}\ \xrightarrow[n\to\infty]{}\ \frac{1}{\sqrt2}$$
 
-so every standard error shrinks by about $30\%$ and every $t$-statistic inflates by about $\sqrt2$. Nothing was learned; the model merely counted the same evidence twice. The estimates stay unbiased, but the inference is fraudulent, because the errors of duplicated rows are perfectly correlated — the independence assumption behind the SE formula is gone. **This is the cleanest illustration of the whole section: point estimates survive fake data, uncertainty does not.** (It is also why clustered standard errors exist: repeated measurements on the same entity are a softer version of the same problem.)
+so every standard error shrinks by about $30\%$ and every $t$-statistic inflates by about $\sqrt2$. Nothing was learned; the model merely counted the same evidence twice. The estimates stay unbiased, but the inference is fraudulent. The errors of duplicated rows are perfectly correlated, so the independence assumption behind the SE formula is gone. **This is the cleanest illustration of the whole section: point estimates survive fake data, uncertainty does not.** (It is also why clustered standard errors exist: repeated measurements on the same entity are a softer version of the same problem.)
 
 **4. Duplicating a single observation.** Different beast. Copying one row is exactly **weighted least squares with weight 2 on that point**, so it *does* move the fit — toward that observation. How far depends on leverage: duplicating a point sitting at the centre of the $x$ cloud barely moves the line, while duplicating a high-leverage point can visibly tilt it. Everything in the table changes. The estimate remains unbiased (any fixed set of weights preserves unbiasedness given exogeneity), but if the row is a *copy* rather than a genuinely new draw, the standard errors are again understated.
 
@@ -380,7 +380,7 @@ $$\hat\beta_{y\sim x}=\rho\,\frac{\sigma_y}{\sigma_x},\qquad \hat\beta_{x\sim y}
 
 Multiply the two slopes together and the correlation squared falls out, not $1$. The second slope is **not** the reciprocal of the first — it equals the reciprocal only when $\rho^2=1$, i.e. a perfect fit. Since $\rho^2\le1$, each line is *flatter* than inverting the other would suggest. That gap is regression to the mean, and it has a mechanical cause: OLS minimises vertical distances, so swapping the roles of the axes minimises horizontal distances instead — a different objective, hence a different line. Both lines do pass through $(\bar x,\bar y)$, and both report the same $R^2=\rho^2$. The lesson for practice: "which variable goes on the left" is a modelling decision about what you want to predict, not a symmetric description of association.
 
-**6. Orthogonal regression, and why PCA is a third answer.** If neither variable is naturally the response — both are noisy measurements of something — you can minimise *perpendicular* distance instead. That is **total least squares**, and its solution is the **first principal component** of the joint $(x,y)$ cloud. Its slope lies between the $y\sim x$ line and the inverted $x\sim y$ line. It is consistent under symmetric errors-in-variables — the regime where OLS instead suffers **attenuation bias**, shrinking its slope toward zero by the reliability ratio $\sigma_x^2/(\sigma_x^2+\sigma_u^2)$, in which $\sigma_u^2$ is the variance of the measurement noise contaminating $x$, because noise in $x$ inflates the denominator of the slope without touching its numerator ([derived in the quiz](/c/c1/c1.3/quiz)). The catch is that perpendicular distance mixes the two axes' units, so **TLS is not scale-invariant**: rescale $x$ from dollars to cents and the fitted line changes, whereas OLS slopes simply rescale in the obvious way. Standardise first, or do not use it.
+**6. Orthogonal regression, and why PCA is a third answer.** If neither variable is naturally the response — both are noisy measurements of something — you can minimise *perpendicular* distance instead. That is **total least squares**, and its solution is the **first principal component** of the joint $(x,y)$ cloud. Its slope lies between the $y\sim x$ line and the inverted $x\sim y$ line. It is consistent under symmetric errors-in-variables — the regime where OLS instead suffers **attenuation bias**, shrinking its slope toward zero by the reliability ratio $\sigma_x^2/(\sigma_x^2+\sigma_u^2)$, in which $\sigma_u^2$ is the variance of the measurement noise contaminating $x$. That shrinkage happens because noise in $x$ inflates the denominator of the slope without touching its numerator ([derived in the quiz](/c/c1/c1.3/quiz)). The catch is that perpendicular distance mixes the two axes' units, so **TLS is not scale-invariant**: rescale $x$ from dollars to cents and the fitted line changes, whereas OLS slopes simply rescale in the obvious way. Standardise first, or do not use it.
 
 Do not confuse that with **principal component regression**, which is a different procedure with a different purpose: project $X$ onto its top-$k$ principal components and regress $y$ on those. PCR is a variance-reduction method — biased, but stabilising when predictors are collinear, since it discards exactly the low-variance directions that inflate $\operatorname{Var}(\hat\beta)$. Its known weakness is that the components are chosen using $X$ alone, so a low-variance direction that happens to carry all the signal about $y$ gets thrown away; partial least squares exists to fix precisely that.
 
@@ -496,7 +496,7 @@ Penalties act on coefficient size, so feature scale changes the effective punish
 
 **The Bayesian view (ties straight back to c1.2).** MAP estimation maximizes $\log p(y\mid\beta) + \log p(\beta)$ — the negative log-prior *is* the penalty, exactly as the negative log-likelihood is the data loss. Gaussian likelihood + **Gaussian prior** $\beta\sim\mathcal{N}(0,\tau^2 I)$ → **ridge** (with $\lambda=\sigma^2/\tau^2$); the prior standard deviation $\tau$ is how large you believed a coefficient could be before seeing any data. Gaussian likelihood + **Laplace prior** → **lasso**. The Laplace prior's heavier tail and sharp peak at 0 are *why* L1 induces sparsity while L2 doesn't. So: L2 penalty ⟺ Gaussian prior, L1 penalty ⟺ Laplace prior — the same "every loss is a noise model" lens, applied to the parameters.
 
-The prior view supplies intuition for $\lambda$: larger $\lambda$ means a tighter prior around zero—stronger prior belief that large coefficients are unlikely. Notice that $\lambda=\sigma^2/\tau^2$ says the same thing in symbols, since a small prior width $\tau$ makes $\lambda$ large. MAP is still a point estimate; a full Bayesian analysis keeps the posterior distribution and propagates parameter uncertainty.
+The prior view supplies intuition for $\lambda$: larger $\lambda$ means a tighter prior around zero—stronger prior belief that large coefficients are unlikely. The relation $\lambda=\sigma^2/\tau^2$ says the same thing in symbols, since a small prior width $\tau$ makes $\lambda$ large. MAP is still a point estimate; a full Bayesian analysis keeps the posterior distribution and propagates parameter uncertainty.
 
 **Bias for variance — and why unbiased isn't sacred.** For a single coefficient, the decomposition is
 

@@ -9,7 +9,7 @@ estimatedMinutes: 135
 
 ## TL;DR
 
-Picture the postmortem. The model is fine. The architecture diagram is fine. The offline AUC was 0.93 and the production AUC is 0.74, and nobody can find the bug because there isn't a bug in the modeling code. Most ML systems fail in production not because the model is wrong but because the **data pipeline silently violated an assumption the model was trained under**. This lesson teaches the data architecture, sampling math, splitting strategies, and leakage detection that make production ML *work* — derived, with worked examples, not just stated.
+Picture the postmortem. The model is fine. The architecture diagram is fine. The offline AUC was 0.93 and the production AUC is 0.74. Nobody can find the bug because there isn't a bug in the modeling code. Most ML systems fail in production not because the model is wrong but because the **data pipeline silently violated an assumption the model was trained under**. This lesson teaches the data architecture, sampling math, splitting strategies, and leakage detection that make production ML *work* — derived, with worked examples, not just stated.
 
 The second half of the lesson is about the number you report. Model selection is **an estimation problem about an estimator.** Test error is a quantity you *estimate*; cross-validation is the *estimator*; and its own bias, its variance, and — crucially — the **selection bias you induce by optimizing on it** govern every choice in this lesson. Three tools split the work between them. The **bias-variance decomposition** tells you *what you're trading*; **cross-validation** tells you *how well you can measure the trade*; **double descent** tells you *where the classical trade stops being the whole story*. (CV *mechanics* — k-fold, stratified, group, temporal, nested — come earlier, in the splits section; the numbered parts at the end treat CV as a statistical estimator and derive bias-variance from scratch.)
 
@@ -33,7 +33,7 @@ The second half of the lesson is about the number you report. Model selection is
 
 ## Why this lesson comes first
 
-In a chapter about *ML system design*, you'd expect to start with models. That expectation is reasonable, and this lesson breaks it deliberately, because it does not survive contact with real systems. Production ML system design failures, and the staff-level interview questions that probe them, come back to one of three things:
+In a chapter about *ML system design*, you'd expect to start with models. That expectation is reasonable. This lesson breaks it deliberately, because it does not survive contact with real systems. Production ML system design failures, and the staff-level interview questions that probe them, come back to one of three things:
 
 1. **The training data didn't represent production reality** (sampling, splits)
 2. **A feature was easier to compute at training time than at serving time** (training-serving skew)
@@ -77,7 +77,7 @@ None of those three is a configuration mistake you can tune your way out of. The
 
 ### Column-oriented storage, derived
 
-The fix is **column-oriented storage**: each column is stored in its own file (or its own block), not as part of a row. Before deciding whether that is a good idea, write out what it costs and what it buys. In the table below, $n$ is the number of columns in the table and $N$ the number of rows; both letters get reused later in the lesson for sample size and population size, so read them locally. The trade-off looks lopsided when you write it out:
+The fix is **column-oriented storage**: each column is stored in its own file (or its own block), not as part of a row. Before deciding whether that is a good idea, write out what it costs and what it buys. In the table below, $n$ is the number of columns in the table and $N$ the number of rows. Both letters get reused later in the lesson for sample size and population size, so read them locally. The trade-off looks lopsided when you write it out:
 
 | Operation | Row-oriented | Column-oriented |
 |---|---|---|
@@ -88,7 +88,7 @@ The fix is **column-oriented storage**: each column is stored in its own file (o
 
 Three of those four rows say column-stores are worse, sometimes by a factor of $n$. That's the honest accounting, and it's why your OLTP database is row-oriented. But look at which row of the table your workload actually lives in. ML training jobs hit pattern 2 — "all values of column `purchase_amount`, for all rows in the last 30 days" — and pattern 2 is where column-stores win by orders of magnitude. You pay in the three cells you never touch to win in the one cell you touch constantly.
 
-There's a second compounding win, and it's the one people underestimate: **compression**. Think about why. A row is a heterogeneous mix of types — int, string, timestamp, float — and you can't compress that mix well. There's no shared structure for a compressor to find. A column is homogeneous, so every value in the block looks like every other value, and that similarity is exactly what compression algorithms eat. So you can use:
+There's a second compounding win, and it's the one people underestimate: **compression**. Think about why. A row is a heterogeneous mix of types — int, string, timestamp, float — and you can't compress that mix well. There's no shared structure for a compressor to find. A column is homogeneous, so every value in the block looks like every other value. That similarity is exactly what compression algorithms eat. So you can use:
 
 - **Dictionary encoding** for low-cardinality columns: replace "United States", "Canada", "Mexico" with indices 0, 1, 2 plus a dictionary lookup.
 - **Run-length encoding (RLE)** for sorted or near-constant columns.
@@ -129,7 +129,7 @@ These three names confuse people for a specific reason: they aren't three points
 
 ### Feature stores and training–serving skew
 
-One property makes ML storage different from analytics storage. A **feature** in production ML is rarely a raw column. It's a *computed* value: "average purchase amount over the last 7 days" or "click-through rate of this item, in this user's region, over the last hour." Notice that a computation has to run somewhere, and it has to run somewhere twice. That computation happens twice in the lifetime of an ML model:
+One property makes ML storage different from analytics storage. A **feature** in production ML is rarely a raw column. It's a *computed* value: "average purchase amount over the last 7 days" or "click-through rate of this item, in this user's region, over the last hour." That computation happens twice in the lifetime of an ML model:
 
 - **Training time** — you compute features over historical data, join them to historical labels, and train.
 - **Serving time** — you compute the same features over current data and send them to the deployed model for prediction.
@@ -154,7 +154,7 @@ The killer property of a feature store is **point-in-time correctness**. Say tha
 - **Batch features** are computed on a schedule (hourly, daily). Cheap to operate; freshness is bounded by the batch interval.
 - **Streaming features** update on each event arrival via Kafka → Flink/Spark Streaming → Redis (or similar). Required for "events in the last 60 seconds" features. More expensive and more failure-prone.
 
-You don't pick one. A real production ML system usually has both, because "purchases in the last 90 days" and "clicks in the last 60 seconds" have completely different freshness requirements and there's no reason to pay streaming prices for the first one. The architectural shape: events land in Kafka; Flink writes streaming features to the online store *and* lands events in Iceberg for batch features; nightly Spark jobs compute batch features and write to both stores; the training job reads from the offline store; the serving model reads from the online store.
+You don't pick one. A real production ML system usually has both, because "purchases in the last 90 days" and "clicks in the last 60 seconds" have completely different freshness requirements. There's no reason to pay streaming prices for the first one. The architectural shape: events land in Kafka; Flink writes streaming features to the online store *and* lands events in Iceberg for batch features; nightly Spark jobs compute batch features and write to both stores; the training job reads from the offline store; the serving model reads from the online store.
 
 ## Structured vs unstructured data: why this decides your model class
 
@@ -294,7 +294,7 @@ Each record costs $O(1)$ — a single random draw and at most one slot overwrite
 
 ### Importance sampling
 
-**Goal — estimate an expectation under a distribution you can't sample from.** You want the average value of some function $f$ applied to a random draw $X$ — written $E_p[f(X)]$ — where $X$ follows a target distribution $p$, but you can only draw samples from a *different* distribution $q$. This sounds like an impossible position, and stating the obstacle sharply is what produces the fix: you have the wrong sampler, so correct for how wrong it is, sample by sample. The trick:
+**Goal — estimate an expectation under a distribution you can't sample from.** You want the average value of some function $f$ applied to a random draw $X$ — written $E_p[f(X)]$ — where $X$ follows a target distribution $p$, but you can only draw samples from a *different* distribution $q$. This sounds like an impossible position. Stating the obstacle sharply produces the fix: you have the wrong sampler, so correct for how wrong it is, sample by sample. The trick:
 
 $$E_p[f(X)] = \int p(x) f(x)\, dx = \int q(x) \cdot \frac{p(x)}{q(x)} f(x)\, dx = E_q\!\left[\frac{p(x)}{q(x)} f(x)\right]$$
 
@@ -335,7 +335,7 @@ In production, **this is almost always false.** Examples:
 - **Multi-row entities.** Two scans of the same medical patient share latent state. Not independent.
 - **Drift.** The distribution today differs from the distribution last month. Not identically distributed.
 
-Notice that three of those four break independence and the fourth breaks identical distribution, so between them they take out both halves of the assumption. When IID fails, **random splits over-state generalization**, because train and test rows are correlated. The fix is to choose your split so that the held-out set looks like the *real* deployment distribution.
+Three of those four break independence and the fourth breaks identical distribution, so between them they take out both halves of the assumption. When IID fails, **random splits over-state generalization**, because train and test rows are correlated. The fix is to choose your split so that the held-out set looks like the *real* deployment distribution.
 
 ### Why three sets, not two
 
@@ -363,7 +363,7 @@ Ordered by how often they're the right answer for real production data. That ord
 
 *Why:* if data is drifting (and in production it almost always is), the future *is* the test distribution. You want your held-out metric to reflect performance on data drawn later than the training data. Use **forward chaining** for cross-validation: at each fold, pick a cut-off time $t$, train on rows with timestamp $< t$, and test on rows with timestamp in $[t, t + \Delta)$, where $\Delta$ is the width of the test window. Never reverse it.
 
-**Worked failure example.** You're predicting whether a user will churn this month. You randomly split a year's worth of data 80/20. Your test AUC is 0.91 — a definition of AUC is coming in the next section, but read it as "model rates a random positive higher than a random negative 91% of the time." Production AUC is 0.74. Why? Because the random split mixed November-2022 rows into the training set and December-2022 rows into the test set, and the model effectively saw the future: it learned trends ("usage just dropped 50% this month") that were available globally but not at any specific historical prediction moment. The temporal-split number would have been 0.74 from the start.
+**Worked failure example.** You're predicting whether a user will churn this month. You randomly split a year's worth of data 80/20. Your test AUC is 0.91 — a definition of AUC is coming in the next section, but read it as "model rates a random positive higher than a random negative 91% of the time." Production AUC is 0.74. Why? Because the random split mixed November-2022 rows into the training set and December-2022 rows into the test set. The model effectively saw the future: it learned trends ("usage just dropped 50% this month") that were available globally but not at any specific historical prediction moment. The temporal-split number would have been 0.74 from the start.
 
 The temporal split didn't make the model worse. It made the *number* honest, seventeen points earlier than production did.
 
@@ -687,7 +687,7 @@ Past the **interpolation threshold** (roughly when #parameters $=n$ for a traini
 
 Back in the mechanics section, $K=5$ or $10$ arrived as folklore. Here it arrives as a consequence. The move that makes it derivable is to stop thinking of $\widehat{\text{CV}}_K$ as a number and start thinking of it as an estimator with its own bias and its own variance, exactly like the sample mean back in the sampling section.
 
-**Its bias (choice of $K$).** Each of the $K$ surrogate models trains on $n(1-1/K)$ of the $n$ available points, so it's *weaker* than the final all-$n$ model ⇒ $\widehat{\text{CV}}_K$ is **pessimistically biased**, and the bias **grows as $K$ shrinks** ($K=2$ trains on half the data). LOO ($K=n$) trains on $n-1$ → nearly unbiased. The direction matters: you are measuring a handicapped version of the model you'll actually ship, so CV understates your model, and it understates it more the fewer folds you use.
+**Its bias (choice of $K$).** Each of the $K$ surrogate models trains on $n(1-1/K)$ of the $n$ available points, so it's *weaker* than the final all-$n$ model ⇒ $\widehat{\text{CV}}_K$ is **pessimistically biased**, and the bias **grows as $K$ shrinks** ($K=2$ trains on half the data). LOO ($K=n$) trains on $n-1$ → nearly unbiased. The direction matters: you are measuring a handicapped version of the model you'll actually ship, so CV understates your model. It understates it more the fewer folds you use.
 
 **Its variance.** LOO's $n$ training sets overlap in $n-2$ points ⇒ the fold errors are **highly correlated** ⇒ their average doesn't concentrate ⇒ **high variance**. That chain is worth walking one link at a time, because "averaging $n$ things must be stable" is the natural wrong answer here. Averaging kills variance only when the things averaged are independent, and LOO's training sets are nearly identical to one another, so its $n$ fold errors are close to $n$ copies of the same number. Smaller $K$ → less-correlated folds → lower variance. So $K$ is itself a bias-variance knob *about the estimator*; **$K=5$ or $10$ is the empirical sweet spot** (Kohavi 1995 found 10-fold stratified beats LOO for *selection*). There is also no unbiased estimator of $\text{Var}(\widehat{\text{CV}})$: the fold errors' correlation structure is what drives that variance, and a single CV run gives you no way to measure it, which is the impossibility Bengio & Grandvalet (2004) proved. That is why people report a crude $\pm$ one standard error (SE) and use the **one-standard-error rule** (pick the simplest model within 1 SE of the best). (For least-squares linear models LOO is *free* via $\text{PRESS}=\sum_i (e_i/(1-h_{ii}))^2$, where $e_i$ is the $i$-th residual of the single full-data fit and $h_{ii}$ the $i$-th diagonal entry of the hat matrix, that row's leverage — so "LOO is expensive" doesn't apply there.)
 

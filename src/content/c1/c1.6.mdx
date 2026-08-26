@@ -69,7 +69,13 @@ A tree needs no such column. It splits on delinquency first, then asks the debt 
 
 At any node you have hundreds of candidate questions. You need a number that says which one is best, so start from what you actually want. A useful split creates children whose outcomes are more alike than the parent's. **Impurity** is just a numerical score for how mixed a node is.
 
-Do the arithmetic on the two extremes before anything gets a formula. For a binary node that is 50% positive and 50% negative, Gini impurity is $0.5$—maximally mixed. For a pure node it is $0$. A split that turns one mixed group into two nearly pure groups has learned something useful. A split that produces two children with the same class proportions as the parent has learned nothing.
+The simplest such score is **Gini impurity**. Write $p_k$ for the fraction of the node's rows that carry class $k$. Then
+
+$$G = \sum_k p_k(1 - p_k) = 1 - \sum_k p_k^2.$$
+
+There is a clean way to read that sum. Pick a row from the node at random, then guess its label by picking a *second* row at random and copying its class. The term $p_k(1-p_k)$ is the chance the first row is class $k$ while the guess is not, so summing over the classes gives the probability that the two disagree. A pure node never disagrees; an evenly mixed node disagrees as often as possible.
+
+Now do the arithmetic on the two extremes. For a binary node that is 50% positive and 50% negative, $G = 0.5(1-0.5) + 0.5(1-0.5) = 0.5$ — maximally mixed. For a pure node one $p_k$ equals 1 and the rest are 0, so $G = 0$. A split that turns one mixed group into two nearly pure groups has learned something useful. A split that produces two children with the same class proportions as the parent has learned nothing.
 
 A CART tree greedily splits the data with axis-aligned cuts. Write $R$ for the set of rows sitting at the current node and $N$ for how many rows that is; a candidate question sends $N_L$ of them into a left group $R_L$ and the remaining $N_R$ into a right group $R_R$, and $I(\cdot)$ stands for whichever impurity score you have chosen. At each node CART searches over (feature $j$, threshold $s$) to maximize the impurity decrease
 
@@ -79,7 +85,7 @@ Read that left to right: take the parent's messiness, subtract the two children'
 
 The child impurities are weighted by child size. Without the weights, a split could look excellent by creating one tiny pure leaf while leaving almost everyone in an unchanged mixed node.
 
-Now the specific scores you can plug into $I(\cdot)$. **Classification impurities** are written in terms of $p_k$, the fraction of the node's rows carrying class $k$, with the sums running over the classes present: **Gini** $G = \sum_k p_k(1-p_k) = 1 - \sum_k p_k^2$ and **entropy** $H = -\sum_k p_k\log_2 p_k$ (information gain $= \Delta H$). Both are concave, so a split never increases impurity, and both reward pure children; Gini is cheaper (no log) and the two rarely disagree on which split to pick. (Misclassification error $1-\max_k p_k$ is concave too but piecewise-linear and insensitive to changes in node probabilities, so it's a poor *growing* criterion — it, or the Gini/entropy used for growing, is what's typically used for cost-complexity *pruning*.)
+Gini is not the only choice of $I(\cdot)$. The other standard classification impurity is **entropy** $H = -\sum_k p_k\log_2 p_k$ (information gain $= \Delta H$), again with $p_k$ the fraction of the node's rows in class $k$ and the sum over the classes present. Both Gini and entropy are concave, so a split never increases impurity, and both reward pure children; Gini is cheaper (no log) and the two rarely disagree on which split to pick. (Misclassification error $1-\max_k p_k$ is concave too but piecewise-linear and insensitive to changes in node probabilities, so it's a poor *growing* criterion — it, or the Gini/entropy used for growing, is what's typically used for cost-complexity *pruning*.)
 
 **Regression impurity** is the within-node variance/SSE; writing $y_i$ for the outcome of row $i$ and $\bar y_R$ for the mean outcome of the rows in region $R$, the variance-reducing split is the one that minimizes $\sum(y_i - \bar y_R)^2$ over the rows of each child, and the leaf prediction is that mean $\bar y_R$ (the median under MAE — the same mean-versus-median contrast drawn in c1.2).
 

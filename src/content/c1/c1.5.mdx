@@ -35,7 +35,7 @@ Count what you have after the rotation. Two features before, two coordinates aft
 
 <PCARotation caption="A correlated 2D cloud with the two principal directions overlaid. Look at the two arrows before anything else. PC1 points along the direction of largest projected variance; PC2 is orthogonal to it and captures what's left. Arrow lengths scale with the sample standard deviations along each axis, so the length ratio is the story: nearly all the spread lives on PC1. Keeping only PC1 replaces two correlated features with one uncorrelated summary — cheap compression, but 'high variance ≠ predictive of y', which is why PCR is target-blind." />
 
-Why keep the high-variance directions in particular, rather than any other pair of axes? Because of a guarantee. For a fixed number of linear dimensions, they minimize squared reconstruction error. Keep $m$ of them, throw the rest away, rebuild each point from what you kept, and no other choice of $m$ linear directions would have rebuilt the points more accurately. The discarded variance is exactly the information lost under that geometric criterion. The Pythagorean argument in the next subsection is where the guarantee comes from. But rebuilding the feature matrix $X$ — the table of $n$ observations by $d$ features that PCA is given — is a different job from predicting a target $y$, and that gap is the crucial limitation. Hold on to that sentence: the gap between reconstructing $X$ and predicting $y$ is where every PCA failure comes from.
+Why keep the high-variance directions in particular, rather than any other pair of axes? Because of a guarantee. For a fixed number of linear dimensions, they minimize squared reconstruction error. Keep $m$ of them, throw the rest away, rebuild each point from what you kept, and no other choice of $m$ linear directions would have rebuilt the points more accurately. The discarded variance is exactly the information lost under that geometric criterion. The Pythagorean argument in the next subsection is where the guarantee comes from. But rebuilding the feature matrix $X$ — the table of $n$ observations by $d$ features that PCA is given — is a different job from predicting a target $y$, and that gap is the crucial limitation. The gap between reconstructing $X$ and predicting $y$ is where every PCA failure comes from.
 
 #### The two objectives are the same objective
 
@@ -107,7 +107,7 @@ $$\frac{1}{n-1}X^\top X=V\Lambda V^\top$$
 
 Same $V$ in both lines, which is the point of calling them equivalent. One route factors the data matrix; the other factors the covariance matrix; both hand back the same set of directions.
 
-The divisor is $n-1$ rather than $n$ because centering with the sample mean uses up one degree of freedom, so $\frac{1}{n-1}X^\top X$ is the unbiased sample covariance while $\frac1nX^\top X$ is the maximum-likelihood version, smaller by a factor $(n-1)/n$. The choice moves nothing PCA reports as a direction: scaling a matrix by a positive constant leaves its eigenvectors where they are and multiplies every eigenvalue by that same constant, so principal directions and explained-variance ratios come out identical either way, and only the absolute eigenvalues differ. `numpy.cov` divides by $n-1$ by default, and scikit-learn's PCA reports `explained_variance_` on the same convention.
+The divisor is $n-1$ rather than $n$ because centering with the sample mean uses up one degree of freedom. That makes $\frac{1}{n-1}X^\top X$ the unbiased sample covariance, while $\frac1nX^\top X$ is the maximum-likelihood version, smaller by a factor $(n-1)/n$. The choice moves nothing PCA reports as a direction. Scaling a matrix by a positive constant leaves its eigenvectors where they are and multiplies every eigenvalue by that same constant. So principal directions and explained-variance ratios come out identical either way; only the absolute eigenvalues differ. `numpy.cov` divides by $n-1$ by default, and scikit-learn's PCA reports `explained_variance_` on the same convention.
 
 The columns $v_j$ of $V$ are the **loadings** or principal directions. The new feature values are the **scores** $z_j=Xv_j=d_ju_j$. The eigenvalue $\lambda_j=d_j^2/(n-1)$ is the variance captured by component $j$, so its explained-variance ratio is
 
@@ -235,7 +235,7 @@ Say you want $k$ components. Instead of one vector, keep a matrix of $k$ orthono
 
 $$Q=\begin{bmatrix}q_1&q_2&\cdots&q_k\end{bmatrix}$$
 
-Multiply all of them at once, $Z=CQ$. Every column starts drifting toward $v_1$, so immediately re-orthogonalize the columns by taking a QR decomposition $Z=QR$ — which rewrites the columns of $Z$ as an orthonormal set $Q$ spanning the same space, times an upper-triangular bookkeeping factor $R$ — throwing away $R$ and keeping the new orthonormal $Q$. Repeat:
+Multiply all of them at once, $Z=CQ$. Every column starts drifting toward $v_1$, so immediately re-orthogonalize them by taking a QR decomposition $Z=QR$ — which rewrites the columns of $Z$ as an orthonormal set $Q$ spanning the same space, times an upper-triangular bookkeeping factor $R$. Throw away $R$ and keep the new orthonormal $Q$. Repeat:
 
 $$\boxed{\ Z_t=CQ_t,\qquad Q_{t+1}=\operatorname{orth}(Z_t)\ }$$
 
@@ -365,7 +365,7 @@ So the expensive part of a full dense eigendecomposition is the **one-time** red
 
 #### PCA usually does not want all the eigenvectors
 
-Step back and notice you have been solving a harder problem than the one you have.
+You have been solving a harder problem than the one you have.
 
 Usually $k\ll d$. You might have $10{,}000$ features and want $50$ components. Computing all $10{,}000$ eigenvectors to throw away $9{,}950$ of them is wasteful. You only want the subspace $\operatorname{span}(v_1,\ldots,v_k)$.
 

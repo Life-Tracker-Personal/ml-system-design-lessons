@@ -127,7 +127,7 @@ Take 1000 rows. On 999 of them your model is doing fine, with residuals of rough
 
 Add up the gradient. From the 999 well-behaved rows you get $999 \times 2 = 1998$. From the single glitched row you get $2 \times 100 = 200$. So one row out of a thousand supplies 200 units of pull against the other 999 rows' 1998 — that single example's gradient is **10% as influential as the entire well-behaved dataset combined.**
 
-The linear-in-residual gradient is why MSE is fragile against outliers. Now do the same accounting on the loss value rather than the gradient, and it looks worse. Squared loss values it even more: $\sum r_i^2$ on the bulk is $999$; on the outlier alone is $10000$. The single outlier *dominates* the loss numerically. By the number MSE is reporting, your model's entire job is that one row.
+The linear-in-residual gradient is why MSE is fragile against outliers. Now do the same accounting on the loss value rather than the gradient. The squared values make it starker: $\sum r_i^2$ on the bulk is $999$; on the outlier alone is $10000$. The single outlier *dominates* the loss numerically. By the number MSE is reporting, your model's entire job is that one row.
 
 This isn't a bug; it's the consequence of assuming Gaussian noise. Gaussians have light tails — they assign vanishingly small probability to large residuals — so a large residual is interpreted as "this *can't* be normal noise; my model must be way off." The optimizer dutifully bends the model to reduce that one residual. The loss is behaving exactly as specified. The specification was wrong.
 
@@ -159,7 +159,7 @@ Nothing happened there except moving the constant out front and swapping the ord
 
 $$\sum_{i=1}^n x_i\,\bigl(y_i - x_i^\top\theta\bigr) = X^\top (y - X\theta) \quad\Longrightarrow\quad \nabla_\theta \mathcal{L} = -\frac{2}{n}\,X^\top(y - X\theta)$$
 
-That step is worth pausing on: "sum over examples of (feature vector times its residual)" and "matrix times residual vector" are the same arithmetic, written two ways.
+"sum over examples of (feature vector times its residual)" and "matrix times residual vector" are the same arithmetic, written two ways.
 
 **Set the gradient to zero and solve.**
 
@@ -328,7 +328,7 @@ For a quantile level $q \in (0, 1)$:
 
 $$\rho_q(r) = \begin{cases} q \cdot r & r \ge 0 \\ (q - 1) \cdot r & r < 0 \end{cases}$$
 
-Both branches are positive (on the lower branch, $r$ is negative and $q-1$ is negative). The trick is that the two arms of the V have *different* slopes. Under-predicting costs $q$ per unit; over-predicting costs $1-q$ per unit. Set $q = 0.9$ and under-prediction is nine times as expensive, so the model climbs until only 10% of labels sit above it.
+Both branches are positive (on the lower branch, $r$ is negative and $q-1$ is negative). The trick is that the two arms of the V have *different* slopes. Under-predicting costs $q$ per unit; over-predicting costs $1-q$ per unit. Set $q = 0.9$ and under-prediction is nine times as expensive. The model climbs until only 10% of labels sit above it.
 
 This is the loss that, minimized, gives a regression model predicting the **$q$-th quantile** of $Y \mid X$ rather than the mean or median. Useful when:
 
@@ -452,7 +452,7 @@ Trace the amber curve leftward, into the confidently-wrong region, and notice th
 
 Both arguments above are about optimization. There's a third reason, and it's about what the minimizer *is*.
 
-Hold $x$ fixed and ask which constant forecast $q$ minimizes the expected loss $\mathbb{E}_{y\sim p}[-\log q_y]$, where $q_y$ is the probability the forecast puts on whichever label actually arrives. Split that expectation the way we just split cross-entropy and it reads $H(p) + \text{KL}(p\,\|\,q)$: a part fixed by the labels, plus the surcharge for forecasting $q$ when the truth is $p$. The surcharge is never negative, and it hits zero only when $q$ matches $p$ exactly — that fact is Gibbs' inequality ($\text{KL}(p\,\|\,q)\ge 0$, equality iff $q=p$). So the unique minimizer is $q = p$, the **true conditional distribution**. A loss with this property is a *strictly proper scoring rule*. Accuracy/0-1 loss is *not* proper — many different probability forecasts produce the same accuracy, so optimizing accuracy doesn't pin down the right probabilities, and its gradient is zero almost everywhere. That is the rigorous version of "use cross-entropy to train, accuracy to report."
+Hold $x$ fixed and ask which constant forecast $q$ minimizes the expected loss $\mathbb{E}_{y\sim p}[-\log q_y]$, where $q_y$ is the probability the forecast puts on whichever label actually arrives. Split that expectation the way we just split cross-entropy and it reads $H(p) + \text{KL}(p\,\|\,q)$: a part fixed by the labels, plus the surcharge for forecasting $q$ when the truth is $p$. The surcharge is never negative, and it hits zero only when $q$ matches $p$ exactly — that fact is Gibbs' inequality ($\text{KL}(p\,\|\,q)\ge 0$, equality iff $q=p$). So the unique minimizer is $q = p$, the **true conditional distribution**. A loss with this property is a *strictly proper scoring rule*. Accuracy/0-1 loss is *not* proper: many different probability forecasts produce the same accuracy, so optimizing accuracy doesn't pin down the right probabilities. Its gradient is also zero almost everywhere. That is the rigorous version of "use cross-entropy to train, accuracy to report."
 
 *In plain English:* a proper scoring rule is one whose optimal forecast is *telling the truth* — no constant lie wins in expectation. If the true positive rate is 30%, the forecast that minimizes CE in expectation is exactly 0.30; hedging up or down loses on average. Accuracy is not like this: forecasting "0.51" and "0.99" score identically on every example the model would call positive.
 
@@ -462,7 +462,7 @@ If CE's minimizer is the truth, why do trained networks lie?
 
 > **Goal — judge a classifier the way a quant does: the argmax has to be right, and the 0.9 has to really be a 0.9.**
 
-CE's minimizer is the true posterior — *in the limit of infinite data and a correctly specified model*. Read the fine print in that sentence, because your model satisfies neither condition. Real deep nets violate both, and the failure mode is systematic: **modern networks are overconfident**. Guo et al. (2017) showed that increasing depth/width and adding batch normalization *worsen* calibration, and that networks overfit the negative log-likelihood (NLL), which is the quantity cross-entropy computes — test error keeps falling while test NLL rises, because the model inflates confidence on examples it already gets right. Your accuracy curve looks great the whole time this is happening.
+CE's minimizer is the true posterior — *in the limit of infinite data and a correctly specified model*. Read the fine print in that sentence, because your model satisfies neither condition. Real deep nets violate both, and the failure mode is systematic: **modern networks are overconfident**. Guo et al. (2017) showed that increasing depth/width and adding batch normalization *worsen* calibration, and that networks overfit the negative log-likelihood (NLL) — the quantity cross-entropy computes. Test error keeps falling while test NLL rises, because the model inflates confidence on examples it already gets right. Your accuracy curve looks great the whole time this is happening.
 
 Tools to know:
 
@@ -536,7 +536,7 @@ Fix the units and the structural problem survives. Sweep $\beta$ and you trace o
 
 So comparing three tradeoff positions costs three full training runs. If a run takes eight hours, that is a day of accelerator time to answer one product question, and the answer arrives as three *different model artifacts* — different trunk weights, different embeddings, different everything. Any A/B comparison between them confounds "we shifted the tradeoff" with "we trained a different model." You cannot hold the model fixed and move the dial, because the dial is inside the model.
 
-The consequences compound. Rolling back a tradeoff decision is a retrain, so rollback latency is measured in hours. Changing the tradeoff is gated on training capacity rather than product judgment. And a weighted sum can only reach points on the *convex* part of the Pareto frontier, so if the frontier has a concave stretch, no value of $\beta$ will ever put you there and you will never find out why.
+The consequences compound. Rolling back a tradeoff decision is a retrain, so rollback latency is measured in hours. Changing the tradeoff is gated on training capacity rather than product judgment. And a weighted sum can only reach points on the *convex* part of the Pareto frontier. If the frontier has a concave stretch, no value of $\beta$ will ever put you there — and you will never find out why.
 
 #### 3. The single head emits a number that means nothing
 
@@ -553,7 +553,7 @@ Read that number two ways and both readings are false.
 - As a probability: $\sigma(2.63) = 0.933$, against a true click rate of $0.20$. Overstated by a factor of 4.7.
 - As minutes: $2.63$, against a true mean of $3.00$. Understated by 12%.
 
-And it slides. At $\beta = 0$ the optimum is $\sigma(s) = p$, so $s = \log(0.2/0.8) = -1.386$. As $\beta/\alpha \to \infty$ the optimum is $s = m = 3$. The score wanders continuously from $-1.386$ to $3$ as somebody tunes a hyperparameter, and it is a probability at one end, a duration at the other, and neither anywhere in between.
+And it slides. At $\beta = 0$ the optimum is $\sigma(s) = p$, so $s = \log(0.2/0.8) = -1.386$. As $\beta/\alpha \to \infty$ the optimum is $s = m = 3$. The score wanders continuously from $-1.386$ to $3$ as somebody tunes a hyperparameter. It is a probability at one end, a duration at the other, and neither anywhere in between.
 
 Three things you can no longer do. You cannot calibrate it, because calibration compares a forecast to an observed frequency and this number forecasts no observable event. You cannot threshold it against a cost, because "act if probability times value exceeds cost" needs a probability. And you cannot check it against reality, because neither of the proper scoring rules established above will accept an input that is not claiming to be a distribution over outcomes.
 
