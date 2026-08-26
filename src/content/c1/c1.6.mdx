@@ -67,15 +67,61 @@ A tree needs no such column. It splits on delinquency first, then asks the debt 
 
 ### What makes one question better than another?
 
-At any node you have hundreds of candidate questions. You need a number that says which one is best, so start from what you actually want. A useful split creates children whose outcomes are more alike than the parent's. **Impurity** is just a numerical score for how mixed a node is.
+At any node you have hundreds of candidate questions, and you need a number that says which one is best.
 
-The simplest such score is **Gini impurity**. Write $p_k$ for the fraction of the node's rows that carry class $k$. Then
+Several words carry this whole section, so put ten real loans on the page and point at them rather than defining anything in the abstract. This is the training data for the rest of Part 1.
+
+| Loan | Debt-to-income | Income (USD) | Prior delinquency | **Outcome** *(classification)* | **Loss, USD** *(regression)* |
+|---|---|---|---|---|---|
+| L1 | 52% | 41,000 | yes | defaulted | 12,400 |
+| L2 | 48% | 55,000 | yes | defaulted | 9,800 |
+| L3 | 45% | 38,000 | yes | defaulted | 7,200 |
+| L4 | 43% | 62,000 | yes | defaulted | 6,500 |
+| L5 | 38% | 47,000 | yes | defaulted | 4,100 |
+| L6 | 33% | 51,000 | no | defaulted | 3,300 |
+| L7 | 44% | 88,000 | no | repaid | 0 |
+| L8 | 28% | 73,000 | no | repaid | 0 |
+| L9 | 22% | 95,000 | no | repaid | 0 |
+| L10 | 18% | 120,000 | no | repaid | 0 |
+
+Now the vocabulary is just a matter of pointing:
+
+- **Row** — one line of that table. L3 is a row: one past loan whose outcome you already know.
+- **Feature** — one of the input columns you are allowed to ask questions about: debt-to-income, income, prior delinquency. Written $x_j$ for the $j$-th one.
+- **Class** — the value in the **Outcome** column, drawn from a fixed short list. Here there are two, *defaulted* and *repaid*. "Label" means the same thing. For regression the outcome is the **Loss** column instead: a number, not a category.
+- **Node** — a point in the tree, and — the part that matters here — **the group of rows that reached it**. The root node is all ten loans, L1 through L10. The question "prior delinquency = yes?" splits them into a node holding $\lbrace$L1…L5$\rbrace$ and a node holding $\lbrace$L6…L10$\rbrace$. Each of those is itself a node.
+
+That last one is the load-bearing definition. A node is not only a question; it is a **bag of rows carved out of the table**. Everything below is a statement about how mixed one bag is.
+
+The same ten loans support both jobs — only the outcome column changes, and with it how you score a bag:
+
+| | **Classification** | **Regression** |
+|---|---|---|
+| Column you predict | **Outcome** | **Loss, USD** |
+| The question | which class does this row belong to? | what number goes with this row? |
+| What "mixed" means | the bag holds both defaulted and repaid rows | the loss numbers in the bag are spread out |
+| Impurity $I(\cdot)$ | Gini $1-\sum_k p_k^2$, or entropy $-\sum_k p_k\log_2 p_k$ | sum of squared errors, $\sum_i (y_i - \bar y)^2$ |
+| Impurity is 0 when | every row has the same class — e.g. $\lbrace$L1…L5$\rbrace$, all defaulted | every row has the same number — e.g. $\lbrace$L7…L10$\rbrace$, all 0 |
+| Impurity is largest when | the classes are evenly balanced | the numbers are widely spread |
+| A leaf predicts | the class proportions, so in practice the majority class | the mean $\bar y$ of its rows (the median under MAE) |
+
+Only that outcome column and the $I(\cdot)$ row actually change. "Find the question that most reduces impurity" is the same sentence in both, which is why one algorithm covers both jobs. The rest of Part 1 works the classification column; every regression statement is its mirror image.
+
+Now the goal is easy to state. A useful question produces two children whose outcomes are more alike than the parent's — ideally one bag of mostly-defaulted loans and one bag of mostly-repaid ones. **Impurity** is the number that scores how mixed a bag is.
+
+The simplest such score is **Gini impurity**. Write $p_k$ for the fraction of the node's rows whose class is $k$:
 
 $$G = \sum_k p_k(1 - p_k) = 1 - \sum_k p_k^2.$$
 
-There is a clean way to read that sum. Pick a row from the node at random, then guess its label by picking a *second* row at random and copying its class. The term $p_k(1-p_k)$ is the chance the first row is class $k$ while the guess is not, so summing over the classes gives the probability that the two disagree. A pure node never disagrees; an evenly mixed node disagrees as often as possible.
+Put a real bag through it: the root node, all ten loans. Six defaulted (L1–L6) and four repaid (L7–L10), so $p_{\text{default}} = 0.6$ and $p_{\text{repaid}} = 0.4$:
 
-Now do the arithmetic on the two extremes. For a binary node that is 50% positive and 50% negative, $G = 0.5(1-0.5) + 0.5(1-0.5) = 0.5$ — maximally mixed. For a pure node one $p_k$ equals 1 and the rest are 0, so $G = 0$. A split that turns one mixed group into two nearly pure groups has learned something useful. A split that produces two children with the same class proportions as the parent has learned nothing.
+$$G = 1 - (0.6^2 + 0.4^2) = 1 - (0.36 + 0.16) = 0.48$$
+
+To know whether $0.48$ is big, compute the two ends of the scale. If all 10 loans defaulted then $p_{\text{default}} = 1$, every other $p_k$ is 0, and $G = 1 - 1 = 0$ — a **pure** node, one class only. If the split is 5 and 5 then $G = 1 - (0.25 + 0.25) = 0.5$, the largest value reachable with two classes. So $G$ runs from **0 (all one class)** to **0.5 (evenly mixed)**, and our node at $0.48$ is nearly as mixed as a two-class node can be.
+
+If you want a probability attached to the number: draw two rows at random from the bag; $G$ is the chance they carry different classes. A pure bag can never produce a disagreement, an evenly mixed one disagrees half the time.
+
+The consequence for splitting: a question that turns one mixed bag into two nearly pure bags has learned something. A question whose two children have the same class proportions as the parent has learned nothing, because it moved no rows toward purity.
 
 A CART tree greedily splits the data with axis-aligned cuts. Write $R$ for the set of rows sitting at the current node and $N$ for how many rows that is; a candidate question sends $N_L$ of them into a left group $R_L$ and the remaining $N_R$ into a right group $R_R$, and $I(\cdot)$ stands for whichever impurity score you have chosen. At each node CART searches over (feature $j$, threshold $s$) to maximize the impurity decrease
 
@@ -85,27 +131,27 @@ Read that left to right: take the parent's messiness, subtract the two children'
 
 The child impurities are weighted by child size. Without the weights, a split could look excellent by creating one tiny pure leaf while leaving almost everyone in an unchanged mixed node.
 
-**Work one split end to end.** A node holds 10 rows: 6 positive, 4 negative. Its impurity is
+**Work one split end to end.** Score two real questions against the root node — all ten loans, $G_{\text{parent}} = 0.48$. Read the answers straight off the table.
 
-$$G_{\text{parent}} = 1 - (0.6^2 + 0.4^2) = 1 - (0.36 + 0.16) = 0.48$$
-
-Candidate split A sends $\lbrace 4^+, 1^-\rbrace$ left and $\lbrace 2^+, 3^-\rbrace$ right:
+**Question A: is debt-to-income above 40%?** Yes takes L1, L2, L3, L4 (defaulted) and L7 (repaid); no takes L5, L6 (defaulted) and L8, L9, L10 (repaid). So the children are 4-defaulted-1-repaid and 2-defaulted-3-repaid:
 
 $$G_L = 1 - (0.8^2 + 0.2^2) = 0.32, \qquad G_R = 1 - (0.4^2 + 0.6^2) = 0.48$$
 
 $$\tfrac{5}{10}(0.32) + \tfrac{5}{10}(0.48) = 0.40, \qquad \Delta G = 0.48 - 0.40 = \mathbf{0.08}$$
 
-Candidate split B sends $\lbrace 5^+, 0^-\rbrace$ left and $\lbrace 1^+, 4^-\rbrace$ right:
+**Question B: is there a prior delinquency?** Yes takes L1–L5, every one of them defaulted; no takes L6 (defaulted) and L7–L10 (repaid). So the children are 5-defaulted-0-repaid and 1-defaulted-4-repaid:
 
 $$G_L = 1 - (1^2 + 0^2) = 0, \qquad G_R = 1 - (0.2^2 + 0.8^2) = 0.32$$
 
 $$\tfrac{5}{10}(0) + \tfrac{5}{10}(0.32) = 0.16, \qquad \Delta G = 0.48 - 0.16 = \mathbf{0.32}$$
 
-B wins by 4×, and the reason is visible without the arithmetic: it carves off a *pure* leaf of five positives and leaves a strongly one-sided remainder, while A leaves its right child exactly as mixed as the parent was. Being able to run these two columns of numbers on a whiteboard, and then say *why* B is better in one sentence, is the entire tree-splitting question as interviewers ask it.
+**B wins by 4×**, and you can see why in the table without any arithmetic. Delinquency carves off $\lbrace$L1…L5$\rbrace$, a *pure* bag — five loans, all defaulted, impurity exactly 0 — and leaves a lopsided remainder. Debt-to-income cannot manage that, because L7 repaid despite a 44% ratio, so it contaminates the high-debt side and its other child (2 defaulted, 3 repaid) ends up as mixed as the parent was. That single misplaced row is the whole difference between the two questions.
+
+CART would therefore split on delinquency first, then continue on whatever remains impure — here the 5-row bag $\lbrace$L6…L10$\rbrace$, where one defaulted loan still sits among four repaid ones. Being able to run these two columns of numbers on a whiteboard, and then say *why* B is better in one sentence, is the entire tree-splitting question as interviewers ask it.
 
 Gini is not the only choice of $I(\cdot)$. The other standard classification impurity is **entropy** $H = -\sum_k p_k\log_2 p_k$ (information gain $= \Delta H$), again with $p_k$ the fraction of the node's rows in class $k$ and the sum over the classes present. Both Gini and entropy are concave, so a split never increases impurity, and both reward pure children; Gini is cheaper (no log) and the two rarely disagree on which split to pick. (Misclassification error $1-\max_k p_k$ is concave too but piecewise-linear and insensitive to changes in node probabilities, so it's a poor *growing* criterion — it, or the Gini/entropy used for growing, is what's typically used for cost-complexity *pruning*.)
 
-**Regression impurity** is the within-node variance/SSE; writing $y_i$ for the outcome of row $i$ and $\bar y_R$ for the mean outcome of the rows in region $R$, the variance-reducing split is the one that minimizes $\sum(y_i - \bar y_R)^2$ over the rows of each child, and the leaf prediction is that mean $\bar y_R$ (the median under MAE — the same mean-versus-median contrast drawn in c1.2).
+**Regression impurity**, promised by the table above, drops into the same $\Delta I$ formula. Writing $y_i$ for the outcome of row $i$ and $\bar y_R$ for the mean outcome of the rows in region $R$, take $I(R) = \sum_i (y_i - \bar y_R)^2$ — the within-node sum of squared errors. A bag whose numbers cluster tightly around their mean scores low; a bag with widely spread numbers scores high, which is exactly the "mixed" that needed measuring. The winning split is the one whose size-weighted child SSE is smallest, and the leaf predicts that mean $\bar y_R$ (the median under MAE — the same mean-versus-median contrast drawn in c1.2).
 
 Do not over-interpret the difference between Gini and entropy. Both ask almost the same practical question: “Did the split make the labels more predictable?” What matters is being able to compute one candidate split and explain the weighting, not deciding which criterion universally wins.
 
