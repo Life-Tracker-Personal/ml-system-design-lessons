@@ -2,26 +2,45 @@
 id: c1.4
 chapter: 1
 title: Logistic regression
-subtitle: Sigmoid, log-odds, convexity, separation and calibration
+subtitle: Sigmoid, log-odds, convexity, separation, thresholds and calibration
 refs: [7]
-estimatedMinutes: 30
+estimatedMinutes: 90
 ---
+
+## TL;DR
+
+Logistic regression is not linear regression with a squashing function bolted on the end. It is the maximum-likelihood fit of a Bernoulli model whose **log-odds are linear in the features**, and almost everything people memorize about it falls out of that single commitment. Convexity, the absence of a closed form, the odds-ratio reading of a coefficient, the divergence on perfectly separable data, the fact that downsampling your negatives moves the intercept and nothing else — none of these are separate facts to learn. They are consequences. **Model the log-odds, and the rest is forced.**
 
 ## What you'll be able to do after this lesson
 
-- Explain why logistic regression has no closed form, why its negative log-likelihood (NLL) is convex, and what happens under perfect separation.
+- **Derive** the sigmoid from the requirement that a linear score has to become a probability, and say precisely what logistic regression is linear in.
+- **Derive** the gradient $X^\top(y-p)$ and Hessian $-X^\top W X$ of the Bernoulli log-likelihood, and use the Hessian to prove the objective is convex.
+- **Explain** why convexity does not buy you a closed form, and run one IRLS step by hand.
+- **Prove** that the MLE does not exist under perfect separation, and give two fixes that each restore a finite optimum.
+- **Compute** what a coefficient does to a probability, and show why the answer depends on where you start.
+- **Defend** a decision threshold from a cost matrix instead of accepting 0.5.
+- **Derive** the prior correction for downsampled negatives, and say exactly why only the intercept needs fixing.
+- **Distinguish** what L1 and L2 do to a logistic fit, and prove that feature scaling is irrelevant to the unpenalized fit but not to the penalized one.
+- **Contrast** softmax with one-vs-rest, and name the non-identifiability that softmax carries.
+- **Diagnose** a linear boundary that cannot fit the target, and say what a basis expansion costs you.
 
-## Part 2 — Logistic regression
+## Why this model still matters
 
-> **Goal — preserve the interpretability of a linear score while producing valid probabilities, then connect that intuition to Bernoulli MLE, convexity, and IRLS.**
+Logistic regression is the model that ships. It is the baseline every ranking system is measured against, it is what most credit decisions still run on because a regulator can be shown the coefficients, and it was serving the majority of ad-click predictions at Google and Facebook long after deep learning was available — Google's production click model in McMahan et al. 2013 is regularized logistic regression, trained with a specialized optimizer, on billions of features.
 
-### Why a line is the wrong output for a binary target
+It is also the topic where interviewers find out fast whether you understand estimation or just call `.fit()`. Every question in this lesson has a version that is asked in loops: *why no closed form, what happens on separable data, why did downsampling break my probabilities, what does that coefficient mean.* The answers are all short if you hold the one idea, and unrecoverable if you do not.
 
-Start with the simplest thing that could work and watch it fail. The target column is nothing but zeros and ones, and fitting a line to a column of numbers is already familiar, so fit one. Feed the fitted model a row and read what comes out. It says $-0.4$. Feed it another row. It says $1.3$.
+> **Vocabulary primer.** *Odds* — the probability of an event divided by the probability of its complement, $p/(1-p)$; a probability of 0.75 is odds of 3, spoken "3 to 1." *Log-odds* (or *logit*) — the natural log of the odds; it runs over the whole real line, which is the point. *Bernoulli* — the distribution of a single 0/1 outcome with one parameter, the success probability. *Likelihood* — the probability the model assigns to the data you actually saw, read as a function of the parameters. *MLE* — maximum-likelihood estimate, the parameter value that maximizes it. *Convex* — curving upward everywhere, so any local minimum is the global one. *Hessian* — the matrix of second derivatives. *IRLS* — iteratively reweighted least squares, the standard fitting algorithm. *Calibration* — whether events you call 30% likely actually happen 30% of the time.
 
-The label $y$ takes one of two values per row, and even with $y\in\{0,1\}$ an OLS prediction can be $-0.4$ or $1.3$. Those values are not probabilities. There is no reading of "the chance this row belongs to class 1" that comes out negative, and none that comes out above one. Least squares returned a single unrestricted real number where a probability was wanted, and nothing in its objective was ever going to hold that number between 0 and 1.
+## Why a line is the wrong output for a binary target
 
-The second failure is quieter, and it is about the noise rather than the prediction. Write $p$ for the probability that a given row's label is 1. The error variance then depends on the mean: for a Bernoulli outcome, $\operatorname{Var}(Y\mid X)=p(1-p)$, so the constant-variance Gaussian story is wrong by construction. In words, that formula says how noisy a single observation is depends on where that observation's own probability sits. An example the model thinks is a coin flip carries a lot of noise. An example the model is nearly sure about carries almost none. OLS assumes every point is equally noisy, and here that assumption is not slightly off, it is contradicted by the definition of the outcome.
+**Goal — watch the simplest approach fail in two specific ways, and keep the part of it that was worth keeping.**
+
+Start with the simplest thing that could work. The target column is nothing but zeros and ones, and fitting a line to a column of numbers is already familiar, so fit one. Feed the fitted model a row and read what comes out. It says $-0.4$. Feed it another row. It says $1.3$.
+
+The label $y$ takes one of two values per row, and even with $y \in \lbrace 0,1 \rbrace$ an OLS prediction can be $-0.4$ or $1.3$. Those values are not probabilities. There is no reading of "the chance this row belongs to class 1" that comes out negative, and none that comes out above one. Least squares returned a single unrestricted real number where a probability was wanted, and nothing in its objective was ever going to hold that number between 0 and 1.
+
+The second failure is quieter, and it is about the noise rather than the prediction. Write $p$ for the probability that a given row's label is 1. The error variance then depends on the mean: for a Bernoulli outcome, $\operatorname{Var}(Y\mid X)=p(1-p)$, so the constant-variance Gaussian story is wrong by construction. In words, how noisy a single observation is depends on where that observation's own probability sits. An example the model thinks is a coin flip carries a lot of noise. An example the model is nearly sure about carries almost none. OLS assumes every point is equally noisy, and here that assumption is not slightly off, it is contradicted by the definition of the outcome.
 
 The line does not have to be thrown away. The part of OLS worth keeping is the linear score. Write $x$ for the column vector of features belonging to one row, with a leading 1 so the intercept rides along, and $\beta$ for the matching column vector of coefficients. Their inner product is the score $\eta=x^\top\beta$: one number per row, to which each feature contributes an additive amount, so a single coefficient can be read off and said to mean something about the world. The only broken part is the range. That unrestricted score has to be turned into a number between 0 and 1, and the sigmoid does exactly that:
 
@@ -33,45 +52,253 @@ Equivalently,
 
 $$\log\frac{p(x)}{1-p(x)}=x^\top\beta$$
 
-This is the same statement with the gearbox run backwards, and it is the more useful of the two to carry around. The inner ratio $p/(1-p)$ is the odds: the probability of the event divided by the probability of not-the-event. Take its logarithm and you get the log-odds, and the map that sends a probability to its log-odds is named the logit. The equation says the log-odds is exactly the linear score, with no squashing in sight. The nonlinearity has not disappeared, it has been moved to where you can ignore it while you interpret coefficients.
+This is the same statement with the gearbox run backwards, and it is the more useful of the two to carry around. The inner ratio $p/(1-p)$ is the odds. Take its logarithm and you get the log-odds, and the map that sends a probability to its log-odds is named the logit. The equation says the log-odds is exactly the linear score, with no squashing in sight. The nonlinearity has not disappeared, it has been moved to where you can ignore it while you interpret coefficients.
 
-That distinction is the one most often misstated. Logistic regression is linear in **log-odds**, not in probability. Let $x_j$ be the $j$-th feature and $\beta_j$ its coefficient. A one-unit increase in $x_j$, holding other features fixed, adds $\beta_j$ to log-odds and multiplies odds by $e^{\beta_j}$. It does not add a constant amount to probability: the probability change is largest near $p=0.5$ and small near 0 or 1. The same coefficient, applied to a borderline example and to an example the model has already made up its mind about, moves the probability by wildly different amounts. That is not a defect. It is the gearbox doing its job.
+That distinction is the one most often misstated. Logistic regression is linear in **log-odds**, not in probability. Let $x_j$ be the $j$-th feature and $\beta_j$ its coefficient. A one-unit increase in $x_j$, holding other features fixed, adds $\beta_j$ to log-odds and multiplies odds by $e^{\beta_j}$. It does not add a constant amount to probability. We will make that precise, with numbers, two sections down.
 
 <Sigmoid caption="The sigmoid squashes the linear score η = xᵀβ into a probability in (0,1). Watch two places on this curve. First, the middle: the decision boundary xᵀβ = 0 corresponds exactly to p = 0.5, so the boundary is not a special extra object you fit, it is just where the score changes sign. Second, the tails: they flatten out, which is where confident scores stop producing gradient. Keep those flat tails in mind for the separation argument below — the curve keeps getting steeper at zero as you scale β up, without ever reaching a maximum, so nothing stops β from running to infinity." />
 
-The same model, written once more, now as an object to optimize rather than an object to read. Model the log-odds as linear: $\text{logit}(p(x)) = x^\top\beta$, i.e. $p(x) = \sigma(x^\top\beta)$. Index the $n$ training rows by $i = 1,\dots,n$, write $y_i$ for the label of row $i$, and write $p_i$ as shorthand for $p(x_i)$, the probability the model assigns to that row. The Bernoulli log-likelihood, written $\ell(\beta)$, is $\ell(\beta) = \sum_i[y_i\log p_i + (1-y_i)\log(1-p_i)]$ — the negative of this is **binary cross-entropy** (c1.2). Read the sum term by term: for a row whose true label is 1, the second piece vanishes and you are left with $\log p_i$, so you are rewarded for putting probability mass on 1. For a row whose true label is 0, the first piece vanishes and you are left with $\log(1-p_i)$. One of the two terms is always switched off by the label. Now stack the rows: $X$ is the design matrix whose $i$-th row is $x_i^\top$, $y$ is the column vector of labels, and $p$ is the column vector of fitted probabilities. The score, meaning the gradient $\nabla\ell$ of the log-likelihood with respect to $\beta$, and the Hessian $\nabla^2\ell$ of its second derivatives are
+> **Stop and think.** The sigmoid is not the only function mapping the real line onto $(0,1)$ — the Normal CDF does it too, and using it gives you probit regression. So why is the sigmoid the default? Hint: write down what $\log\frac{p}{1-p}$ equals under each, and ask which one lets you state the effect of a feature without referring to the other features' values.
 
-$$\nabla\ell = X^\top(y - p), \qquad \nabla^2\ell = -X^\top W X,\quad W=\text{diag}(p_i(1-p_i))$$
+## From Bernoulli to cross-entropy
 
-Both deserve saying out loud. The first is the gradient of the log-likelihood: take the vector of residuals $y - p$ and project it onto each column of $X$, one number per feature. The second is the matrix of second derivatives, and it is $X^\top W X$ with a minus sign in front, where $W$ is the diagonal matrix holding one weight per row, that weight being $p_i(1-p_i)$.
+**Goal — write the likelihood the model implies, and see binary cross-entropy fall out of it rather than being chosen.**
 
-That minus sign is the whole convexity argument, and it runs as a chain. Every weight $p_i(1-p_i)$ is a probability times one minus itself, so it can never be negative, which makes $X^\top W X$ positive semidefinite, which makes the Hessian of the log-likelihood negative semidefinite, which makes the negative log-likelihood convex. Compressed into symbols, with $\succeq 0$ read aloud as "is positive semidefinite": $W \succeq 0 \Rightarrow$ the NLL is **globally convex** (no bad local minima). There is one basin. Whatever optimizer you point at it, if it converges, it converged to the answer.
+The same model, written once more, now as an object to optimize rather than an object to read. Model the log-odds as linear: $\text{logit}(p(x)) = x^\top\beta$, i.e. $p(x) = \sigma(x^\top\beta)$. Index the $n$ training rows by $i = 1,\dots,n$, write $y_i$ for the label of row $i$, and write $p_i$ as shorthand for $p(x_i)$.
 
-Convex is not the same as solvable in one shot, and this is where the analogy with OLS finally breaks. In OLS you set the gradient to zero and $\beta$ falls out of the algebra, because the residual is linear in $\beta$. Here $\beta$ is buried inside a sigmoid inside the residual, and no amount of rearranging pulls it back out: the score equation $X^\top(y-p)=0$ is **nonlinear in $\beta$** (because $p=\sigma(X\beta)$), so there is **no closed form**. What you do instead is guess a $\beta$, approximate the objective near that guess by a quadratic, jump to the quadratic's minimum, and repeat. That iteration is Newton–Raphson, and here it takes the form of **iteratively reweighted least squares (IRLS)** — each step is a weighted OLS fit. Two readings survive the change of method untouched: the decision boundary $\{x: x^\top\beta=0\}$ is a hyperplane (linear classifier), and $e^{\beta_j}$ is the **odds ratio** for a unit increase in $x_j$.
+Each row is one Bernoulli draw, so the probability the model assigns to observing label $y_i$ is $p_i^{y_i}(1-p_i)^{1-y_i}$ — check it: at $y_i=1$ this is $p_i$, at $y_i=0$ it is $1-p_i$. Rows are conditionally independent given their features, so the likelihood of the whole dataset is the product, and the log-likelihood $\ell(\beta)$ is the sum:
 
-The gradient $X^\top(y-p)$ is more intuitive than it looks: observed outcomes minus predicted probabilities, aggregated along each feature. At the optimum, those feature-weighted probability errors balance. Setting it to zero is a statement about bookkeeping: for every feature, the surplus and the deficit in predicted probability have to cancel out. The diagonal weight $p_i(1-p_i)$ is largest for uncertain examples near $0.5$ and tiny for already-certain examples, so the Newton step does not listen to every row equally. It leans hard on the rows near the boundary and barely hears the rows it has already settled. IRLS repeatedly builds a local weighted least-squares approximation, solves it, and updates the probabilities. Fit a weighted line, recompute the probabilities, recompute the weights, fit again.
+$$\ell(\beta) = \sum_{i=1}^n \bigl[\,y_i\log p_i + (1-y_i)\log(1-p_i)\,\bigr]$$
 
-> **Why not squared error on $\sigma(x^\top\beta)$?** It is non-convex in $\beta$ (sigmoid inside a quadratic) and it saturates (c1.2's vanishing-gradient argument). Cross-entropy is the Bernoulli MLE *and* convex — use it.
+The negative of this is **binary cross-entropy** (c1.2). Nobody picked cross-entropy as a loss; it is what the Bernoulli assumption produces when you take a log. Read the sum term by term: for a row whose true label is 1, the second piece vanishes and you are left with $\log p_i$, so you are rewarded for putting probability mass on 1. For a row whose true label is 0, the first piece vanishes. One of the two terms is always switched off by the label.
+
+Now stack the rows: $X$ is the design matrix whose $i$-th row is $x_i^\top$, $y$ is the column vector of labels, and $p$ is the column vector of fitted probabilities. Differentiating needs one fact about the sigmoid, worth deriving because it reappears three more times in this lesson. Write $\sigma = \sigma(\eta)$:
+
+$$\frac{d\sigma}{d\eta} = \frac{d}{d\eta}(1+e^{-\eta})^{-1} = -(1+e^{-\eta})^{-2}\cdot(-e^{-\eta}) = \frac{e^{-\eta}}{(1+e^{-\eta})^{2}} = \sigma(1-\sigma)$$
+
+The last step is the one to check: $\frac{1}{1+e^{-\eta}}\cdot\frac{e^{-\eta}}{1+e^{-\eta}}$, and the second factor is $1-\sigma$ because $1 - \frac{1}{1+e^{-\eta}} = \frac{e^{-\eta}}{1+e^{-\eta}}$. So the derivative of the sigmoid is $\sigma(1-\sigma)$, a quantity that is largest at $\sigma = 1/2$ and vanishes at both ends. With $\partial p_i/\partial\beta = p_i(1-p_i)x_i$ in hand, the chain rule on $\ell$ gives a cancellation:
+
+$$\frac{\partial \ell}{\partial \beta} = \sum_i \left[\frac{y_i}{p_i} - \frac{1-y_i}{1-p_i}\right] p_i(1-p_i)\,x_i = \sum_i \bigl[y_i(1-p_i) - (1-y_i)p_i\bigr]x_i = \sum_i (y_i - p_i)\,x_i$$
+
+The $p_i(1-p_i)$ from the sigmoid's derivative cancels the $p_i(1-p_i)$ sitting in the denominators of the log's derivative. That cancellation is why cross-entropy is pleasant and squared error is not. So:
+
+$$\nabla\ell = X^\top(y - p), \qquad \nabla^2\ell = -X^\top W X,\quad W=\text{diag}\bigl(p_i(1-p_i)\bigr)$$
+
+Both deserve saying out loud. The gradient takes the vector of residuals $y - p$ and projects it onto each column of $X$, one number per feature: observed outcomes minus predicted probabilities, aggregated along each feature. Setting it to zero is a statement about bookkeeping — for every feature, the surplus and the deficit in predicted probability have to cancel. The Hessian is $X^\top W X$ with a minus sign, where $W$ holds one weight per row, that weight being $p_i(1-p_i)$.
+
+That minus sign is the whole convexity argument, and it runs as a chain. Every weight $p_i(1-p_i)$ is a probability times one minus itself, so it can never be negative, which makes $X^\top W X$ positive semidefinite, which makes the Hessian of the log-likelihood negative semidefinite, which makes the negative log-likelihood convex. Compressed into symbols, with $\succeq 0$ read aloud as "is positive semidefinite": $W \succeq 0 \Rightarrow$ the NLL is **globally convex** (no bad local minima). There is one basin. Whatever optimizer you point at it, if it converges, it converged to the answer. **QED.**
+
+> **Why not squared error on $\sigma(x^\top\beta)$?** Its Hessian involves $\sigma''$, which changes sign, so the objective is non-convex in $\beta$ — genuinely multiple local minima, even in one dimension. It also saturates: at a confidently wrong prediction the gradient carries a factor $\sigma(1-\sigma)\approx 0$, so the loss is enormous and the gradient is nearly zero, which is the worst combination available. Cross-entropy is the Bernoulli MLE *and* convex *and* free of that factor. Use it.
+
+## Convex is not the same as solvable
+
+**Goal — see exactly where the analogy with OLS breaks, then run the replacement algorithm by hand on numbers small enough to check.**
+
+In OLS you set the gradient to zero and $\beta$ falls out of the algebra, because the residual is linear in $\beta$. Here $\beta$ is buried inside a sigmoid inside the residual, and no amount of rearranging pulls it back out: the score equation $X^\top(y-\sigma(X\beta))=0$ is **nonlinear in $\beta$**, so there is **no closed form**. Not "it is hard to find" — it does not exist as an algebraic expression.
+
+What you do instead is guess a $\beta$, approximate the objective near that guess by a quadratic, jump to that quadratic's minimum, and repeat. That is Newton–Raphson, and the step is
+
+$$\beta^{(t+1)} = \beta^{(t)} + (X^\top W X)^{-1}X^\top(y-p)$$
+
+Because $(X^\top W X)^{-1}X^\top W$ is the weighted-least-squares operator, each step can be rewritten as a weighted OLS fit against an adjusted response, which is why the algorithm is called **iteratively reweighted least squares (IRLS)**. Fit a weighted line, recompute the probabilities, recompute the weights, fit again.
+
+The diagonal weight $p_i(1-p_i)$ means the Newton step does not listen to every row equally. It leans hard on rows near the boundary, where $p_i(1-p_i)$ is near its maximum of $0.25$, and barely hears rows it has already settled, where the weight is near zero. The model spends its attention on the cases it is unsure about.
+
+**A worked run, small enough to check by hand.** Take an intercept-only model — one parameter, no features — on 10 rows of which 3 are positive. You already know the answer: the best constant probability is $3/10$, so $\beta$ should land on $\log\frac{0.3}{0.7} = \log(3/7) = -0.847298$. Watch Newton get there. Here $X$ is a column of ones, so $X^\top(y-p) = 3 - 10p$ and $X^\top W X = 10\,p(1-p)$.
+
+| step | $\beta^{(t)}$ | $p$ | gradient $3-10p$ | Hessian $10p(1-p)$ | error vs. truth |
+|---|---|---|---|---|---|
+| 0 | 0.000000 | 0.500000 | $-2.000000$ | 2.500000 | $8.5\times10^{-1}$ |
+| 1 | $-0.800000$ | 0.310026 | $-0.100255$ | 2.139097 | $4.7\times10^{-2}$ |
+| 2 | $-0.846868$ | 0.300090 | $-0.000903$ | 2.100361 | $5.5\times10^{-4}$ |
+| 3 | $-0.847298$ | 0.300000 | $-0.000000$ | 2.100000 | $1.4\times10^{-7}$ |
+
+Look at the error column, not the coefficient column. It goes $8.5\times10^{-1}$, $4.7\times10^{-2}$, $5.5\times10^{-4}$, $1.4\times10^{-7}$ — each error is roughly the *square* of the one before it, which is what quadratic convergence looks like and why nobody minds the absence of a closed form. Four steps of an algorithm that converges this fast is not a consolation prize for losing the closed form. In practice it is three to eight iterations on well-conditioned data, and the answer is the global optimum because the problem is convex.
+
+Two readings survive the change of method untouched: the decision boundary is the hyperplane where $x^\top\beta=0$, and $e^{\beta_j}$ is the odds ratio for a unit increase in $x_j$.
+
+## Perfect separation breaks the MLE
+
+**Goal — prove that on the easiest possible data the unregularized fit has no answer, and understand why that is a feature of the objective rather than a bug in the optimizer.**
 
 Everything so far says the objective is well behaved and the optimizer will find its bottom. There is one case where the bottom does not exist.
 
-**Perfect separation breaks the MLE.** If a hyperplane perfectly separates the classes, scaling $\beta \to c\beta$ by a positive scalar $c$ with $c\to\infty$ drives every $p_i \to \{0,1\}$ and the likelihood toward its supremum without ever attaining it — **the MLE is at infinity and does not exist** (Albert & Anderson, *Biometrika* 1984); coefficients and standard errors blow up. Trace the mechanism on the sigmoid picture above. Every point is on the correct side of the boundary, so multiplying $\beta$ by 2 pushes each score further out into the correct tail, which pushes each $p_i$ closer to its own label, which raises the likelihood. Multiply by 2 again and it rises again. The objective is still convex, and it is still true that there are no bad local minima, but there is no minimum at all. Both standard repairs work the same way, by making a large $\beta$ cost something so that the objective stops improving at a finite one. Fixes: any penalty (ridge), or **Firth's penalized likelihood**, which adds a correction term built from a Jeffreys prior and guarantees finite estimates. This is why an unregularized logistic fit can "diverge" on clean, easily-separable data, which sounds backwards. The data is not messy, it is too clean, and it is the cleanliness that breaks the fit.
+Suppose some hyperplane separates the classes perfectly: there is a $\beta^{*}$ with $x_i^\top\beta^{*} > 0$ for every positive row and $x_i^\top\beta^{*} < 0$ for every negative row. Now scale it: set $\beta = c\,\beta^{*}$ for a positive scalar $c$ and let $c$ grow. Every score $x_i^\top\beta = c\,(x_i^\top\beta^{*})$ keeps its sign and grows in magnitude, so every $p_i$ marches toward its own label — toward 1 for the positives, toward 0 for the negatives. Every term of $\ell$ therefore climbs toward $\log 1 = 0$, so $\ell(c\beta^{*}) \to 0$ from below.
 
-Logistic coefficients also come with standard errors (SEs), Wald statistics, likelihood-ratio tests, and confidence intervals, but their sampling covariance comes from inverse likelihood curvature rather than the OLS expression $\sigma^2(X^\top X)^{-1}$, in which $\sigma^2$ denotes the error variance of the linear model and is unrelated to the sigmoid $\sigma$ above. Curvature is the operative word: the Hessian measures how sharply the log-likelihood falls away from its peak, and a sharp peak means a well-pinned coefficient. As in OLS, statistical significance does not guarantee useful classification, good calibration, or causality. A coefficient can be beyond any doubt nonzero and still leave you with a model whose probabilities nobody should act on.
+Zero is the supremum of the log-likelihood, since a log-probability cannot be positive. But it is **never attained**: at any finite $c$, every $p_i$ is strictly inside $(0,1)$ and $\ell$ is strictly negative. A supremum that is approached but never reached means there is no maximizer, so **the MLE does not exist** (Albert & Anderson 1984, who also name the boundary case where the classes touch but do not overlap, *quasi-complete separation*). The objective is still convex; convexity guarantees no bad local minima, not that a minimum exists.
+
+<SeparationDivergence caption="Six perfectly separable points, three of each class. Left: as β grows from 1 to 3 to 12 the fitted curve stands up into a step, driving every point's probability toward its own label. Right: the log-likelihood for those same three coefficients, climbing toward the dashed line at ℓ = 0 and never touching it — the supremum exists, the maximizer does not. The optimizer is not stuck or badly initialized; it is correctly following an objective that improves forever." />
+
+Three things follow, and each is what you actually see in a fitting report. Coefficients diverge along the separating direction, so you get numbers like 34.7 where you expected 0.8. Standard errors explode, because $W \to 0$ makes $X^\top W X$ near-singular and the sampling covariance is built from its inverse. And the optimizer reports non-convergence, having hit its iteration cap while still improving.
+
+This is why an unregularized logistic fit can diverge on clean, easily-separable data, which sounds backwards. The data is not messy — it is too clean, and the cleanliness is what breaks the fit. It shows up most often on small datasets, on rare-outcome problems where one category has zero events, and after someone adds a feature that is a deterministic function of the label.
+
+Both standard repairs work the same way: make a large $\beta$ cost something, so the objective stops improving at a finite one. **Any penalty** (ridge is standard, and it is exactly why scikit-learn's penalized default does not diverge) caps coefficient magnitude and restores a finite optimum. **Firth's penalized likelihood** (Firth 1993) adds a term built from the Jeffreys prior, $\ell(\beta) + \tfrac12\log\det(X^\top W X)$, which goes to $-\infty$ as $W\to 0$ and so guarantees finite estimates; Heinze and Schemper 2002 established it as the standard remedy in applied statistics, and it has the advantage over ridge of also removing the small-sample bias in the coefficients rather than adding some.
+
+## What a coefficient actually does to a probability
+
+**Goal — get from "the odds ratio is $e^{\beta_j}$" to an actual number of percentage points, and see why the same coefficient produces wildly different ones.**
+
+A fitted model has $\hat\beta_j = 0.7$ on a binary feature. What does that mean? The safe statement is the multiplicative one: turning that feature on adds $0.7$ to the log-odds, which multiplies the odds by $e^{0.7} = 2.014$. The odds roughly double. That statement is exact, and it holds no matter what the other features are doing, which is precisely the property the logit link was chosen for.
+
+The tempting statement — "the probability goes up by 0.7" — is not merely imprecise, it is not even the right kind of object; $0.7$ is a change in log-odds, and probabilities do not move by log-odds. What the probability actually does depends on where it started. Differentiate:
+
+$$\frac{\partial p}{\partial x_j} = \beta_j\,\sigma(\eta)\bigl(1-\sigma(\eta)\bigr) = \beta_j\, p(1-p)$$
+
+Since $p(1-p)$ is maximized at $p = 0.5$ where it equals $0.25$, the marginal effect is bounded: $\left|\partial p/\partial x_j\right| \le |\beta_j|/4$. That bound is the origin of the **"divide by four" rule** — dividing a coefficient by 4 gives the largest percentage-point change it can produce, reached at the decision boundary and only there.
+
+<MarginalEffectCurve caption="The derivative of the sigmoid, p(1−p), against the linear score. It is a bump: 0.25 at the boundary, falling away fast in both directions. At p = 0.90 it is 0.09, at p = 0.99 it is 0.0099 — a coefficient does about a twenty-fifth as much work on a near-certain example as it does on a coin-flip one. The dashed ceiling at 0.25 is the whole content of the 'divide by four' rule." />
+
+Run the same $\hat\beta_j = 0.7$ from three starting points and read the third column:
+
+| baseline $p$ | baseline odds | odds after | new $p$ | change in $p$ |
+|---|---|---|---|---|
+| 0.50 | 1.000 | 2.014 | 0.668 | $+16.8$ points |
+| 0.90 | 9.000 | 18.124 | 0.948 | $+4.8$ points |
+| 0.02 | 0.0204 | 0.0411 | 0.039 | $+1.9$ points |
+
+One coefficient, three honest answers: 16.8 points, 4.8 points, 1.9 points. Note that the $\beta_j/4 = 0.175$ bound is nearly achieved in the first row and is a factor of nine too large in the last. This is why a churn model and a fraud model with identical coefficients tell you completely different business stories — the fraud model lives out in the tail where nothing moves much.
+
+> **Stop and think.** The odds ratio is constant across the population while the probability effect is not. That looks like the odds ratio is the more "real" quantity. But a product manager wants to know how many extra users convert, which is a probability question. Which quantity would you report, and what would you have to add to the odds ratio to make it answer the business question? Hint: the answer involves averaging something over the observed feature distribution, not evaluating at a single point.
+
+## The threshold is not part of the model
+
+**Goal — separate what the model estimates from what you decide, and derive the threshold from costs rather than habit.**
+
+Logistic regression outputs a probability. Turning that into a yes-or-no requires a threshold, and 0.5 is not a neutral default — it is a specific assumption that a false positive and a false negative hurt equally. Say them out loud and that assumption is almost never true. A missed fraudulent transaction and an unnecessary card decline are not the same size of mistake, in either direction, and nothing in the fitting procedure knows that.
+
+Derive the right one. Let $C_{\text{FP}}$ be the cost of flagging a negative and $C_{\text{FN}}$ the cost of missing a positive, and suppose the model's $p$ is calibrated. Predicting 1 costs $(1-p)\,C_{\text{FP}}$ in expectation, since you pay only when the row is actually negative. Predicting 0 costs $p\,C_{\text{FN}}$. Predict 1 when the first is smaller:
+
+$$(1-p)\,C_{\text{FP}} < p\,C_{\text{FN}} \iff p > \frac{C_{\text{FP}}}{C_{\text{FP}} + C_{\text{FN}}} = p^{*}$$
+
+The threshold is the cost ratio, and nothing else. If missing a positive is nine times worse than a false alarm, $p^{*} = 1/10$. If it is forty-nine times worse, $p^{*} = 1/50$. Threshold $0.5$ is the special case $C_{\text{FP}} = C_{\text{FN}}$, which is a modeling claim that deserves to be stated rather than inherited from a library default.
+
+Two consequences worth carrying:
+
+**Ranking and calibration are different properties, and the threshold is where they separate.** Any strictly increasing transform of the scores leaves every pairwise ordering intact, so AUC is unchanged — but $p^{*}=0.1$ now sits somewhere else entirely on the score scale. A model can rank perfectly and be badly calibrated, in which case its ranking is usable and its threshold is not. This is why you evaluate ranking with AUC and calibration with log-loss, Brier score, or a reliability diagram, and why "the AUC is fine" is not an answer to "why is the flag rate wrong." Logistic regression is unusually good here: because it is fit by maximum likelihood on the correct noise model, it comes out roughly calibrated on its training distribution for free, which is a large part of why it survives in production where the probability itself is the product.
+
+**Do not fix a threshold problem by rebalancing the data.** If the flag rate is wrong, move $p^{*}$ — it is one number and it costs nothing. Resampling changes the fit, changes the calibration, and buys you nothing that moving the threshold would not (c1.9 takes this apart properly).
+
+## Downsampled negatives move the intercept, and nothing else
+
+**Goal — derive the correction that undoes negative subsampling, and see why it touches exactly one parameter.**
+
+This is the most useful result in the lesson for anyone working on imbalanced problems, and it is asked directly in ad-tech and fraud interviews. Setup: click-through rates run near 0.2%, so a dataset with enough positives to matter is enormous, most of it negatives you do not need. The standard move is to keep every positive and keep each negative independently with probability $w$ — say $w = 0.1$, one negative in ten. You train, and the predicted click rates come out far too high.
+
+Write $s=1$ for "this row was kept." Sampling depends on the label only, so $P(s=1 \mid y=1, x) = 1$ and $P(s=1 \mid y=0, x) = w$. Ask what the model trained on the kept rows is estimating. By Bayes,
+
+$$\tilde p(x) = P(y=1 \mid x, s=1) = \frac{1 \cdot p(x)}{1\cdot p(x) + w\,(1-p(x))}$$
+
+Now take odds, where the shared denominator cancels:
+
+$$\frac{\tilde p}{1-\tilde p} = \frac{p}{w\,(1-p)} = \frac{1}{w}\cdot\frac{p}{1-p}$$
+
+The sampled odds are the true odds multiplied by $1/w$. Take logs:
+
+$$\log\frac{\tilde p}{1-\tilde p} = \log\frac{1}{w} + \log\frac{p}{1-p} = \underbrace{\Bigl(\beta_0 + \log\tfrac1w\Bigr)}_{\text{shifted intercept}} + x^\top\beta_{1:d}$$
+
+There it is. The biased log-odds is the true log-odds plus a **constant** — it does not depend on $x$ — and a constant added to a linear function is absorbed entirely by the intercept. **The slope coefficients are untouched.** Downsampling negatives shifts the intercept by $\log(1/w)$ and changes nothing else, so the correction is a single subtraction:
+
+$$\hat\beta_0^{\text{corrected}} = \hat\beta_0 - \log\tfrac1w = \hat\beta_0 + \log w$$
+
+Equivalently, correct the probabilities directly by inverting the relation above, which is the form used in Facebook's ad-click paper (He et al. 2014, §5, where the same downsampling and re-calibration is production practice):
+
+$$p = \frac{\tilde p}{\tilde p + (1-\tilde p)/w}$$
+
+<InterceptShift caption="The two fits differ by a horizontal slide of log(1/w) = log 10 ≈ 2.30 along the score axis, and by nothing else — identical slope, identical shape, identical ranking. The red dot reads 0.50 where the blue reads 0.091: a model trained on 1-in-10 negatives calls a coin flip what is really a 9% event. Because only the offset moved, one subtraction on the intercept puts every prediction back." />
+
+Check it with numbers at $w = 0.1$, where $\log(1/w) = 2.303$: a sampled prediction of $0.50$ corresponds to a true $0.091$, a sampled $0.20$ to a true $0.024$, and a sampled $0.05$ to a true $0.0052$. In each case the odds fall by exactly the factor $w = 0.1$, as the derivation requires.
+
+Three riders on this result, each of which is a follow-up question:
+
+1. **Ranking never broke.** The transformation is monotone, so AUC is identical before and after correction. If you only rank, you can skip the correction entirely — and if someone reports that downsampling "did not hurt AUC" as evidence that calibration is fine, that is exactly backwards.
+2. **It works because sampling depends on $y$ alone.** Drop negatives non-uniformly — keep only the "easy" ones, or subsample by region — and $w$ becomes $w(x)$, the shift becomes $\log(1/w(x))$, and it is no longer a constant. Now the slopes are biased too and no intercept fix can save you. This is the failure mode that turns an innocuous-looking data-pipeline filter into a silently wrong model.
+3. **`class_weight='balanced'` is not this.** Reweighting the loss and subsampling the data are different operations with different fixed points. Weighting solves a different optimization problem and leaves you calibrated to the reweighted distribution, not the real one; it also does not have a clean one-parameter inverse. If you want the real probabilities back, downsample and correct the intercept, or do not distort the base rate in the first place.
+
+## Regularization, and why scaling matters only once you penalize
+
+**Goal — read L1 and L2 as priors, then prove that the unpenalized fit does not care about feature scale while the penalized one does.**
+
+Penalized logistic regression minimizes the NLL plus a penalty. The two standard choices have a clean Bayesian reading: adding $\lambda\lVert\beta\rVert_2^2$ is exactly MAP estimation under a Gaussian prior $\beta \sim N(0, \tau^2 I)$ with $\lambda = 1/(2\tau^2)$, since $-\log$ of that prior density is $\lVert\beta\rVert^2/(2\tau^2)$ plus a constant. Adding $\lambda\lVert\beta\rVert_1$ is MAP under a Laplace prior, whose density has a sharp peak at zero — which is why L1 produces exact zeros and L2 does not. Both penalties are convex, so the penalized objective is still convex and everything above still holds.
+
+Now the scaling question, which has a precise answer that most people guess wrong in both directions.
+
+**The unpenalized fit is scale-equivariant.** Rescale feature $j$ by a constant $c$, so $x_{ij} \to c\,x_{ij}$. The likelihood depends on $\beta$ only through the products $x_i^\top\beta$, and $(c\,x_{ij})(\beta_j/c) = x_{ij}\beta_j$. So the fitted coefficient simply becomes $\hat\beta_j/c$ and **every fitted probability is bit-for-bit identical**. Standardizing features cannot change an unpenalized logistic model's predictions, because the parameterization absorbs the change exactly.
+
+**The penalized fit is not.** The penalty $\lambda\sum_j \beta_j^2$ is a statement about the coefficients, and coefficients live in units of "per unit of $x_j$." Measure a feature in dollars and its coefficient is a thousand times smaller than if you measured it in thousands of dollars, so the same $\lambda$ charges it a millionth as much. Under a shared $\lambda$, features with large numeric ranges are effectively unpenalized and features with small ones are crushed. **Standardize before penalizing** — otherwise $\lambda$ means something different for every column.
+
+Two practical riders. First, even unpenalized, scaling affects the *optimizer*: Newton and IRLS are affine-invariant and genuinely do not care, but first-order solvers (`lbfgs`, `sag`, `saga`) see an ill-conditioned Hessian and crawl. So "it does not change the answer" and "it does not matter" are different claims. Second, the intercept should not be penalized — shrinking it toward zero is shrinking the base rate toward $p=0.5$, which is a strange thing to want. Most scikit-learn solvers leave it alone; `liblinear` does penalize it, which is what the `intercept_scaling` parameter exists to mitigate, and it applies to no other solver.
+
+**At CTR scale, the choice is about serving, not accuracy.** With a million hashed sparse features, L1 and L2 usually land within noise of each other on held-out log-loss, and the argument is decided elsewhere: L1 zeroes most coefficients, so the model that ships is a smaller hash table, with fewer lookups and less memory on every request in a system doing millions of requests per second. The wrinkle is that naive online SGD with an L1 term does not actually produce zeros — the updates step over the kink and land on tiny nonzero values. Getting real sparsity online is what **FTRL-Proximal** was built for (McMahan et al. 2013), which pairs an L1 term with per-coordinate learning rates and is still the reference design for this problem.
+
+## More than two classes: softmax and one-vs-rest
+
+**Goal — extend the model the way the likelihood tells you to, and see the non-identifiability that comes with it.**
+
+For $K$ mutually exclusive classes, give each class its own coefficient vector and normalize:
+
+$$P(y=k\mid x) = \frac{e^{x^\top\beta_k}}{\sum_{j=1}^{K} e^{x^\top\beta_j}}$$
+
+This is **multinomial logistic regression**, also called softmax regression; at $K=2$ it reduces to the model above. Its negative log-likelihood is jointly convex in all the $\beta_k$ at once, so one fit gives one global optimum.
+
+It also carries a redundancy worth being able to name. Add any fixed vector $v$ to every $\beta_k$ simultaneously. Each exponent gains $x^\top v$, so every numerator and the whole denominator are multiplied by $e^{x^\top v}$, which cancels: the predicted probabilities are **exactly unchanged**. The parameterization is over-complete by one vector — the model is **not identifiable**. Two standard fixes: pin one class as a reference by fixing $\beta_K = 0$, which recovers $K-1$ free vectors and the usual "log-odds versus the reference class" reading; or add an L2 penalty, which breaks the tie by selecting the minimum-norm representative. That is one more reason production multiclass fits are always penalized. It is also why you cannot compare raw softmax coefficients across two training runs without fixing the gauge first.
+
+**One-vs-rest** takes a different route: fit $K$ independent binary models, each asking "class $k$ or not." It optimizes $K$ separate objectives rather than one joint objective, and the outputs do not sum to 1 — normalizing them afterward is a convenience with no probabilistic justification behind it. Each sub-problem also sees a *more* imbalanced target than the original: with 5 balanced classes, every OvR problem is 20% positive.
+
+When does the difference matter? Rarely for the argmax, often for the probabilities. If you need calibrated $P(y=k\mid x)$ over mutually exclusive classes, softmax is the model that estimates that quantity. If labels can co-occur — a photo that is both "beach" and "sunset" — then OvR is not a hack at all, it is the correct model, because the classes were never mutually exclusive and softmax's normalization would be imposing a constraint the world does not have.
+
+*Library note (scikit-learn 1.9, current stable).* The `multi_class` argument is gone: it was deprecated in 1.5 and removed in 1.7. `LogisticRegression` now optimizes the multinomial loss for $K\ge3$ on every solver except `liblinear`, which handles binary problems only. If you want one-vs-rest you must ask for it explicitly with `OneVsRestClassifier(LogisticRegression())`. Separately, `penalty` was deprecated in 1.8 in favor of `l1_ratio` (`'l2'` becomes `l1_ratio=0`, `'l1'` becomes `l1_ratio=1`, `None` becomes `C=np.inf`), with removal scheduled for 1.10 — so code written against either API may need checking against the installed version.
+
+## When a hyperplane is the wrong shape
+
+**Goal — recognize the failure that no amount of tuning fixes, and price the standard repair.**
+
+The decision boundary is the set where $x^\top\beta = 0$, which is a hyperplane. That is not a tuning choice; it is what the model is. So consider a target where the positive class sits in a *ring* around the origin — positive when $\lVert x\rVert \approx r$, negative both inside and outside. No line separates a ring from its inside and outside, so the best achievable fit is near-chance, and it will stay near-chance through every value of $C$, every solver, and every number of epochs. Recognizing this from a learning curve that plateaus at the base rate, rather than tuning for another week, is the actual skill.
+
+The repair is to change the space rather than the model. Add the feature $z = x_1^2 + x_2^2$. In the enlarged space the positive region is $r_1^2 < z < r_2^2$, which is a slab bounded by two hyperplanes — linear in $z$. The boundary is still linear in the features the model sees; the features just stopped being the raw ones. This is the same trick as the kernel view in c1.6, done explicitly and cheaply.
+
+What you give up is real, and it is worth naming because it is the answer to the follow-up question. Coefficients on engineered features are no longer statements about the world in the units anyone measured — "the coefficient on squared radius" does not survive a conversation with a risk committee. You have to know which expansion to build, which means you needed the insight before the model did; that does not scale past a handful of features. And expansions multiply: full pairwise interactions on $d$ features cost $O(d^2)$ columns, which at ad-tech dimensionality is not an option. That is exactly why this era of ad models used enormous hand-built feature crosses with a linear model on top, and why the "wide" half of Wide and Deep (Cheng et al. 2016) is precisely that construction, kept for memorization and paired with an embedding model for generalization.
+
+The alternatives are worth knowing by their cost. Kernel logistic regression gives you nonlinearity without naming the expansion, at $O(n^2)$ memory in the number of training rows, which rules it out above roughly $10^5$ rows. Gradient-boosted trees find interactions on their own and are usually the right answer for tabular data with unknown structure (c1.6). A small MLP learns the representation, at the cost of the interpretability that motivated logistic regression in the first place.
+
+## Tradeoff matrix
+
+| Choice | What it assumes | What it buys | What it costs | Reach for it when |
+|---|---|---|---|---|
+| Unpenalized MLE | No separation; $n \gg d$ | Textbook inference — SEs, Wald tests, LR tests | Diverges under separation; high variance when $d$ is large | You need classical inference and the data supports it |
+| L2 penalty | Coefficients are small, none exactly zero | Finite estimates always; stable under collinearity | Biased coefficients; needs standardized features | Default for dense, correlated features |
+| L1 penalty | Most coefficients are exactly zero | Sparsity, so a smaller served model | Unstable selection among correlated features; needs FTRL online | Millions of sparse features and serving cost matters |
+| Firth penalty | Small sample, rare events | Finite estimates *and* reduced small-sample bias | Rarely in ML libraries; harder to explain | Rare-outcome studies, separation on small $n$ |
+| Softmax | Classes mutually exclusive | One joint convex fit; probabilities sum to 1 | Non-identifiable without a reference class or a penalty | Genuine multiclass with calibrated probabilities wanted |
+| One-vs-rest | Labels may co-occur | $K$ independent, parallelizable fits | Outputs need ad-hoc normalization; each fit more imbalanced | Multi-label problems |
+| Basis expansion | You know the shape of the boundary | Nonlinearity while staying linear-in-parameters | Interpretability; $O(d^2)$ columns for interactions | The failure is geometric and you know the geometry |
 
 ## Worked decision walk-throughs
 
-**Scenario C: binary classification, want probabilities + interpretable odds ratios.** Logistic regression. Watch for **perfect separation** (regularize or use Firth); sklearn's default is *penalized* (below) — calibrate if you need true probabilities.
+**Scenario A: credit adverse-action decisions, 40 dense features, 200k rows.** Regulation requires you to tell a declined applicant which factors drove the decision, so the model has to stay readable. L2-penalized logistic regression on standardized features. Report odds ratios with confidence intervals, and convert to marginal effects at the population's mean $p$ before quoting anything in percentage points to a non-technical audience — at a 6% approval-decline base rate, $\beta/4$ overstates the real effect by roughly a factor of four. Set the threshold from the cost of a bad loan against the cost of a lost customer, not at 0.5.
+
+**Scenario B: ad CTR, $10^7$ hashed sparse features, 0.2% base rate, billions of rows.** Keep all positives, keep negatives at $w=0.01$, which lifts the training base rate from 0.2% to about 17% and shrinks the data a hundredfold. Fit with FTRL-Proximal and an L1 term for a sparse served model. Then subtract $\log(1/0.01) = 4.61$ from the intercept, or apply the probability correction — without it, every bid is priced off a click rate roughly 100× too high in odds. Validate on an *unsampled* holdout, since a downsampled one will happily confirm the uncorrected model.
+
+**Scenario C: fraud detection, 500 features, 0.1% fraud rate, boundary shape unknown.** Start with logistic regression as the baseline that has to be beaten, and expect to beat it — fraud boundaries are interaction-heavy and a hyperplane is the wrong shape, so a GBDT is likely the model that ships (c1.6). Keep logistic regression in the stack anyway: it gives the calibrated probability that the expected-cost threshold needs, and stacking a logistic layer on tree outputs is exactly the He et al. 2014 design. Set $p^{*}$ from the investigation cost against the chargeback cost; at a 1:200 ratio that is $p^{*}\approx 0.005$, not 0.5.
 
 ## Production failure modes
 
-1. **`sklearn.LogisticRegression` is regularized by default.** It applies an **L2 penalty with `C=1.0`** out of the box — it is *not* textbook MLE. The symptom is a sklearn fit whose coefficients come out smaller than a textbook derivation predicts, with no visible cause. For unregularized logistic regression use `statsmodels.Logit`, or sklearn `C=np.inf`. (Version note: in **scikit-learn 1.8** the `penalty` parameter is **deprecated in favor of `l1_ratio`** — `penalty='l2'`→`l1_ratio=0`, `'l1'`→`1`, `None`→`C=np.inf` — with removal in 1.10. Most environments are still on ≤1.7 where `penalty=` is live; check the installed version.)
-2. **Unregularized logistic on separable data diverges.** Coefficients run to $\pm\infty$; add a penalty or use Firth. What you see is the optimizer still climbing when it stops: enormous coefficients with enormous standard errors.
+1. **`sklearn.LogisticRegression` is regularized by default.** It applies an L2 penalty with `C=1.0` out of the box — it is *not* the textbook MLE. The symptom is coefficients that come out smaller than a hand derivation predicts, with no visible cause, and a model that mysteriously fails to reproduce a statistics textbook's worked example. For the unregularized fit use `statsmodels.Logit`, or `C=np.inf`.
+2. **Unregularized logistic on separable data diverges.** Coefficients run to $\pm\infty$ with enormous standard errors, and the optimizer stops on its iteration cap rather than on convergence. Add a penalty or use Firth. Check first whether a feature is a deterministic function of the label — that is the usual cause, and it is a leakage bug wearing a numerical-instability costume (c1.1).
+3. **Downsampled negatives, uncorrected intercept.** Predicted rates come out inflated by the sampling factor in odds terms, AUC looks perfect, and every downstream expected-value calculation is wrong. The tell is that the mean prediction on a holdout does not match the holdout's base rate. Correct the intercept, and always calibration-check against an unsampled sample.
+4. **The threshold was never revisited.** A model retrained after a base-rate shift keeps a hard-coded 0.5 and the flag volume moves by an order of magnitude overnight. Store the threshold as a configured parameter derived from costs, monitor the flag rate as a first-class metric, and re-derive $p^{*}$ whenever the cost matrix or the base rate changes.
+5. **Penalizing unstandardized features.** A model with `age` in years next to `income` in dollars under a shared $\lambda$ has effectively left income unpenalized and crushed age. Nothing errors; the model is just quietly worse and the coefficients are uninterpretable. Put the scaler inside the cross-validation pipeline so the fold statistics do not leak (c1.1).
+6. **Comparing softmax coefficients across runs.** Two fits of the same multiclass model give visibly different coefficient vectors and someone concludes the model is unstable. If the fits were unpenalized, the difference may be the non-identifiable shift $v$ and the predictions may be identical. Fix a reference class before comparing anything.
 
 ## Interview gotchas
 
-- **"Why does logistic regression have no closed form, and is the objective convex?"** — score equation is nonlinear in $\beta$ (no closed form); Hessian $-X^\top W X \preceq 0$ for the log-likelihood → NLL convex → IRLS/Newton finds the global optimum.
-- **"What happens under perfect separation?"** — MLE diverges to $\pm\infty$; regularize or use Firth. (Cite Albert–Anderson.)
+- **"Why does logistic regression have no closed form, and is the objective convex?"** — The score equation $X^\top(y-p)=0$ is nonlinear in $\beta$ because $p = \sigma(X\beta)$, so no closed form; the Hessian $-X^\top W X$ is negative semidefinite because every $p_i(1-p_i)\ge0$, so the NLL is convex and Newton/IRLS finds the global optimum. The strong answer adds that convergence is quadratic, so the missing closed form costs you almost nothing. The weak answer says "it's iterative" without saying which property fails.
+- **"What happens under perfect separation?"** — The likelihood approaches its supremum of 0 as $\lVert\beta\rVert\to\infty$ without attaining it, so the MLE does not exist (Albert & Anderson 1984); coefficients and SEs diverge. Fix with any penalty or with Firth. The move that scores is naming it as a property of the objective, not a bug in the solver.
+- **"A coefficient is 0.7. What does that mean?"** — Odds multiply by $e^{0.7}\approx 2.0$; the probability change depends on the baseline and is at most $0.7/4 = 0.175$. Quote a concrete pair, such as 16.8 points at $p=0.5$ against 1.9 points at $p=0.02$. Saying "probability goes up by 0.7" ends that line of questioning badly.
+- **"We downsampled negatives 10:1 and the predictions are too high."** — Sampled odds are $1/w$ times true odds, so subtract $\log(1/w)$ from the intercept; slopes and AUC are unaffected. The follow-up is always *why only the intercept* — because the shift is constant in $x$ — and the second follow-up is what breaks it, namely sampling that depends on $x$.
+- **"Should I standardize before fitting?"** — Predictions are unchanged for the unpenalized fit (the parameterization absorbs the rescaling exactly) but not for the penalized fit, where a shared $\lambda$ would mean different things per column. Mention that first-order solvers converge faster either way.
+- **"Softmax or one-vs-rest?"** — Softmax for mutually exclusive classes and calibrated probabilities, and name the shift non-identifiability plus its two fixes; OvR for genuinely multi-label problems. Noting that scikit-learn removed `multi_class` in 1.7 and now requires `OneVsRestClassifier` shows current knowledge.
+- **"Your model underfits a ring-shaped target."** — The boundary is a hyperplane by construction, so no hyperparameter fixes it; add $\lVert x\rVert^2$ as a feature and the boundary becomes linear in the enlarged space. Then price what you gave up: interpretability, the need to know the expansion in advance, and $O(d^2)$ columns for full interactions.
 
 ## Take the quiz
 
@@ -79,5 +306,13 @@ Logistic coefficients also come with standard errors (SEs), Wald statistics, lik
 
 ## Cited references
 
-- Albert, A., Anderson, J. A. 1984. "On the existence of maximum likelihood estimates in logistic regression models." *Biometrika* 71(1):1–10. Perfect separation ⇒ no MLE.
-- Firth, D. 1993. "Bias reduction of maximum likelihood estimates." *Biometrika* 80:27–38. Penalized-likelihood fix for separation.
+- Ref 7 — traditional ML algorithms overview (`c1/references/07_traditional_ml_algos.html`).
+
+**External works.**
+
+- Albert, A., Anderson, J. A. 1984. "On the existence of maximum likelihood estimates in logistic regression models." *Biometrika* 71(1):1–10. Complete and quasi-complete separation ⇒ no MLE.
+- Firth, D. 1993. "Bias reduction of maximum likelihood estimates." *Biometrika* 80(1):27–38. The Jeffreys-prior penalty that guarantees finite estimates.
+- Heinze, G., Schemper, M. 2002. "A solution to the problem of separation in logistic regression." *Statistics in Medicine* 21(16):2409–2419. Firth's method as the applied standard.
+- McMahan, H. B. et al. 2013. "Ad Click Prediction: a View from the Trenches." *KDD*. FTRL-Proximal, L1 sparsity at serving scale, and production calibration.
+- He, X. et al. 2014. "Practical Lessons from Predicting Clicks on Ads at Facebook." *ADKDD*. Negative downsampling with the re-calibration formula, and GBDT features feeding a logistic layer.
+- Cheng, H.-T. et al. 2016. "Wide & Deep Learning for Recommender Systems." *DLRS*. The "wide" component as explicit cross-feature expansion over a linear model.

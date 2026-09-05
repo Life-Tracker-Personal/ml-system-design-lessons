@@ -2,34 +2,47 @@
 lessonId: c1.4
 chapter: 1
 title: Quiz — Logistic regression
-description: Conceptually difficult questions on convexity, optimization and perfect separation.
-estimatedMinutes: 15
+description: 12 conceptually difficult questions on the sigmoid, convexity, separation, thresholds, prior correction and calibration.
+estimatedMinutes: 45
 ---
 
-These two questions test whether you understand regression as *estimation*—not whether you can call `.fit()`. Each question begins with the practical idea being tested, then asks for the mathematics that makes it precise. Before opening an answer, first explain the idea in plain language; only then derive it.
+These questions test understanding, derivation, and counter-example construction rather than recall. Each begins with the practical idea being tested, then asks for the mathematics that makes it precise. Try to state the idea in plain language before opening an answer; the rubric at the bottom of each lists the points the answer should contain.
 
 <Quiz id="1">
 
-**Q8. Why is logistic regression easy to optimize but impossible to solve in one algebraic step?** Derive the gradient and Hessian of the Bernoulli negative log-likelihood. Use the Hessian to show the objective is convex, then explain why the score equation is nevertheless nonlinear in $\beta$ and has no closed form. Contrast this with putting squared error around a sigmoid: what happens to convexity and saturated gradients, and why is cross-entropy the principled loss?
+**Q1. Derive the sigmoid rather than assuming it, and say exactly what the model is linear in.** Start from a linear score $\eta = x^\top\beta$ and the requirement that the output be a valid probability. Give the two distinct ways OLS on a 0/1 target fails, and show that one of them is about the *prediction* while the other is about the *noise model*. Then state precisely what quantity logistic regression is linear in, and construct a numerical example showing that the same coefficient produces two different changes in probability.
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**Convexity.** Log-likelihood $\ell(\beta)=\sum_i[y_i\log p_i+(1-y_i)\log(1-p_i)]$, summed over the $n$ training rows, where $x_i$ is the feature vector of row $i$, $y_i\in\{0,1\}$ its label, and $p_i=\sigma(x_i^\top\beta)$ the probability the model assigns it through the sigmoid $\sigma$. Using $\partial p_i/\partial\beta = p_i(1-p_i)x_i$:
+**Two failures of OLS on a 0/1 target.**
 
-$$\nabla\ell = \sum_i (y_i-p_i)x_i = X^\top(y-p), \qquad \nabla^2\ell = -\sum_i p_i(1-p_i)x_ix_i^\top = -X^\top W X$$
+*Range (about the prediction).* $\hat y = x^\top\beta$ is an unrestricted real number. Nothing in the least-squares objective constrains it to $[0,1]$, so fitted values like $-0.4$ and $1.3$ occur routinely, and they cannot be read as probabilities.
 
-with $W=\text{diag}(p_i(1-p_i))\succeq 0$, where $X$ is the design matrix whose $i$-th row is $x_i^\top$ and $\succeq 0$ reads "is positive semidefinite". So $\nabla^2\ell = -X^\top W X \preceq 0$ — the log-likelihood is **concave**, hence its negative, the negative log-likelihood, is convex: **NLL is convex**. No bad local minima; Newton/IRLS finds the global optimum.
+*Heteroskedasticity (about the noise).* For a Bernoulli outcome, $\operatorname{Var}(Y\mid X) = p(1-p)$, which depends on the mean. OLS's Gauss–Markov optimality assumes constant error variance, so the assumption is not approximately violated here, it is contradicted by the definition of the outcome. Points near $p=0.5$ carry variance $0.25$; points near $p=0.01$ carry $0.0099$, twenty-five times less.
 
-**Sigmoid + MSE is non-convex.** Write $\mathcal{L}$ for the squared-error objective, $\mathcal{L}=\sum_i(y_i-\sigma(x_i^\top\beta))^2$. Its Hessian involves $\sigma''$, the second derivative of the sigmoid, which changes sign, so $\mathcal{L}$ is not convex in $\beta$ — multiple local minima even in 1-D. It also suffers vanishing gradients on saturated, confidently-wrong examples (c1.2). **Use cross-entropy** (the Bernoulli NLL), which is convex and has the clean $X^\top(y-p)$ gradient.
+**Constructing the link.** Keep the score $\eta$, which is what gives additive, readable per-feature contributions, and fix only the range. We need a map $g^{-1}: \mathbb{R}\to(0,1)$ that is monotone (so ordering is preserved) and smooth. Equivalently, choose what transform of $p$ to model as linear. The odds $p/(1-p)$ maps $(0,1)\to(0,\infty)$; taking the log maps that onto all of $\mathbb{R}$. Setting the log-odds equal to the score,
 
-**No closed form.** Setting $\nabla\ell=X^\top(y-p)=0$ gives an equation that is **nonlinear in $\beta$** because $p=\sigma(X\beta)$ — you cannot isolate $\beta$ algebraically. So you iterate (Newton–Raphson = IRLS, a sequence of weighted least-squares fits). Contrast OLS, where setting the gradient to zero gives the *linear* normal equations and thus a closed form.
+$$\log\frac{p}{1-p} = \eta \implies \frac{p}{1-p} = e^{\eta} \implies p = \frac{e^\eta}{1+e^{\eta}} = \frac{1}{1+e^{-\eta}} = \sigma(\eta)$$
+
+so the sigmoid is not a design choice layered on top — it is the inverse of the logit link, forced once you decide log-odds is what is linear.
+
+**What it is linear in.** Log-odds, not probability. A unit increase in $x_j$ adds $\beta_j$ to the log-odds and multiplies the odds by $e^{\beta_j}$, uniformly across the population. It does *not* add a constant to the probability.
+
+**Numerical demonstration.** Take $\beta_j = 0.7$, so $e^{0.7} = 2.014$.
+
+- Baseline $p = 0.50$: odds $1.000 \to 2.014$, so $p \to 2.014/3.014 = 0.668$. Change: $+16.8$ points.
+- Baseline $p = 0.02$: odds $0.0204 \to 0.0411$, so $p \to 0.0411/1.0411 = 0.039$. Change: $+1.9$ points.
+
+Same coefficient, same multiplicative effect on odds, an 8.6-fold difference in percentage points. The bonus observation: the marginal effect is $\beta_j\,p(1-p)$, bounded by $\beta_j/4 = 0.175$, which the first case nearly attains and the second misses by a factor of nine.
 
 **Rubric:**
-- Gradient $X^\top(y-p)$, Hessian $-X^\top W X$, $W=\text{diag}(p_i(1-p_i))\succeq0$
-- Conclude log-lik concave → NLL convex → global optimum
-- Sigmoid+MSE non-convex (sign-changing $\sigma''$) + saturation; use cross-entropy
-- No closed form: score equation nonlinear in $\beta$ (vs OLS's linear normal equations) → IRLS
+- Range failure and heteroskedasticity failure, identified as prediction-side vs noise-side
+- $\operatorname{Var}(Y\mid X)=p(1-p)$ stated
+- Derive $\sigma$ as the inverse logit, not assert it; monotone map $(0,1)\to\mathbb{R}$ via odds then log
+- "Linear in log-odds, not probability"; odds ratio $e^{\beta_j}$ is population-uniform
+- A worked two-baseline computation with the differing percentage-point changes
+- Bonus: marginal effect $\beta_j p(1-p)$ and the $\beta_j/4$ ceiling
 
 </details>
 
@@ -37,26 +50,390 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$, where $X$ is the design matrix whose 
 
 <Quiz id="2">
 
-**Q9. Why can perfectly classified data break logistic regression?** Suppose one hyperplane separates every training example correctly. Scale that separating coefficient vector larger and larger, and track the predicted probabilities and likelihood. Use this thought experiment to explain why the unregularized MLE is not finite, why coefficients and standard errors explode, and why an optimizer may never converge. Give two fixes and explain what each changes.
+**Q2. Why is logistic regression easy to optimize but impossible to solve in one algebraic step?** Derive the gradient and Hessian of the Bernoulli negative log-likelihood. Use the Hessian to show the objective is convex, then explain why the score equation is nevertheless nonlinear in $\beta$ and has no closed form. Contrast this with putting squared error around a sigmoid: what happens to convexity and saturated gradients, and why is cross-entropy the principled loss?
 
 <details>
 <summary>Model answer + rubric</summary>
 
-**What happens.** If some hyperplane perfectly separates the two classes, take the separating direction $\beta^*$ and scale it by a positive scalar $c$: $\beta=c\beta^*$. As $c\to\infty$, every fitted probability $p_i=\sigma(x_i^\top\beta)\to$ its correct 0 or 1, so each likelihood term $\to 1$ and the log-likelihood $\to 0$ — its **supremum**, which is **never attained at any finite $\beta$**. Therefore:
+**Convexity.** Log-likelihood $\ell(\beta)=\sum_i[y_i\log p_i+(1-y_i)\log(1-p_i)]$, summed over the $n$ training rows, where $x_i$ is the feature vector of row $i$, $y_i\in\lbrace0,1\rbrace$ its label, and $p_i=\sigma(x_i^\top\beta)$. Using $\partial p_i/\partial\beta = p_i(1-p_i)x_i$, the $p_i(1-p_i)$ factor cancels against the denominators from differentiating the logs:
+
+$$\nabla\ell = \sum_i (y_i-p_i)x_i = X^\top(y-p), \qquad \nabla^2\ell = -\sum_i p_i(1-p_i)x_ix_i^\top = -X^\top W X$$
+
+with $W=\text{diag}(p_i(1-p_i))\succeq 0$, where $X$ is the design matrix whose $i$-th row is $x_i^\top$ and $\succeq 0$ reads "is positive semidefinite". Each $x_ix_i^\top$ is rank-one PSD and each weight is nonnegative, so the sum is PSD and $\nabla^2\ell = -X^\top W X \preceq 0$ — the log-likelihood is **concave**, hence the negative log-likelihood is convex. No bad local minima; Newton/IRLS finds the global optimum.
+
+**Sigmoid + MSE is non-convex.** Write $\mathcal{L}=\sum_i(y_i-\sigma(x_i^\top\beta))^2$. Its Hessian involves $\sigma''$, which changes sign, so $\mathcal{L}$ is not convex in $\beta$ — multiple local minima even in 1-D. It also suffers vanishing gradients on saturated, confidently-wrong examples: the chain rule leaves a factor $\sigma(1-\sigma)\approx0$, so a maximally wrong prediction produces a large loss and almost no gradient (c1.2). **Use cross-entropy** (the Bernoulli NLL), which is convex, whose gradient has that factor cancelled to give the clean $X^\top(y-p)$, and which is the MLE under the correct noise model rather than an arbitrary choice.
+
+**No closed form.** Setting $\nabla\ell=X^\top(y-p)=0$ gives an equation that is **nonlinear in $\beta$** because $p=\sigma(X\beta)$ — you cannot isolate $\beta$ algebraically. So you iterate (Newton–Raphson = IRLS, a sequence of weighted least-squares fits). Contrast OLS, where setting the gradient to zero gives the *linear* normal equations and thus a closed form. The bonus point: this costs almost nothing, because Newton on a convex objective converges quadratically.
+
+**Rubric:**
+- Gradient $X^\top(y-p)$, Hessian $-X^\top W X$, $W=\text{diag}(p_i(1-p_i))\succeq0$
+- Note the $p(1-p)$ cancellation that makes the gradient clean
+- Conclude log-lik concave → NLL convex → global optimum
+- Sigmoid+MSE non-convex (sign-changing $\sigma''$) plus saturation; cross-entropy is also the MLE
+- No closed form: score equation nonlinear in $\beta$ (vs OLS's linear normal equations) → IRLS
+
+</details>
+
+</Quiz>
+
+<Quiz id="3">
+
+**Q3. Run the optimizer by hand and show it converges quadratically.** Take an intercept-only logistic regression on $n=10$ rows of which 3 are positive. Write the Newton step for this one-parameter problem explicitly, run it from $\beta^{(0)}=0$ for three iterations carrying six decimals, and compare against the exact MLE. Show numerically that the error is squaring each step, and explain what property of the objective makes that happen and what would break it.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Setup.** With only an intercept, $X$ is a column of ones, so every $p_i$ equals a common $p = \sigma(\beta)$. The gradient is $X^\top(y-p) = \sum_i (y_i - p) = 3 - 10p$ and the Hessian magnitude is $X^\top W X = 10\,p(1-p)$. The Newton step is
+
+$$\beta^{(t+1)} = \beta^{(t)} + \frac{3 - 10p^{(t)}}{10\,p^{(t)}(1-p^{(t)})}$$
+
+**Exact answer first.** The MLE of a Bernoulli rate from 3 successes in 10 is $\hat p = 0.3$, so $\hat\beta = \log\frac{0.3}{0.7} = \log(3/7) = -0.847298$.
+
+**Iterations.**
+
+| $t$ | $\beta^{(t)}$ | $p^{(t)}$ | $3-10p$ | $10p(1-p)$ | $\lvert\beta^{(t)}-\hat\beta\rvert$ |
+|---|---|---|---|---|---|
+| 0 | $0.000000$ | $0.500000$ | $-2.000000$ | $2.500000$ | $8.5\times10^{-1}$ |
+| 1 | $-0.800000$ | $0.310026$ | $-0.100255$ | $2.139097$ | $4.7\times10^{-2}$ |
+| 2 | $-0.846868$ | $0.300090$ | $-0.000903$ | $2.100361$ | $5.5\times10^{-4}$ |
+| 3 | $-0.847298$ | $0.300000$ | $-0.000000$ | $2.100000$ | $1.4\times10^{-7}$ |
+
+**Quadratic convergence.** Read the error column: $0.85 \to 0.047 \to 0.00055 \to 1.4\times10^{-7}$. Each error is on the order of the square of the previous one ($0.047^2 = 2.2\times10^{-3}$, and $5.5\times10^{-4}$ is that scaled by a constant; $(5.5\times10^{-4})^2 = 3.0\times10^{-7}$ against an observed $1.4\times10^{-7}$). Roughly, the number of correct digits doubles per iteration.
+
+**Why.** Newton's method models the objective by its second-order Taylor expansion and jumps to that quadratic's optimum; the residual error is therefore governed by the neglected third-order term, giving $\lvert e_{t+1}\rvert \le C\lvert e_t\rvert^2$ near a minimum where the Hessian is nonsingular and the second derivative is Lipschitz. The logistic NLL is smooth ($C^\infty$) and, provided $X$ has full column rank and no $p_i$ is pinned at 0 or 1, has a positive-definite Hessian, so both conditions hold.
+
+**What breaks it.** (i) **Separation** — $W\to0$, the Hessian degenerates, no finite optimum exists and the iteration does not converge at all. (ii) **Rank deficiency / perfect collinearity** — $X^\top W X$ is singular and the step is undefined; ridge or a pseudo-inverse repairs it. (iii) **Starting far away** — Newton is only *locally* quadratic; a wild first step can overshoot, which is why production solvers add step-halving or a trust region. (iv) At large $d$ each step costs $O(nd^2 + d^3)$, which is why `lbfgs` and `saga` replace exact Newton at scale and give up quadratic convergence to do so.
+
+**Rubric:**
+- Correct one-parameter Newton step, with $3-10p$ and $10p(1-p)$
+- Exact MLE identified as $\log(3/7)=-0.8473$ independently of the iteration
+- Iterates to six decimals, matching $-0.8$, $-0.846868$, $-0.847298$
+- Errors shown squaring; "digits double" stated
+- Reason: second-order model, error governed by third-order term, needs nonsingular Hessian + smoothness
+- At least two breakers: separation, rank deficiency, poor initialization, or $O(d^3)$ cost
+
+</details>
+
+</Quiz>
+
+<Quiz id="4">
+
+**Q4. Why can perfectly classified data break logistic regression?** Suppose one hyperplane separates every training example correctly. Scale that separating coefficient vector larger and larger, and track the predicted probabilities and likelihood. Use this thought experiment to explain why the unregularized MLE is not finite, why coefficients and standard errors explode, and why an optimizer may never converge. Give two fixes and explain what each changes.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**What happens.** If some hyperplane perfectly separates the two classes, take the separating direction $\beta^*$ and scale it by a positive scalar $c$: $\beta=c\beta^*$. As $c\to\infty$, every fitted probability $p_i=\sigma(x_i^\top\beta)\to$ its correct 0 or 1, so each likelihood term $\to 1$ and the log-likelihood $\to 0$ — its **supremum**, which is **never attained at any finite $\beta$** because at finite $c$ every $p_i$ is strictly interior and $\ell$ is strictly negative. Therefore:
 - **Coefficients diverge to $\pm\infty$** (at least along the separating direction).
-- **The likelihood has no maximizer** — the **MLE does not exist** (Albert & Anderson, *Biometrika* 1984; this is the "complete separation" case, with an analogous "quasi-complete" case).
+- **The likelihood has no maximizer** — the **MLE does not exist** (Albert & Anderson, *Biometrika* 1984; this is the "complete separation" case, with an analogous "quasi-complete" case where classes touch but do not overlap).
 - **Standard errors explode** — the Hessian $X^\top W X$ becomes near-singular as $p_i(1-p_i)\to0$ for all $i$, so the sampling variance of the fitted estimate, $\text{Var}(\hat\beta)$, obeys $\text{Var}(\hat\beta)\to\infty$. Optimizers report non-convergence or absurd coefficients/SEs.
 
-**Why it's counterintuitive.** This is *cleanly separable* data — the "easy" case — yet the unregularized fit blows up, precisely *because* it can keep improving the likelihood by becoming more confident without bound.
+**Why it's counterintuitive.** This is *cleanly separable* data — the "easy" case — yet the unregularized fit blows up, precisely *because* it can keep improving the likelihood by becoming more confident without bound. Note the objective is still convex throughout: convexity promises no bad local minima, not that a minimum exists.
 
-**Two fixes.** (1) **Regularization** — any penalty (ridge/L2 is standard, and it is exactly why sklearn's penalized default does not diverge) caps the coefficient magnitude, restoring a finite optimum. (2) **Firth's penalized likelihood** (a Jeffreys-prior bias correction) guarantees finite estimates and is the standard remedy in statistics. (Also acceptable: drop/merge the separating feature, or use exact logistic regression.)
+**Two fixes.** (1) **Regularization** — any penalty (ridge/L2 is standard, and it is exactly why scikit-learn's penalized default does not diverge) makes $\lVert\beta\rVert\to\infty$ infinitely costly, so the penalized objective has a finite minimizer. It changes the estimand: you are no longer computing the MLE but a MAP estimate under a Gaussian prior. (2) **Firth's penalized likelihood** (Firth 1993) maximizes $\ell(\beta)+\tfrac12\log\det(X^\top W X)$, a Jeffreys-prior correction whose extra term $\to-\infty$ as $W\to0$ and so guarantees finite estimates; unlike ridge it also *removes* the $O(1/n)$ small-sample bias in the coefficients rather than introducing shrinkage bias (Heinze & Schemper 2002). (Also acceptable: drop or merge the separating feature — often it is leakage — or use exact conditional logistic regression.)
 
 **Rubric:**
 - Coefficients → ±∞; likelihood → its supremum but unattained → MLE does not exist
 - SEs explode (Hessian → singular as $p(1-p)\to0$)
 - Explain *why*: confidence can grow without bound to keep raising the likelihood
+- Note convexity is not violated — no minimum exists, rather than a bad one being found
 - Cite Albert–Anderson (complete/quasi separation)
-- Two fixes: regularization (ridge) and Firth
+- Two fixes: regularization (and that it changes the estimand to MAP) and Firth (and that it also reduces bias)
+
+</details>
+
+</Quiz>
+
+<Quiz id="5">
+
+**Q5. Compute exactly what a coefficient does to a probability, and derive the bound on it.** A fitted model has $\hat\beta_j=0.7$. Derive $\partial p/\partial x_j$, prove the sharp upper bound on its magnitude, and identify where that bound is attained. Then compute the exact probability change at baselines $p=0.5$, $p=0.9$ and $p=0.02$, and use the three numbers to explain why a fraud model and a churn model with identical coefficients support completely different business claims.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The derivative.** With $p=\sigma(\eta)$ and $\eta=x^\top\beta$, the chain rule plus $\sigma' = \sigma(1-\sigma)$ gives
+
+$$\frac{\partial p}{\partial x_j} = \sigma'(\eta)\,\frac{\partial \eta}{\partial x_j} = \beta_j\,p(1-p)$$
+
+**The bound.** Maximize $f(p)=p(1-p)$ on $[0,1]$: $f'(p)=1-2p=0$ at $p=1/2$, and $f''=-2<0$, so the maximum is $f(1/2)=1/4$. Hence
+
+$$\left|\frac{\partial p}{\partial x_j}\right| \le \frac{|\beta_j|}{4}$$
+
+with equality **only** at $p=0.5$, i.e. exactly on the decision boundary. This is the **"divide by four" rule**: $\beta_j/4$ is the largest percentage-point effect the coefficient can have, not a typical one. Here $0.7/4=0.175$, so no example anywhere can move more than 17.5 points.
+
+**Exact changes for a unit increase (binary feature turning on), $e^{0.7}=2.014$.**
+
+| baseline $p$ | odds | odds $\times\,e^{0.7}$ | new $p$ | $\Delta p$ |
+|---|---|---|---|---|
+| 0.50 | 1.0000 | 2.0138 | 0.6682 | $+16.8$ pts |
+| 0.90 | 9.0000 | 18.1238 | 0.9477 | $+4.8$ pts |
+| 0.02 | 0.0204 | 0.0411 | 0.0395 | $+1.9$ pts |
+
+(Note these are exact finite differences via the odds ratio, not the derivative approximation; the derivative $0.7\times0.25=0.175$ overstates the true $0.168$ at $p=0.5$ slightly, because the sigmoid is concave on that side.)
+
+**Business reading.** The odds ratio is population-uniform — "this doubles the odds" is true for everyone. The *probability* effect is not, and business decisions are made in probability units. A churn model operating around a 50% base rate genuinely moves 17 users in 100; a fraud model operating at a 2% base rate moves 2 in 100 from the identical coefficient. Reporting "$e^{\beta}=2$, the feature doubles the risk" to a fraud stakeholder is technically correct and practically misleading, because doubling a tiny number is still a tiny number.
+
+**The bonus a strong candidate adds.** If you want a single number that answers the business question honestly, report the *average marginal effect*, $\frac{1}{n}\sum_i \beta_j\,p_i(1-p_i)$, averaging the derivative over the observed feature distribution rather than evaluating it at one convenient point — the point estimate at the mean is a different and generally larger quantity, because $p(1-p)$ is concave.
+
+**Rubric:**
+- $\partial p/\partial x_j = \beta_j p(1-p)$ derived via $\sigma'=\sigma(1-\sigma)$
+- Bound $|\beta_j|/4$ proved by maximizing $p(1-p)$, attained only at $p=0.5$
+- Three exact new probabilities: 0.668, 0.948, 0.039
+- Odds ratio uniform vs probability effect baseline-dependent
+- The business conclusion tied to base rate
+- Bonus: average marginal effect, and why it differs from the effect at the mean
+
+</details>
+
+</Quiz>
+
+<Quiz id="6">
+
+**Q6. Derive the optimal decision threshold, and show that ranking quality tells you nothing about it.** Given costs $C_{\text{FP}}$ and $C_{\text{FN}}$ and a calibrated model, derive the threshold $p^{*}$ that minimizes expected cost. Evaluate it for a 1:9 and a 1:49 cost ratio. Then prove that AUC is invariant to any strictly increasing transform of the scores, and use that to construct two models with identical AUC where the threshold $p^{*}$ is correct for one and badly wrong for the other.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Derivation.** For a row with calibrated probability $p$, the two actions have expected costs
+
+$$\mathbb{E}[\text{cost} \mid \text{predict }1] = (1-p)\,C_{\text{FP}}, \qquad \mathbb{E}[\text{cost} \mid \text{predict }0] = p\,C_{\text{FN}}$$
+
+(you pay $C_{\text{FP}}$ only when the row is really negative, and $C_{\text{FN}}$ only when it is really positive; correct decisions cost 0). Predict 1 when the first is smaller:
+
+$$(1-p)C_{\text{FP}} < p\,C_{\text{FN}} \iff C_{\text{FP}} < p\,(C_{\text{FN}}+C_{\text{FP}}) \iff p > \frac{C_{\text{FP}}}{C_{\text{FP}}+C_{\text{FN}}} = p^{*}$$
+
+The threshold depends only on the cost *ratio*. With $C_{\text{FN}}=9\,C_{\text{FP}}$, $p^{*}=1/10=0.1$; with $C_{\text{FN}}=49\,C_{\text{FP}}$, $p^{*}=1/50=0.02$. The familiar $0.5$ is the special case $C_{\text{FP}}=C_{\text{FN}}$ — an assumption, not a default.
+
+**AUC is rank-invariant.** AUC equals the concordance probability $P(s_+ > s_-)$ for a random positive/negative pair, where $s$ denotes the score. Let $g$ be strictly increasing. Then $s_+ > s_- \iff g(s_+) > g(s_-)$, so the event whose probability AUC measures is literally the same event, and $\text{AUC}(g\circ s)=\text{AUC}(s)$. (Ties transform to ties, so the tie-handling convention is unaffected too.)
+
+**The construction.** Take any model $A$ with well-calibrated probabilities $p$ and $\text{AUC}=0.85$. Define model $B$ by $q = p^{2}$ — squaring is strictly increasing on $(0,1)$, so $B$ has $\text{AUC}=0.85$ exactly. But $B$ is badly miscalibrated: an event $A$ correctly calls 0.30 likely, $B$ calls 0.09 likely. Apply the cost-derived threshold $p^{*}=0.1$ to both. Model $A$ flags every row with $p>0.1$. Model $B$ flags rows with $p^2>0.1$, i.e. $p>0.316$ — a completely different and much smaller flagged set, at the same ranking quality. The threshold that is optimal for $A$ is far too conservative for $B$, and no AUC-based diagnostic can see it.
+
+**The lesson.** Ranking and calibration are separate properties. AUC audits ranking; log-loss, Brier score, and reliability diagrams audit calibration. "Our AUC is fine" is not an answer to "why is our flag rate wrong" — and thresholding is precisely where the difference shows up, because a threshold is a statement about the probability scale, which is exactly what a monotone transform destroys. Logistic regression's advantage here is that fitting by maximum likelihood on the correct noise model leaves it approximately calibrated for free on its training distribution.
+
+**Rubric:**
+- Expected-cost comparison written for both actions
+- $p^{*}=C_{\text{FP}}/(C_{\text{FP}}+C_{\text{FN}})$ derived, not asserted
+- Values 0.1 and 0.02; 0.5 identified as the equal-cost special case
+- AUC = concordance probability; strictly-increasing $g$ preserves the comparison event
+- An explicit monotone transform (e.g. $p^2$) with the resulting different flag set at identical AUC
+- Conclusion: AUC audits ranking, log-loss/Brier/reliability audit calibration
+
+</details>
+
+</Quiz>
+
+<Quiz id="7">
+
+**Q7. Derive the correction for downsampled negatives, and prove that only the intercept moves.** A CTR model keeps every positive and keeps each negative independently with probability $w$. Derive the relationship between the trained model's probability and the true one, show that the induced change in log-odds is constant in $x$, and give both the intercept fix and the probability fix. Then state what happens to AUC, and construct a sampling scheme under which the intercept-only correction is wrong.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Setup.** Let $s=1$ denote "kept in the training set." Sampling depends on the label only: $P(s=1\mid y=1,x)=1$ and $P(s=1\mid y=0,x)=w$.
+
+**Bayes.** The model trained on kept rows estimates
+
+$$\tilde p(x) = P(y=1\mid x, s=1) = \frac{P(s=1\mid y=1,x)\,p(x)}{P(s=1\mid y=1,x)\,p(x) + P(s=1\mid y=0,x)(1-p(x))} = \frac{p}{p + w(1-p)}$$
+
+**Odds cancel the denominator.** $1-\tilde p = \dfrac{w(1-p)}{p+w(1-p)}$, so
+
+$$\frac{\tilde p}{1-\tilde p} = \frac{p}{w(1-p)} = \frac1w\cdot\frac{p}{1-p}$$
+
+**Take logs.**
+
+$$\log\frac{\tilde p}{1-\tilde p} = \log\frac1w + \log\frac{p}{1-p} = \Bigl(\beta_0+\log\tfrac1w\Bigr) + x^\top\beta_{1:d}$$
+
+The offset $\log(1/w)$ does not depend on $x$. A constant added to a linear function is absorbed entirely by the intercept, so **the slope coefficients are unbiased and only $\beta_0$ shifts**. **QED.**
+
+**The two fixes.**
+
+$$\hat\beta_0^{\text{corrected}} = \hat\beta_0 - \log\tfrac1w = \hat\beta_0 + \log w, \qquad\text{or}\qquad p = \frac{\tilde p}{\tilde p + (1-\tilde p)/w}$$
+
+the second being the form used in He et al. 2014. Check at $w=0.1$ ($\log(1/w)=2.303$): a trained output of $0.50$ maps to a true $0.091$; $0.20$ maps to $0.024$; $0.05$ maps to $0.0052$. In each case the odds drop by exactly the factor $0.1$.
+
+**AUC.** The correction is a strictly increasing map of the scores, so AUC is **identical** before and after. Consequently AUC cannot detect the problem — and "downsampling didn't hurt AUC" is evidence of nothing about calibration. The detector is a calibration check: mean prediction against base rate on an *unsampled* holdout.
+
+**When it breaks.** Make the keep-probability depend on features: e.g. keep 50% of negatives from desktop traffic but 5% from mobile, or keep only negatives that some heuristic already scored as "hard." Now $w=w(x)$, the offset is $\log(1/w(x))$, and it is *not* constant in $x$ — it is a function of the features, so it contaminates the slopes on any feature correlated with the keep rate. In the desktop/mobile example the device coefficient absorbs $\log(0.5/0.05)=\log 10$ of pure sampling artifact. No intercept fix recovers it; you must either use the true per-row weights (importance weighting by $1/w(x_i)$) or stop sampling on $x$.
+
+**Rubric:**
+- $P(s=1\mid y)$ stated, with the asymmetry between the classes
+- Bayes step giving $\tilde p = p/(p+w(1-p))$
+- Odds ratio $1/w$ shown by cancelling the shared denominator
+- Log step showing the offset is constant in $x$ ⇒ only the intercept moves
+- Both fix forms, plus a numeric check
+- AUC unchanged, and why that makes AUC the wrong diagnostic
+- A concrete $x$-dependent sampling scheme that breaks it, and the importance-weighting repair
+
+</details>
+
+</Quiz>
+
+<Quiz id="8">
+
+**Q8. Prove that feature scaling cannot change an unpenalized logistic fit, and that it does change a penalized one.** Show formally what happens to the fitted coefficients and to the fitted probabilities when feature $j$ is multiplied by a constant $c$. Then show where the argument fails once a penalty is added, and quantify the distortion for two features whose natural units differ by $10^3$. Finally, say whether scaling matters for the optimizer even in the case where it does not matter for the answer.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Equivariance of the unpenalized fit.** The log-likelihood depends on $\beta$ only through the linear scores $\eta_i = x_i^\top\beta$. Let $X'$ be $X$ with column $j$ multiplied by $c\neq0$, i.e. $x'_{ij}=c\,x_{ij}$. Define the map $T(\beta)$ that divides the $j$-th coordinate by $c$ and leaves the rest alone. Then for every $i$,
+
+$$x_i'^\top T(\beta) = \sum_{k\neq j} x_{ik}\beta_k + (c\,x_{ij})\frac{\beta_j}{c} = x_i^\top\beta$$
+
+so $\ell'(T(\beta)) = \ell(\beta)$ for all $\beta$. $T$ is a bijection, so the two optimization problems have optima in exact correspondence: $\hat\beta'_j = \hat\beta_j/c$, all other coordinates unchanged, and **every fitted probability is identical**. Standardizing features cannot change an unpenalized logistic model's predictions. **QED.**
+
+**Where it fails under a penalty.** The penalized objective is $-\ell(\beta) + \lambda\,\Omega(\beta)$. The likelihood term still satisfies $\ell'(T(\beta))=\ell(\beta)$, but the penalty does not: for L2, $\Omega(T(\beta)) = \sum_{k\ne j}\beta_k^2 + \beta_j^2/c^2 \neq \Omega(\beta)$. The correspondence between the two problems is broken, so the fitted probabilities genuinely differ.
+
+**Quantifying it.** Take `income` in dollars and `income` in thousands, $c=10^{3}$. The dollar-scale coefficient is $10^{3}$ times smaller, so its L2 contribution $\beta_j^2$ is $10^{6}$ times smaller. Under a shared $\lambda$, the dollar-scale feature is charged a millionth as much for the same real-world effect — it is effectively unpenalized, while a feature measured on a small scale (a 0/1 indicator, say) absorbs nearly the entire penalty budget and is crushed toward zero. The penalty has silently become a statement about your units. Hence: **standardize before penalizing**, so that $\lambda$ means one thing across columns.
+
+Two riders: (i) L1 has the same problem in the same direction, since $|\beta_j|/c$ scales too. (ii) The intercept should be excluded from the penalty — shrinking $\beta_0$ toward 0 shrinks the base rate toward $p=0.5$, which is never the intent. Most scikit-learn solvers exclude it; `liblinear` does not, which is what `intercept_scaling` exists to mitigate and it applies to no other solver.
+
+**Optimizer, even when the answer is invariant.** Yes, it still matters. Equivariance is a statement about the optimum, not the path to it. Newton and IRLS are affine-invariant — the $(X^\top W X)^{-1}$ undoes any linear reparameterization exactly — so they genuinely do not care. First-order and quasi-Newton methods (`lbfgs`, `sag`, `saga`, plain SGD) do: rescaling changes the condition number of $X^\top W X$, and their iteration counts scale with it, so badly-scaled features make them converge slowly or hit the iteration cap and silently return a non-converged fit. "It does not change the answer" and "it does not matter" are different claims.
+
+**Rubric:**
+- Likelihood depends on $\beta$ only through $X\beta$; the explicit reparameterization $\hat\beta_j\to\hat\beta_j/c$
+- Conclude fitted probabilities are exactly unchanged, with the bijection argument
+- Penalty is not invariant; L2 term scales by $1/c^2$
+- Quantified $10^{3}$ / $10^{6}$ example and the "effectively unpenalized" conclusion
+- Intercept should be excluded from the penalty, with the base-rate reason
+- Optimizer distinction: Newton/IRLS affine-invariant, first-order methods conditioning-sensitive
+
+</details>
+
+</Quiz>
+
+<Quiz id="9">
+
+**Q9. Derive the softmax extension and prove it is not identifiable.** Write the multinomial model for $K$ mutually exclusive classes. Prove that adding a common vector to every class's coefficients leaves all predicted probabilities unchanged, state the dimension of the resulting redundancy, and give two standard fixes. Then contrast the model with one-vs-rest on three axes — what is optimized, what the outputs sum to, and what class balance each sub-problem sees — and name the situation where one-vs-rest is not a hack but the correct model.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The model.**
+
+$$P(y=k\mid x) = \frac{e^{x^\top\beta_k}}{\sum_{j=1}^{K}e^{x^\top\beta_j}}, \qquad k=1,\dots,K$$
+
+At $K=2$ it collapses to binary logistic regression with $\beta = \beta_1-\beta_2$. Its NLL is jointly convex in $(\beta_1,\dots,\beta_K)$.
+
+**Non-identifiability.** Let $v$ be any fixed vector and set $\beta'_k=\beta_k+v$ for every $k$. Then
+
+$$\frac{e^{x^\top(\beta_k+v)}}{\sum_j e^{x^\top(\beta_j+v)}} = \frac{e^{x^\top\beta_k}\,e^{x^\top v}}{e^{x^\top v}\sum_j e^{x^\top\beta_j}} = \frac{e^{x^\top\beta_k}}{\sum_j e^{x^\top\beta_j}}$$
+
+The factor $e^{x^\top v}$ appears in every numerator and in the denominator and cancels exactly, so the predicted distribution is **identical** for all $v$. **QED.** The parameter space has $Kd$ coordinates but the model has only $(K-1)d$ degrees of freedom: the redundancy is exactly one vector, $d$ dimensions. Consequences: the likelihood has a flat direction (its Hessian is singular along it), two unpenalized fits can return visibly different coefficient matrices with bit-identical predictions, and raw softmax coefficients are not comparable across runs.
+
+**Two fixes.** (1) **Pin a reference class**: set $\beta_K=0$, leaving $K-1$ free vectors and restoring the usual reading that $x^\top\beta_k$ is the log-odds of class $k$ against the reference. (2) **Add an L2 penalty**: the penalty is strictly convex, so it breaks the tie by selecting the unique minimum-norm representative in each flat direction — one more reason production multiclass fits are always penalized.
+
+**Softmax versus one-vs-rest.**
+
+| Axis | Softmax | One-vs-rest |
+|---|---|---|
+| What is optimized | one joint likelihood over all $K$ classes | $K$ independent binary likelihoods |
+| Outputs | sum to 1 by construction | do not sum to 1; post-hoc normalization has no probabilistic justification |
+| Class balance seen | the true multiclass distribution | each fit is "class $k$ vs. all others", so more imbalanced — with 5 balanced classes, every sub-problem is 20% positive |
+
+**When the difference matters.** Usually not for the argmax; often for the probabilities. If the classes are genuinely mutually exclusive and you need calibrated $P(y=k\mid x)$ — for expected-value decisions, for thresholding, for feeding a downstream cost model — softmax estimates the quantity you want and OvR estimates $K$ different quantities you then fudge together.
+
+**Where OvR is correct, not a hack:** **multi-label** problems, where an example can belong to several classes at once (a photo that is both "beach" and "sunset"). There the classes were never mutually exclusive, so softmax's normalization would impose a sum-to-one constraint the world does not have, actively forcing the classes to compete for probability mass. OvR — independent per-label sigmoids — is the correct likelihood.
+
+**Rubric:**
+- Softmax written; reduces to binary logistic at $K=2$
+- Shift invariance proved by explicit cancellation of $e^{x^\top v}$
+- Redundancy identified as exactly one vector / $d$ dimensions, $Kd$ vs $(K-1)d$
+- Both fixes: reference class $\beta_K=0$, and L2 selecting the minimum-norm representative
+- Three-axis contrast: joint vs separate objective, sum-to-1, induced imbalance
+- Multi-label named as the case where OvR is the correct model
+
+</details>
+
+</Quiz>
+
+<Quiz id="10">
+
+**Q10. Diagnose a boundary shape the model cannot express, and price the repair.** The positive class occupies an annulus: $y=1$ when $r_1 \le \lVert x\rVert \le r_2$ in two dimensions, $y=0$ inside and outside. Prove that no logistic regression on the raw features can beat the base rate by much, describe what the learning curve looks like so you would recognize this without knowing the truth, then give the minimal feature expansion that fixes it and prove the resulting boundary is linear in the enlarged space. State three distinct things the expansion costs you.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Why no linear boundary works.** The model's decision region is a half-space $\lbrace x : x^\top\beta > 0\rbrace$, which is convex and unbounded. The positive class is an annulus, which is neither: pick two diametrically opposite points on the ring, both positive. Their midpoint is the origin, which is negative. Any half-space containing both endpoints contains the whole segment between them, hence contains the origin, hence contains a negative region. So no half-space can contain the positives without containing negatives, and the same holds for the complement. The best achievable accuracy is essentially the majority-class rate, and it is unimprovable by any $\beta$.
+
+**How you would recognize it.** Training and validation loss sit on top of each other, both plateaued near the base-rate loss, and neither improves with more data — the flat, converged, low-and-equal-error signature of **bias**, not variance. Regularization strength does nothing across orders of magnitude, more epochs do nothing, and a nonparametric baseline (kNN or a shallow tree) on the same features gets high accuracy immediately. That last comparison is the decisive diagnostic: the information is present in the features, the model just cannot express the shape.
+
+**The minimal expansion.** Add one feature, $z = x_1^2 + x_2^2 = \lVert x\rVert^2$. The true positive region is $r_1^2 \le z \le r_2^2$, which is the intersection of the two half-spaces $z \ge r_1^2$ and $z \le r_2^2$ — each of them **linear in the enlarged feature vector** $(x_1,x_2,z)$. A single logistic regression can express one of these boundaries exactly; the slab needs the two together, so in practice add $z$ and $z^2$ (or fit the boundary as a quadratic in $z$), after which a linear rule in the expanded space carves out the annulus. The nonlinearity now lives in the feature map, not the model, and the model is still linear in its parameters — so convexity, IRLS, and every result above survive intact.
+
+**Three costs.**
+1. **Interpretability.** The coefficient on $\lVert x\rVert^2$ is not a statement about any measured quantity in its natural units. The model was chosen for explainability; a basis expansion spends exactly that.
+2. **You must know the expansion in advance.** The fix required knowing the boundary was radial. In $d$ dimensions with unknown structure you do not have that, and searching for it is the modeling problem you were trying to avoid.
+3. **Dimensionality.** Full pairwise interactions cost $\binom{d}{2}+d = O(d^2)$ columns — at $d=10^4$ that is $5\times10^7$ features, which is why this approach is bounded in practice and why ad-tech built enormous *hand-selected* crosses instead of exhaustive ones (the "wide" half of Cheng et al. 2016). Kernel logistic regression avoids naming the expansion but costs $O(n^2)$ memory; a GBDT finds interactions automatically and is usually the right answer for unknown tabular structure.
+
+**Rubric:**
+- Convexity/midpoint argument that no half-space separates an annulus
+- Learning-curve signature named as bias: converged, equal train/val, flat under more data or tuning
+- Nonparametric baseline as the decisive comparison
+- $z=\lVert x\rVert^2$ given, and the region shown to be an intersection of half-spaces in the enlarged space
+- Note the model stays linear *in parameters*, so convexity survives
+- Three distinct costs: interpretability, needing prior knowledge, $O(d^2)$ blow-up (with a named alternative and its cost)
+
+</details>
+
+</Quiz>
+
+<Quiz id="11">
+
+**Q11. Prove that logistic regression is automatically calibrated in-sample, then show why that guarantee is nearly worthless.** Show that the unpenalized MLE with a fitted intercept forces the mean predicted probability to equal the observed base rate exactly, and extend the argument to any binary feature already in the model. Then construct a model satisfying this that is useless, and list three distinct situations where the guarantee fails to transfer to production.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**The guarantee.** At the optimum, $\nabla\ell = X^\top(y-p) = 0$ — the score equation holds *coordinate-wise*, once per column of $X$. If the model has a fitted intercept, the first column of $X$ is all ones, so that coordinate reads
+
+$$\sum_{i=1}^n (y_i - \hat p_i) = 0 \iff \frac1n\sum_i \hat p_i = \frac1n\sum_i y_i = \bar y$$
+
+The mean predicted probability equals the empirical base rate **exactly**, for free, always. **QED.**
+
+**The extension.** Take any binary column $x_{\cdot j}\in\lbrace0,1\rbrace^n$ in the model. Its coordinate of the score equation is $\sum_i x_{ij}(y_i-\hat p_i)=0$, i.e. $\sum_{i:\,x_{ij}=1}(y_i-\hat p_i)=0$. So the model is *also* exactly calibrated within that subgroup — and, by subtraction from the intercept equation, within its complement. Fitting a feature buys perfect aggregate calibration on the groups that feature defines.
+
+**Why it is nearly worthless.** Aggregate calibration is a constraint on one number (or a few), and being right on average says nothing about being right per-row. The extreme case: the **intercept-only model**, which predicts the constant $\bar y$ for every row. It satisfies the guarantee perfectly — the mean prediction is exactly the base rate — and it has $\text{AUC}=0.5$ and zero discriminative value. So the property is **necessary but not sufficient**: passing it rules nothing in, while failing it does rule something out. The honest diagnostics are a reliability diagram binned by predicted probability, which the intercept-only model cannot pass in any interesting sense because it occupies one bin, plus a ranking metric to check discrimination separately.
+
+**Three ways it fails to transfer.**
+1. **Downsampled or reweighted training data.** The guarantee binds to the *training* distribution. Train on negatives kept at rate $w$ and the mean prediction matches the *sampled* base rate, which is exactly the wrong number for production; the intercept needs the $\log(1/w)$ correction. Similarly `class_weight='balanced'` calibrates you to a reweighted distribution that does not exist.
+2. **Regularization that penalizes the intercept.** The derivation used $\partial/\partial\beta_0$ of the *unpenalized* NLL. If the intercept is in the penalty — `liblinear` in scikit-learn — the stationarity condition gains a shrinkage term and the identity no longer holds exactly. (Penalizing only the slopes preserves it, which is one more reason to exclude the intercept.)
+3. **Distribution shift, including plain covariate shift.** The identity is in-sample. If the base rate moves between training and serving — seasonality, a new traffic source, a competitor's launch — nothing carries the guarantee forward, which is why mean-prediction-versus-base-rate is a *monitoring* metric rather than a one-time check. In rare-event settings there is also a genuine finite-sample bias: the MLE systematically underestimates small event probabilities at order $1/n$ (King & Zeng 2001), so even in-sample the per-row probabilities are biased low while the mean is pinned exactly.
+
+**Rubric:**
+- Score equation is coordinate-wise; intercept column gives $\sum(y_i-\hat p_i)=0$
+- Conclude mean prediction $=$ base rate exactly, and note it requires the *unpenalized* fit with an intercept
+- Extension to binary features: exact calibration within subgroups defined by included features
+- Intercept-only counter-example: guarantee satisfied, AUC 0.5 — necessary, not sufficient
+- Reliability diagram + separate ranking metric as the real diagnostics
+- Three failure routes: sampled/reweighted training distribution, penalized intercept, distribution shift (bonus: King & Zeng rare-event bias)
+
+</details>
+
+</Quiz>
+
+<Quiz id="12">
+
+**Q12. Debug a coefficient mismatch across libraries, version-accurately.** You fit `LogisticRegression()` in scikit-learn and `Logit` in statsmodels on identical data and get different coefficients. Explain the primary cause and give the exact change that reconciles them. Then answer three follow-ups: what happens to the discrepancy as $n$ grows; why the same script written two years ago may not run on scikit-learn 1.9 for a multiclass problem; and what the `intercept_scaling` parameter is compensating for and on which solver.
+
+<details>
+<summary>Model answer + rubric</summary>
+
+**Primary cause.** `sklearn.linear_model.LogisticRegression` is **penalized by default** — L2 with `C=1.0`, where $C$ is the *inverse* regularization strength, so the objective is $-\ell(\beta) + \frac{1}{2C}\lVert\beta\rVert_2^2$. `statsmodels.Logit.fit()` computes the unpenalized MLE. You are comparing a MAP estimate under a Gaussian prior against a maximum-likelihood estimate, so the sklearn coefficients are systematically shrunk toward zero. This is not a numerical discrepancy and no amount of tightening tolerances will close it.
+
+**The reconciliation.** Set `C=np.inf` (on scikit-learn 1.8+, this is also the documented replacement for the deprecated `penalty=None`). Also standardize nothing differently between the two, keep `fit_intercept=True` in both, and expect agreement to solver tolerance. Note that on 1.8+ the `penalty` parameter is deprecated in favor of `l1_ratio` — `'l2'` becomes `l1_ratio=0`, `'l1'` becomes `l1_ratio=1`, `None` becomes `C=np.inf` — with removal scheduled for 1.10, so the exact incantation depends on the installed version and should be checked rather than remembered.
+
+**Follow-up 1 — behavior as $n$ grows.** The discrepancy shrinks. The log-likelihood term scales with $n$ while the penalty $\frac{1}{2C}\lVert\beta\rVert^2$ is fixed, so the penalty's relative weight is $O(1/n)$ and the MAP estimate converges to the MLE. On $n=200$ with default `C=1.0` the difference is often large enough to change a conclusion; on $n=10^{6}$ it is usually negligible. This is the same asymptotic statement as "the prior washes out."
+
+**Follow-up 2 — multiclass code rot.** The `multi_class` argument was **deprecated in scikit-learn 1.5 and removed in 1.7**. A script passing `multi_class='ovr'` (or `'multinomial'`) now raises. Current behavior: for $K\ge3$, every solver except `liblinear` optimizes the **multinomial** loss, and `liblinear` handles binary problems only. If you actually want one-vs-rest you must ask for it explicitly with `OneVsRestClassifier(LogisticRegression())`. Since OvR and multinomial give genuinely different probabilities, a script that silently switched from `'ovr'` to multinomial behavior would also have changed its predictions — this is a case where the hard error is the friendly outcome.
+
+**Follow-up 3 — `intercept_scaling`.** It compensates for the fact that **`liblinear` regularizes the intercept**, which is undesirable because shrinking $\beta_0$ toward zero shrinks the base rate toward $p=0.5$. `liblinear` has no separate intercept term; it appends a synthetic constant feature of value `intercept_scaling` (default 1) and lets its weight play the intercept, which means the penalty applies to it like any other weight. Raising `intercept_scaling` lets the same intercept be represented by a smaller weight, so the penalty bites proportionally less. It is documented as useful **only** for `liblinear` with `fit_intercept=True`; the other solvers keep the intercept out of the penalty and ignore the parameter entirely.
+
+**Rubric:**
+- Names the L2-with-`C=1.0` default as the cause; MAP vs MLE framing
+- `C=np.inf` as the fix, with the 1.8 `penalty`→`l1_ratio` deprecation and 1.10 removal noted
+- Discrepancy is $O(1/n)$ because the likelihood scales with $n$ and the penalty does not
+- `multi_class` deprecated 1.5, removed 1.7; multinomial for $K\ge3$ except `liblinear`; `OneVsRestClassifier` for OvR
+- `intercept_scaling` explained via the synthetic-feature mechanism and liblinear's penalized intercept
+- Correctly scoped to `liblinear` only
 
 </details>
 
@@ -64,7 +441,7 @@ with $W=\text{diag}(p_i(1-p_i))\succeq 0$, where $X$ is the design matrix whose 
 
 ## Rapid-fire: Logistic regression
 
-These 12 questions do not depend on the numbered questions above, so you can study this section on its own. Each one should take 2 to 5 minutes to answer out loud. They are chosen for interview frequency, not for theoretical interest.
+These 14 questions do not depend on the numbered questions above, so you can study this section on its own.
 
 1. **Linear in what** Logistic regression is called a linear model. Linear in what, exactly? Then give the two concrete things that break if you skip the sigmoid and just run OLS on a 0/1 target.
 2. **Bernoulli to cross-entropy** Start from $y \mid x \sim \text{Bernoulli}(p(x))$ plus the modeling choice $\log\frac{p}{1-p} = w^\top x + b$, in which $w$ is the weight vector and $b$ the intercept. Write the likelihood over $n$ labelled points and say why maximizing it is exactly minimizing binary cross-entropy.
@@ -78,3 +455,5 @@ These 12 questions do not depend on the numbered questions above, so you can stu
 10. **Softmax versus one-vs-rest** You have five mutually exclusive classes. Contrast multinomial (softmax) logistic regression with one-vs-rest: what does each one optimize, and when does the difference actually matter?
 11. **Boundary is a line** Your logistic regression underfits a target where the positive class sits in a ring around the origin. The boundary is linear by construction, so what do you do about it, and what have you given up?
 12. **L1 or L2 at scale** You are fitting logistic regression on a million hashed sparse features for CTR prediction. Would you use L1 or L2, and why? Bring serving cost and model size into the answer, not just accuracy.
+13. **Where does 0.5 come from** Your fraud model uses a 0.5 cutoff. Derive the threshold that actually minimizes expected cost given a false positive costs \$1 and a missed fraud costs \$200, and say what has to be true about the model for that number to be usable. Then say what a monotone rescaling of the scores does to your AUC and to your threshold.
+14. **Calibrated for free** Show that an unpenalized logistic fit with an intercept has a mean predicted probability exactly equal to the training base rate. Then explain why passing that check tells you almost nothing, and name two situations where the guarantee silently stops holding in production.

@@ -23,6 +23,12 @@ import { ElboAscent } from "./fig-elbo";
 import { MarginLosses } from "./fig-margin-losses";
 import { NoiseModelToLoss } from "./fig-noise-loss";
 import { RidgeVsPcrShrinkage } from "./fig-shrinkage";
+import {
+  SeparationDivergence,
+  MarginalEffectCurve,
+  InterceptShift,
+} from "./logistic-figures";
+import { ScreeRankCeiling } from "./pca-rank-figures";
 import { EstimatorIsRandom } from "./fig-beta-random";
 import { StratifiedVsSrs } from "./fig-stratified";
 import {
@@ -94,6 +100,10 @@ export function MdxContent({ source }: { source: string }) {
         PCARotation,
         PCAPointSpace,
         PCAFeatureSpace,
+        SeparationDivergence,
+        MarginalEffectCurve,
+        InterceptShift,
+        ScreeRankCeiling,
         BackpropGraph,
         MomentumRavine,
         LossCurveShapes,

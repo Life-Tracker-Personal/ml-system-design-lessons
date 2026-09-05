@@ -4,14 +4,33 @@ chapter: 1
 title: PCA & dimensionality reduction
 subtitle: Rotation, reconstruction error, and how the eigendecomposition is actually computed
 refs: []
-estimatedMinutes: 60
+estimatedMinutes: 100
 ---
+
+## TL;DR
+
+PCA is one move: **rotate the coordinate system so the axes line up with the data's own directions of spread**, then keep the first few. Everything worth knowing follows from that move plus one fact — the rotation is chosen to reconstruct $X$, and it never looks at $y$. Maximizing projected variance and minimizing squared reconstruction error turn out to be the same objective. The eigendecomposition that finds the axes is never computed the way a linear-algebra course teaches. Ridge turns out to be a soft version of the same truncation. And the failure that matters — PCA deleting exactly the signal you needed — is not a bug but the direct consequence of optimizing for the wrong target.
 
 ## What you'll be able to do after this lesson
 
-- Relate PCA, principal-component regression, and ridge — and say when PCA helps a model and when it quietly hurts.
+- **Prove** that maximizing projected variance and minimizing squared reconstruction error are the same problem.
+- **State** the exact ceiling on how many nonzero components can exist, and say what it implies when $d \gg n$.
+- **Derive** how an eigendecomposition is actually computed, from power iteration through orthogonal iteration, QR, Householder tridiagonalization and Lanczos.
+- **Explain** why implementations run SVD on $X$ rather than eigendecomposing $X^\top X$, on both memory and accuracy grounds.
+- **Decide** whether to center, whether to scale, and how many components to keep — and say why "95% of the variance" is the wrong criterion for a supervised pipeline.
+- **Diagnose** loadings that flip sign or reshuffle between retrainings, and name the two distinct mechanisms.
+- **Relate** PCA, principal-component regression and ridge — and say when PCA helps a model and when it quietly hurts.
+- **Construct** a dataset where keeping the top components destroys predictive power, and name the supervised method built to fix it.
+- **Judge** when PCA is the wrong tool entirely: one-hot categoricals, tree models, and interpretation-critical settings.
+- **Read** the components of a financial return matrix as factors, and say what PC1 almost always is and why.
 
-## Part 5 — PCA and principal-component regression
+## Why this one earns a lesson
+
+PCA is the most-used and most-misused preprocessing step in applied machine learning, and it sits at the exact intersection of the two things a quant or research interview probes hardest: linear algebra you can actually execute, and estimator behavior you can reason about. "Explain PCA" is a warm-up. The questions that follow it are not — *how would you actually compute those eigenvalues*, *how many components can exist*, *why did the loadings change overnight*, *what is PC1 of a return matrix* — and each has a precise answer that most candidates do not have.
+
+It also has the highest ratio of confident-sounding wrong answers of anything in this chapter. PCA is not feature selection. Explained variance is not predictive power. The sign of a loading means nothing. Ninety-five percent is not a criterion. Each of those is a sentence you will hear in a real code review, and each is wrong for a reason worth being able to state.
+
+> **Vocabulary primer.** *Covariance matrix* — the $d\times d$ table of pairwise covariances between features; its diagonal holds the variances. *Eigenvector / eigenvalue* — a direction the matrix only stretches rather than rotates, and the factor by which it stretches. *SVD* — the singular value decomposition $X=UDV^\top$, a factorization every real matrix has. *Singular value* — a diagonal entry of $D$; its square is proportional to a covariance eigenvalue. *Loadings* — the columns of $V$, meaning the recipe that mixes original features into a component. *Scores* — the new coordinates $Xv_j$, one number per row per component. *Rank* — the number of linearly independent directions a matrix actually spans. *Orthogonal* — at right angles, so the components carry non-overlapping information. *PCR* — principal-component regression, ordinary regression run on the scores.
 
 > **Goal — see PCA first as a rotation that finds the data cloud's main axes, then connect variance, reconstruction, PCR, and ridge through SVD.**
 
@@ -117,7 +136,41 @@ That fraction is "this component's share of the total spread." Sum it over the f
 
 Centering is mandatory because PCA describes variation around the mean. Scaling is a modeling choice but usually essential when units differ: without standardization, a feature measured in dollars can dominate one measured in percentages only because its numerical variance is larger. Change that feature's unit from dollars to cents and its variance grows by a factor of 10,000, which would move PC1 without a single data point changing. Fit the scaler and PCA on training data only; fitting them before a split leaks validation/test distribution information.
 
-One more piece of bookkeeping that trips people up in code reviews. The sign of a component is arbitrary: $v_j$ and $-v_j$ describe the same axis. Interpret relative loading magnitudes and directions, not the sign in isolation.
+### How many components can even exist
+
+**Goal — get the hard ceiling on the number of components, and see why it bites hardest exactly where people most want to use PCA.**
+
+Ask a concrete question. You have $n=200$ rows and $d=5000$ features. How many principal components can PCA return?
+
+Not 5000. The number of nonzero components is the rank of the centered data matrix, and
+
+$$\text{rank}(X_{\text{centered}}) \le \min(n-1,\; d)$$
+
+The $d$ is obvious — you cannot have more independent directions than coordinates. The $n-1$ is the one people miss, and the $-1$ is worth deriving. The $n$ rows span a subspace of dimension at most $n$. Centering subtracts the column mean from every row, which forces the rows to sum to zero, so they satisfy one linear constraint and now span a space of dimension at most $n-1$. Since $C=\frac{1}{n-1}X^\top X$ has the same rank as $X$, at most $\min(n-1,d)$ of its eigenvalues can be nonzero. So the answer is **199 components**, and the remaining 4801 eigenvalues are not merely small — they are exactly zero, up to floating point.
+
+<ScreeRankCeiling caption="A scree plot for n = 12 rows and many more columns. Eleven bars carry variance and every bar past the eleventh is exactly zero, not small — the rank ceiling at n − 1 = 11 is a fact of arithmetic, not a property of this dataset. Follow the amber cumulative curve: it hits 100% at the cliff for the same reason. When d ≫ n, 'the components explain 100% of the variance' is a statement about your sample size, and choosing k by the 95% line is choosing it from a curve whose shape the data barely constrains." />
+
+Two consequences that matter more than the arithmetic.
+
+**Reaching 100% explained variance means nothing when $d \gg n$.** With 200 rows, *any* 199 directions reconstruct your sample perfectly, because 199 dimensions is enough to pass through 200 points exactly. The explained-variance curve is guaranteed to reach 1.0 by component 199 regardless of whether there is any structure at all. This is the same overfitting arithmetic as fitting a degree-199 polynomial to 200 points, wearing different notation.
+
+**The estimated components themselves are unreliable in this regime, and the failure is quantifiable.** The theory is the classical one for sample covariance matrices. If $d/n \to \gamma \in (0,1)$ and the data are pure isotropic noise with variance $\sigma^2$, the sample eigenvalues do not concentrate at $\sigma^2$; they spread over $[\,\sigma^2(1-\sqrt\gamma)^2,\ \sigma^2(1+\sqrt\gamma)^2\,]$ — the **Marchenko–Pastur** distribution. At $\gamma=0.5$ that interval is $[0.086,\,2.91]\,\sigma^2$: a 34-fold spread between the largest and smallest sample eigenvalue, produced by data with no structure whatsoever. A scree plot of pure noise looks exactly like a scree plot of real factor structure. Worse, the **BBP phase transition** (Baik–Ben Arous–Péché; Johnstone's spiked-covariance model) says a genuine signal spike is only detectable at all if its strength exceeds $\sqrt\gamma$; below that threshold the top sample eigenvector is asymptotically uncorrelated with the true direction, so you get a confident-looking component that points nowhere in particular.
+
+The practical reading: when $d$ is an appreciable fraction of $n$, treat the top eigenvalues as biased upward and the tail as noise, and either shrink the covariance estimate (Ledoit–Wolf) or filter the spectrum against the Marchenko–Pastur bulk before believing any component past the first few. This is the same problem, with the same fixes, as estimating a covariance matrix for portfolio construction (c10.2) — where $d=500$ stocks against $n=252$ trading days is a completely ordinary setup.
+
+> **Stop and think.** If 199 components reconstruct 200 rows perfectly no matter what, what would a *useful* stopping criterion for $m$ actually be measuring? Hint: it cannot be a property of the training reconstruction, so it has to be a property of something held out — and if the components feed a supervised model, "held out" should probably be judged on the thing you actually care about.
+
+### Why the loadings changed overnight
+
+**Goal — explain the most common production complaint about PCA, which has two completely different causes and two different fixes.**
+
+You refit a production PCA every week. The downstream coefficients keep flipping sign and jumping around, even though the data barely moved. There are two distinct mechanisms, and telling them apart is the whole diagnosis.
+
+**Mechanism 1: sign indeterminacy.** The sign of a component is arbitrary — $v_j$ and $-v_j$ describe the same axis and give the same reconstruction, with scores negated. Nothing in the objective prefers one, so which one a solver returns depends on implementation details and starting vectors. This is cosmetic but it wrecks anything that stores or compares loadings across runs. The fix is a deterministic sign convention applied after the fit: scikit-learn's `svd_flip` forces the largest-magnitude entry of each component to be positive, or you can pin the sign so that a chosen reference feature always loads positively. Never interpret a loading's sign in isolation; only relative signs within a component mean anything.
+
+**Mechanism 2: near-degenerate eigenvalues, which is the serious one.** When two eigenvalues are close, $\lambda_j \approx \lambda_{j+1}$, the individual eigenvectors are not well determined — only the *subspace* they jointly span is. Any orthonormal pair inside that plane is an almost equally good answer, so a tiny perturbation in the data rotates them arbitrarily within it and can swap their order. This is not solver flakiness; the population quantity genuinely is not identified. The **Davis–Kahan** theorem makes it precise: the rotation of an estimated eigenvector under a perturbation $E$ is bounded by roughly $\lVert E\rVert$ divided by the **eigengap** $\min_{k\ne j}|\lambda_j - \lambda_k|$. Small gap, huge sensitivity. If $\lambda_3=4.02$ and $\lambda_4=3.98$, components 3 and 4 will trade places on noise alone.
+
+The fixes differ from Mechanism 1's entirely: do not interpret individual components inside a near-degenerate block — use the projection onto the block's subspace, which *is* stable; or fit the transform once and freeze it, refitting on a deliberate cadence rather than every run; or align each refit to the previous loadings with a Procrustes rotation before comparing. And monitor the eigengaps as a first-class quantity, because they tell you in advance which components are safe to talk about.
 
 ### How the decomposition is actually computed
 
@@ -460,14 +513,99 @@ A counterexample makes it concrete. Let a nuisance feature vary wildly while a l
 
 PCA also captures only linear directions, can be dominated by outliers, and makes components dependent on the training distribution. When feature covariance shifts, old loadings may no longer summarize the new population well.
 
+The named supervised fix is **partial least squares (PLS)**, which builds components maximizing $\text{Cov}(Xv, y)$ rather than $\text{Var}(Xv)$ — the same geometry with the target admitted into the objective. It exists precisely because target-blindness is a real defect and not a philosophical quibble.
+
+### Two places PCA is simply the wrong tool
+
+**Goal — recognize the two settings where the whole construction stops applying, rather than merely underperforming.**
+
+**One-hot categoricals.** PCA on a design matrix that is mostly one-hot indicators is a category error, for four separate reasons, and the interview answer should name at least three.
+
+1. *The variance scale is set by frequency, not importance.* A binary column with category frequency $q$ has variance $q(1-q)$. A category appearing in 1% of rows carries variance $0.0099$; a 50/50 category carries $0.25$, twenty-five times more. PCA will chase the balanced categories and discard the rare ones, and rarity has no relationship to predictive value — in fraud and churn problems the rare category is usually the whole point.
+2. *Centering destroys sparsity.* One-hot matrices are stored sparse; subtracting a column mean makes every zero entry nonzero, so a matrix that fit in memory as $10^6\times10^5$ sparse becomes a dense $10^{11}$-entry object. This is why text pipelines use `TruncatedSVD` (latent semantic analysis), which factors the sparse matrix *without* centering, rather than PCA.
+3. *Guaranteed degeneracy.* The one-hot columns of a single variable sum to the all-ones vector, so with an intercept-like constant present they are linearly dependent by construction — a direction of exactly zero variance per categorical variable, contributing structural zero eigenvalues that mean nothing about the data.
+4. *The geometry is not meaningful.* PCA is built on covariance, which presumes squared Euclidean distance is the right notion of dissimilarity. For nominal categories it is not: the distance between "red" and "blue" is not a quantity, and any component mixing indicator loadings is uninterpretable.
+
+The right tools instead: **multiple correspondence analysis (MCA)** for purely categorical data, **FAMD** for mixed types, `TruncatedSVD` for sparse high-cardinality data where you only need a compressed representation, learned entity embeddings when a model can supply them, or simply a model with native categorical support (c1.6's GBDTs) so the question does not arise.
+
+**Before a tree model.** Would you run PCA before a gradient-boosted tree? Almost never, and the reason is about inductive bias rather than accuracy.
+
+Trees split on axis-aligned thresholds of single features, so their inductive bias is that the interesting structure lines up with the original coordinates. PCA replaces those coordinates with dense linear mixtures, and a split on PC1 is now a threshold on a combination of every feature at once. The tree can no longer isolate a single variable, so a relationship that took one split now takes a staircase of them. Trees are also invariant to any monotone transform of an individual feature, so PCA's standardization step buys them nothing that they did not already have. Expect accuracy flat to slightly worse, and expect feature importances and SHAP attributions to become uninterpretable, because they now describe components rather than measurements.
+
+The genuine exception is worth knowing because it is the follow-up question: when the true boundary is *oblique* to the feature axes, axis-aligned splits approximate it with a staircase that costs depth and variance, and rotating the axes onto the boundary lets a shallow tree cut it in one split. So PCA helps a tree exactly when the data's natural axes are rotated relative to the recorded ones — a rare enough situation that it should be demonstrated on a validation set, not assumed. The other honest use is pure cost: at very large $d$, a truncated projection makes training tractable, which is a compute argument rather than an accuracy one.
+
+### Reading the components of a return matrix
+
+**Goal — apply everything above to the setting where PCA is not a preprocessing step but the model itself.**
+
+Run PCA on the correlation matrix of daily returns for 500 stocks. PC1 comes back explaining around 40% of the variance, with every loading carrying the same sign. What is it?
+
+**It is the market factor.** Equity returns are pervasively positively correlated, and for a matrix with all-positive entries the Perron–Frobenius theorem guarantees the top eigenvector can be taken to have all-positive entries. So the first component is a roughly equal-weighted long position in everything, and its score time series tracks the broad market return. The 40% figure is the ordinary quiet-market number; in a crisis, correlations converge toward one and PC1's share rises sharply — which is itself a usable regime indicator, and the mechanism behind "diversification fails exactly when you need it."
+
+The components after the first are where the content is. PC2 and PC3 typically have loadings that *change sign* across the cross-section — long one group of names, short another — and those contrasts usually align with sector or style (growth against value, cyclicals against defensives), though the alignment is a post-hoc reading rather than something the method knows. These are **statistical factors**: derived from the covariance structure alone, unlabelled, and not guaranteed to be stable. Neutralizing the top $k$ components and trading the residual is the basic construction behind statistical arbitrage, and the same eigendecomposition is the backbone of the risk models in c10.2.
+
+Three cautions follow directly from earlier sections, which is why this example is a good exam of whether the lesson landed:
+
+1. **You are almost certainly in the $d \gtrsim n$ regime.** With 500 names and 252 trading days in a year, $d>n$: the sample correlation matrix is singular, at most 251 components are nonzero, and by the Marchenko–Pastur result the eigenvalues are badly biased with a wide noise bulk. Laloux et al. 1999 showed that for real market data the great majority of the spectrum is statistically indistinguishable from noise, with only the top handful of eigenvalues above the bulk. Shrinkage (Ledoit–Wolf) or random-matrix filtering is not optional here.
+2. **Eigengaps decide what you may interpret.** PC2 and PC3 in equity data frequently have close eigenvalues, so by Davis–Kahan they rotate into each other between estimation windows. Interpreting "the value factor is component 2" across two quarters is exactly the mistake that section warned about; the stable object is the subspace, not the individual axis.
+3. **Correlation, not covariance.** Use the correlation matrix unless you specifically want high-volatility names to dominate — running PCA on the covariance of raw prices or of returns with wildly different volatilities makes PC1 a statement about which stock moves most in absolute terms, which is the unit-sensitivity problem from the mechanics section wearing a finance costume.
+
+## Tradeoff matrix
+
+| Method | What it optimizes | Sees $y$? | Keeps original features? | Main cost | Reach for it when |
+|---|---|---|---|---|---|
+| PCA / PCR | Reconstruction of $X$ | No | No — dense mixtures | Target-blind; interpretability gone | Collinearity or dimensionality is the problem and signal tracks variance |
+| Ridge | Prediction, shrinking low-variance directions | Yes (via $\lambda$) | Yes | Coefficients biased | Almost always the safer default over PCR |
+| PLS | $\text{Cov}(Xv,\,y)$ | Yes | No | Can overfit the target with many components | Signal sits in low-variance directions |
+| Feature selection | A chosen criterion on original columns | Usually yes | Yes | Unstable under collinearity | Interpretation in original units is required |
+| TruncatedSVD | Reconstruction, uncentered | No | No | No centering, so not strictly PCA | Sparse high-cardinality data (text, one-hot) |
+| MCA / FAMD | Categorical or mixed-type association | No | No | Less tooling, less familiar | The design matrix is categorical |
+| Autoencoder | Nonlinear reconstruction | No | No | Needs data and tuning; no orthogonality guarantee | Structure is genuinely nonlinear and $n$ is large |
+
 ## Worked decision walk-throughs
 
-**Scenario D: high-dimensional correlated features, mostly nuisance variance.** Consider **PCA/PCR** — but verify the target correlates with the top components (it's target-blind); ridge is often the safer "soft PCR."
+**Scenario A: 60 correlated macro indicators, 4,000 monthly rows, predicting a continuous target.** High collinearity, $n \gg d$, interpretation not required. Standardize, then prefer **ridge** over PCR as the default — it shrinks the same unstable low-variance directions but does so with $\lambda$ chosen by cross-validation against $y$, so it is not target-blind. If you do use PCR, choose $m$ by cross-validating the *full pipeline* on predictive error, never by a 95%-variance rule, and check explicitly that $y$ correlates with the components you kept.
+
+**Scenario B: 20,000 gene-expression features, 150 patients, binary outcome.** Here $d \gg n$, so at most 149 components exist and the explained-variance curve reaching 100% is arithmetic rather than evidence. By the spiked-covariance argument the leading directions are estimated with large error, so treat any single component as unreliable. Use PCA for visualization and de-noising, but put the supervised work on a penalized model (L1 or elastic net) fit inside a proper cross-validation loop, with the PCA fit *inside* the loop as well — fitting it on all the data before splitting leaks test-set covariance structure into training.
+
+**Scenario C: 500 equity return series, daily, building a risk model.** Use the **correlation** matrix. Expect PC1 to be the market with all-same-sign loadings and roughly 40% of variance. Because $d>n$ on any reasonable window, shrink the covariance (Ledoit–Wolf) or filter against the Marchenko–Pastur bulk before trusting anything past the top few components, and check eigengaps before naming any individual component as a factor. Neutralize the components you believe in and treat the residual as the tradable signal (c10.2).
+
+**Scenario D: 300 mostly one-hot categorical features feeding a GBDT.** Do not run PCA. Centering destroys the sparsity, component variance tracks category frequency rather than importance, and the tree's axis-aligned splits are made worse by a dense rotation. Use native categorical handling or target encoding, and if you need compression on a sparse matrix use `TruncatedSVD` without centering.
+
+## Production failure modes
+
+1. **PCA fitted before the train/test split.** The rotation is estimated from the whole dataset, so test-set covariance structure leaks into the training representation and validation scores come out optimistic. The tell is a validation-to-production gap with no other explanation. Fit the scaler and PCA inside the cross-validation pipeline (c1.1).
+2. **`k` chosen by the 95% rule for a supervised model.** Explained variance measures reconstruction of $X$, and the model is judged on prediction of $y$; the two criteria are unrelated, and the 95% rule can keep 40 useless components or drop the one that mattered. Cross-validate $m$ on predictive error end-to-end.
+3. **Unstandardized features with mixed units.** A feature in dollars swamps one in percentages purely through numerical magnitude, and switching that column from dollars to cents moves PC1 without a single data point changing. Standardize unless the units are already commensurable and you deliberately want variance weighting.
+4. **Loadings compared across retrainings.** Sign flips and near-degenerate rotations make raw loading comparisons meaningless; teams read this as model drift and go looking for a data bug that does not exist. Apply a sign convention, monitor eigengaps, and align refits by Procrustes rotation before comparing anything.
+5. **Believing a scree plot in the $d\gtrsim n$ regime.** Pure noise produces a wide, structured-looking eigenvalue spread (Marchenko–Pastur), so an elbow is not evidence of factors. Compare the spectrum against the noise bulk, or against a permutation baseline, before deciding how many components are real.
+6. **Outliers steering the rotation.** PCA minimizes *squared* reconstruction error, so a handful of extreme rows can capture PC1 entirely — the same sensitivity as OLS, from the same squared-error term. Inspect the extreme scores, and use a robust PCA variant if the tails are genuinely heavy.
 
 ## Interview gotchas
 
-- **"How does ridge relate to PCA?"** — ridge is soft PCR: it shrinks most along low-variance principal directions; PCR hard-drops them.
+- **"How does ridge relate to PCA?"** — Ridge is soft PCR: with $X=UDV^\top$ it multiplies principal direction $j$ by $d_j^2/(d_j^2+\lambda)$, shrinking most along the low-variance directions, where PCR applies a hard 0/1 cut at $m$. The strong answer adds that ridge chooses its shrinkage using $y$ through cross-validated $\lambda$, which is why it is usually the safer default.
+- **"How would you actually compute the eigenvalues?"** — Not by $\det(C-\lambda I)=0$: no radical formula exists past degree 4, and polynomial root-finding is numerically catastrophic. Walk the chain — power iteration, orthogonal iteration with QR to stop columns collapsing, the QR algorithm, Householder tridiagonalization to make each step cheap, Lanczos when $d$ is huge — and finish on running SVD against $X$ directly, since only $Xv$ and $X^\top u$ products are needed.
+- **"How many components can PCA return for $n=200$, $d=5000$?"** — At most $\min(n-1,d)=199$; centering costs the one degree of freedom. Then add the consequence: reaching 100% explained variance is guaranteed and therefore uninformative.
+- **"Is PCA feature selection?"** — No. Selection keeps a subset of original columns; PCA replaces all of them with dense mixtures, so every original feature is still required at inference time. You have reduced dimensionality without reducing data collection, and you have spent interpretability to do it.
+- **"Why did our loadings flip overnight?"** — Two mechanisms: sign indeterminacy (cosmetic, fix with a sign convention) and small eigengaps (substantive — Davis–Kahan says sensitivity scales as $1/\text{gap}$, so only the subspace is identified). Naming both, and distinguishing them, is the answer that separates candidates.
+- **"PC1 of 500 stocks' return correlations explains 40% with all-positive loadings — what is it?"** — The market factor, with Perron–Frobenius explaining why the top eigenvector of an all-positive matrix has one sign. Then note $d>n$ on any normal window, so the rest of the spectrum needs shrinkage or random-matrix filtering before it means anything.
+- **"When does PCA destroy your signal?"** — When the target lives in a low-variance direction, since PCA is target-blind by construction. Give the concrete construction — a high-variance nuisance feature and a low-variance near-deterministic one — and name PLS as the supervised method built for exactly this.
 
 ## Take the quiz
 
 **[Take the quiz →](/c/c1/c1.5/quiz)**
+
+## Cited references
+
+This lesson draws on no numbered chapter references; the results below are cited to primary sources.
+
+**External works.**
+
+- Marchenko, V. A., Pastur, L. A. 1967. "Distribution of eigenvalues for some sets of random matrices." *Matematicheskii Sbornik* 72(4):507–536. The noise bulk that a scree plot cannot distinguish from structure.
+- Baik, J., Ben Arous, G., Péché, S. 2005. "Phase transition of the largest eigenvalue for non-null complex sample covariance matrices." *Annals of Probability* 33(5):1643–1697. The detectability threshold for a signal spike.
+- Johnstone, I. M. 2001. "On the distribution of the largest eigenvalue in principal components analysis." *Annals of Statistics* 29(2):295–327. The spiked-covariance model.
+- Davis, C., Kahan, W. M. 1970. "The rotation of eigenvectors by a perturbation. III." *SIAM Journal on Numerical Analysis* 7(1):1–46. Eigenvector sensitivity as inverse eigengap.
+- Laloux, L., Cizeau, P., Bouchaud, J.-P., Potters, M. 1999. "Noise dressing of financial correlation matrices." *Physical Review Letters* 83(7):1467–1470. Most of an equity correlation spectrum is noise.
+- Ledoit, O., Wolf, M. 2004. "A well-conditioned estimator for large-dimensional covariance matrices." *Journal of Multivariate Analysis* 88(2):365–411. Shrinkage for the $d\gtrsim n$ regime.
+- Wold, S., Sjöström, M., Eriksson, L. 2001. "PLS-regression: a basic tool of chemometrics." *Chemometrics and Intelligent Laboratory Systems* 58(2):109–130. The supervised counterpart to PCR.
+- Halko, N., Martinsson, P.-G., Tropp, J. A. 2011. "Finding structure with randomness." *SIAM Review* 53(2):217–288. The randomized SVD behind large-scale truncated solvers.
